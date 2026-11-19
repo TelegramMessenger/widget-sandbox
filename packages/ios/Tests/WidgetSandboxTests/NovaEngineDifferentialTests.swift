@@ -7,7 +7,7 @@ import XCTest
 /// the clock or were stopped, numbers to nine digits).
 ///
 /// Expected and counted, not failed: a widget that dies of the memory limit on the native engine only (Nova counts
-/// its heap differently: an estimate of its own arenas, not malloc's blocks).
+/// its heap differently: what its own allocations hold, with room for our bundle on top of the limit, not malloc's blocks).
 ///
 /// Opt-in while Nova still differs from QuickJS (the compatibility track of nova-safe): `WIDGET_SANDBOX_NOVA_DIFFERENTIAL=1`
 /// runs a few widgets of two corpora, `=full` every corpus, the conformance set, the stress kit and the attacks (several

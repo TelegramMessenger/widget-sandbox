@@ -71,6 +71,16 @@ final class NovaEngine: QuickJSEngine {
     /// of it, so the frames between two of the engine's checks and the host's own stay inside the thread's stack.
     static func stackLimit(maxStackBytes: Int) -> Int { max(0, maxStackBytes) / 4 * 3 }
 
+    /// The bytes Nova may allocate for a context whose QuickJS limit is `memoryLimitBytes`. Nova counts every byte its
+    /// allocations hold (nova_engine.h), and with our bundle evaluated and nothing of a widget's yet it holds about
+    /// 3 MB more than QuickJS does (4.9 MB against 2.3 MB on arm64 macOS; what a widget then adds costs about the same on
+    /// both). The limit is for what a widget builds, so Nova gets that difference on top, as the desktop core's Nova
+    /// engine does; no limit stays no limit.
+    static func memoryLimit(memoryLimitBytes: Int) -> Int {
+        let bundleOverheadBytes = 3 << 20
+        return memoryLimitBytes <= 0 ? 0 : memoryLimitBytes + bundleOverheadBytes
+    }
+
     private enum Handler {
         case strings(([String]) -> HostReturn)
         case words((Double, UnsafeBufferPointer<Double>, String) -> Void)
@@ -91,7 +101,7 @@ final class NovaEngine: QuickJSEngine {
         }
         var error = nova_result()
         let opaque = Unmanaged.passUnretained(self).toOpaque()
-        guard let engine = nova_engine_new(max(0, memoryLimitBytes), Self.stackLimit(maxStackBytes: maxStackBytes), novaHostCall, novaInterrupt, opaque, &error) else {
+        guard let engine = nova_engine_new(Self.memoryLimit(memoryLimitBytes: memoryLimitBytes), Self.stackLimit(maxStackBytes: maxStackBytes), novaHostCall, novaInterrupt, opaque, &error) else {
             defer { nova_result_free(&error) }
             throw QuickJSError.engineFault(Self.text(error).isEmpty ? "the Nova engine could not be created" : Self.text(error))
         }
@@ -106,7 +116,7 @@ final class NovaEngine: QuickJSEngine {
 
     var memoryUsed: Int { nova_engine_memory_used(engine) }
 
-    func setMemoryLimit(_ bytes: Int) { _ = nova_engine_set_memory_limit(engine, max(0, bytes)) }
+    func setMemoryLimit(_ bytes: Int) { _ = nova_engine_set_memory_limit(engine, Self.memoryLimit(memoryLimitBytes: bytes)) }
 
     var memoryUsage: [String: Int] {
         let used = memoryUsed
