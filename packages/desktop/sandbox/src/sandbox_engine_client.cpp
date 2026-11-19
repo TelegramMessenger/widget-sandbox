@@ -61,14 +61,145 @@ private:
 
 QueryAnswer deadQuery() { return {"{\"error\":\"dead\"}", std::nullopt}; }
 
+/// Every hosted client's platform requests are numbered from one counter, so a number names one request in the process (`SandboxHostedWait::admitted`).
+std::atomic<uint64_t> platformRequests{0};
+
 } // namespace
+
+// MARK: a platform request's deadline
+
+namespace detail {
+
+/// A platform request waiting for the host's platform on its caller's thread: settled once, by its responder, a close, or its waiter at its deadline. Due `kPlatformAnswerSeconds` after its arrival unless its client's SandboxHostedWait moves that, always under `mutex`, the waiter woken at each move to read it again.
+struct PlatformCall {
+    using Clock = std::chrono::steady_clock;
+    static Clock::duration answerTime() { return std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(SandboxEngine::kPlatformAnswerSeconds)); }
+
+    PlatformCall(uint64_t number, Clock::time_point arrival) : number(number), arrival(arrival), deadline(arrival + answerTime()) {}
+
+    const uint64_t number;
+    const Clock::time_point arrival;
+    std::mutex mutex;
+    std::condition_variable cv;
+    Clock::time_point deadline;
+    /// The end of the input exemption that keeps a later release from holding it now (SandboxHostedWait): the waiter wakes then too and reads the record again (`HostedWaits::recheck`), a renewal moving it; none while nothing would hold it.
+    std::optional<Clock::time_point> check;
+    /// The embedder's platform took it (SandboxHostedWait::admitted): no release moves its deadline again.
+    bool admitted = false;
+    bool settled = false;
+    std::optional<std::string> answer;
+    /// Settled by `unanswered()`: no platform for it.
+    bool none = false;
+
+    /// Once; later calls are ignored.
+    void settle(std::optional<std::string> value, bool unanswered) {
+        {
+            std::lock_guard<std::mutex> l(mutex);
+            if (settled) return;
+            settled = true;
+            answer = std::move(value);
+            none = unanswered;
+        }
+        cv.notify_all();
+    }
+    /// Under `mutex`: due at `at`, the waiter woken when that is a change.
+    void dueAt(Clock::time_point at) {
+        if (at == deadline) return;
+        deadline = at;
+        cv.notify_all();
+    }
+    /// Under `mutex`: read again at `at` (none: never), the waiter woken when that is a change.
+    void checkAt(std::optional<Clock::time_point> at) {
+        if (at == check) return;
+        check = at;
+        cv.notify_all();
+    }
+};
+
+/// What a hosted client tells its SandboxHostedWait, under the record's lock and then the call's, never the other way round.
+struct HostedWaits {
+    /// The one rule for the waiting `call` at `now`, under both locks, while it is neither admitted nor settled: the meter holds the widget now (a release ahead and no exemption in force) before the call is due, or held it since its `check` passed with no renewal before it (the exemption ended with the release still ahead, which a check never set past the deadline makes before the call was due), so it is due `kPlatformAnswerSeconds` after that release if that is later; an exemption in force that ends before the deadline with the release past its end is read again at that end; otherwise nothing holds it and its deadline stays. An exemption renewed before it ends never extends it, and while one is in force the deadline never grows, so a check stays before it.
+    static void apply(SandboxHostedWait& wait, PlatformCall& call, PlatformCall::Clock::time_point now) {
+        if (call.settled || call.admitted || !wait.release_) return call.checkAt(std::nullopt);
+        const PlatformCall::Clock::time_point release = *wait.release_;
+        const std::optional<PlatformCall::Clock::time_point> exemption = wait.exemptUntil_;
+        const bool exempt = exemption && *exemption > now;
+        const bool lapsed = call.check && *call.check <= now;
+        const bool held = !exempt && release > now && now < call.deadline;
+        if (lapsed || held) call.dueAt(std::max(call.deadline, release + PlatformCall::answerTime()));
+        call.checkAt(exempt && release > *exemption && *exemption < call.deadline ? exemption : std::nullopt);
+    }
+    /// `call` waits from now on, the newest request (an older one no longer moves): the rule at its arrival, so it is due after the release of a hold in force then; one that arrives in an exemption is only read again at the exemption's end.
+    static void began(SandboxHostedWait& wait, const std::shared_ptr<PlatformCall>& call) {
+        std::lock_guard<std::mutex> l(wait.mutex_);
+        wait.waiting_ = call;
+        std::lock_guard<std::mutex> c(call->mutex);
+        apply(wait, *call, call->arrival);
+    }
+    /// `call`'s waiter at its `check`, holding no lock: the rule again, now, so a renewed exemption moves the check and an ended one extends the deadline; a call no longer the record's is never read again.
+    static void recheck(SandboxHostedWait& wait, const std::shared_ptr<PlatformCall>& call) {
+        std::lock_guard<std::mutex> l(wait.mutex_);
+        std::lock_guard<std::mutex> c(call->mutex);
+        if (wait.waiting_ == call) apply(wait, *call, PlatformCall::Clock::now());
+        else call->checkAt(std::nullopt);
+    }
+    /// The record changed (`hold`, `exempt`): the rule for the call waiting now, if any.
+    static void changed(SandboxHostedWait& wait) {
+        if (!wait.waiting_) return;
+        std::lock_guard<std::mutex> c(wait.waiting_->mutex);
+        apply(wait, *wait.waiting_, PlatformCall::Clock::now());
+    }
+    /// `call`'s caller no longer waits.
+    static void ended(SandboxHostedWait& wait, const std::shared_ptr<PlatformCall>& call) {
+        std::lock_guard<std::mutex> l(wait.mutex_);
+        if (wait.waiting_ == call) wait.waiting_.reset();
+    }
+};
+
+} // namespace detail
+
+void SandboxHostedWait::hold(Clock::time_point release) {
+    if (release > Clock::time_point::max() - detail::PlatformCall::answerTime()) return;
+    std::lock_guard<std::mutex> l(mutex_);
+    if (release_ && release <= *release_) return;
+    release_ = release;
+    detail::HostedWaits::changed(*this);
+}
+
+void SandboxHostedWait::exempt(Clock::time_point until) {
+    std::lock_guard<std::mutex> l(mutex_);
+    if (exemptUntil_ && until <= *exemptUntil_) return;
+    exemptUntil_ = until;
+    detail::HostedWaits::changed(*this);
+}
+
+void SandboxHostedWait::admitted(uint64_t request) {
+    std::lock_guard<std::mutex> l(mutex_);
+    if (!waiting_ || waiting_->number != request) return;
+    std::lock_guard<std::mutex> c(waiting_->mutex);
+    if (waiting_->settled || waiting_->admitted) return;
+    // A hold it met up to now still counts: an exemption that ended before its waiter woke to read it.
+    const Clock::time_point now = Clock::now();
+    detail::HostedWaits::apply(*this, *waiting_, now);
+    waiting_->admitted = true;
+    waiting_->checkAt(std::nullopt);
+    waiting_->dueAt(std::min(waiting_->deadline, now + detail::PlatformCall::answerTime()));
+}
+
+std::optional<SandboxHostedWait::Clock::time_point> SandboxHostedWait::due(uint64_t request) const {
+    std::lock_guard<std::mutex> l(mutex_);
+    if (!waiting_ || waiting_->number != request) return std::nullopt;
+    std::lock_guard<std::mutex> c(waiting_->mutex);
+    if (waiting_->settled) return std::nullopt;
+    return waiting_->deadline;
+}
 
 // MARK: the sink
 
 /// What the channel calls back, also after the engine is gone: the liveness lock only covers seeing the engine and queueing work, never a wait or a call out. What it queues is admitted first against `kRemoteQueuedBytes` and `kRemoteQueuedCalls`, before anything of the message is copied, and stays counted while the work its delegate queued with it waits (`remoteHold`). A hosted client's engine's side keeps the render calls (ops, queries, listen, preventDefault, anim, frame requests) to itself, so each is a protocol violation here, refused before it is admitted; an engine-only client refuses a hosted runtime's calls the same way.
 class SandboxEngine::RemoteClient final : public SandboxRemoteSink {
 public:
-    RemoteClient(std::shared_ptr<Liveness> life, bool hosted) : life_(std::move(life)), hosted_(hosted) {}
+    RemoteClient(std::shared_ptr<Liveness> life, bool hosted, std::shared_ptr<SandboxHostedWait> wait) : life_(std::move(life)), hosted_(hosted), wait_(std::move(wait)) {}
 
     bool hosted() const { return hosted_; }
     RemoteBacklog backlog() const { return {backlog_->bytes.load(), backlog_->calls.load()}; }
@@ -302,7 +433,7 @@ public:
         }
     }
 
-    // Delivered on the dispatch thread in order with the other calls, then waited for here, on the caller's thread (the transport's), up to `kPlatformAnswerSeconds` from its arrival: the dispatch thread never waits for the host's platform, so a keep (`keepHosted`) can switch the delegate while a request waits and the request survives it. One at a time; none at once once the route closed or the client is going.
+    // Delivered on the dispatch thread in order with the other calls, then waited for here, on the caller's thread (the transport's), until it is due (`kPlatformAnswerSeconds` from its arrival, or as `wait_` moves it, the waiter also waking at the end of an exemption a release outlasts to ask the record again): the dispatch thread never waits for the host's platform, so a keep (`keepHosted`) can switch the delegate while a request waits and the request survives it. One at a time; none at once once the route closed or the client is going.
     std::optional<std::string> remotePlatformRequest(const std::string& message) override {
         if (!hosted_) {
             violation("a platform request from an engine-only runtime");
@@ -312,20 +443,22 @@ public:
             violation("a platform request over 32 MB");
             return std::string();
         }
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(kPlatformAnswerSeconds));
-        auto call = std::make_shared<PlatformCall>();
+        const auto arrival = std::chrono::steady_clock::now();
+        std::shared_ptr<detail::PlatformCall> call;
         bool second = false;
         {
             // The closed check and the publish in one step: a close settles this call or the request answers none here.
             std::lock_guard<std::mutex> l(platformMutex_);
             if (requestsClosed_) return std::nullopt;
             second = waiting_ != nullptr;
-            if (!second) waiting_ = call;
+            if (!second) waiting_ = call = std::make_shared<detail::PlatformCall>(++platformRequests, arrival);
         }
         if (second) {
             violation("a second platform request while one waits");
             return std::nullopt;
         }
+        // Before the delegate can hear it: a release or an admission from now on is this request's, and none of an older one's moves it.
+        if (wait_) detail::HostedWaits::began(*wait_, call);
         Admitted admitted = admit(message.size());
         if (!admitted) {
             finished(call);
@@ -336,13 +469,30 @@ public:
             engine.delegate_->onHostedRequest(engine, message, hostedResponder([call](std::optional<std::string> answer) {
                 const bool none = !answer;
                 call->settle(std::move(answer), none);
-            }));
+            }, call->number));
         });
         std::optional<std::string> answer;
         bool none = false, late = false;
         {
             std::unique_lock<std::mutex> l(call->mutex);
-            late = !call->cv.wait_until(l, deadline, [&] { return call->settled; });
+            while (!call->settled) {
+                // Read again at every wake: a hold, an exemption or the admission may have moved either.
+                const auto now = std::chrono::steady_clock::now();
+                if (wait_ && call->check && now >= *call->check) {
+                    // Before the deadline: a hold that resumed at the check may have moved it past now.
+                    l.unlock();
+                    detail::HostedWaits::recheck(*wait_, call);
+                    l.lock();
+                    continue;
+                }
+                if (now >= call->deadline) {
+                    late = true;
+                    break;
+                }
+                // A copy taken under the lock: `wait_until` reads its time again once it has the lock back, when an admission or a renewal may have ended the `check` it would refer to.
+                const auto wake = call->check ? std::min(call->deadline, *call->check) : call->deadline;
+                call->cv.wait_until(l, wake);
+            }
             // A `respond` from now on is late: ignored.
             call->settled = true;
             answer = std::move(call->answer);
@@ -357,7 +507,7 @@ public:
 
     /// The route closed or the client is going: the waiting platform request answers none at once, without a kill, and so does every later one.
     void settleWaiting() {
-        std::shared_ptr<PlatformCall> call;
+        std::shared_ptr<detail::PlatformCall> call;
         {
             std::lock_guard<std::mutex> l(platformMutex_);
             requestsClosed_ = true;
@@ -402,30 +552,13 @@ public:
     }
 
 private:
-    /// A platform request waiting for the host's platform on its caller's thread: settled once, by its responder, a close, or its waiter at the timeout.
-    struct PlatformCall {
-        std::mutex mutex;
-        std::condition_variable cv;
-        bool settled = false;
-        std::optional<std::string> answer;
-        /// Settled by `unanswered()`: no platform for it.
-        bool none = false;
-        /// Once; later calls are ignored.
-        void settle(std::optional<std::string> value, bool unanswered) {
-            {
-                std::lock_guard<std::mutex> l(mutex);
-                if (settled) return;
-                settled = true;
-                answer = std::move(value);
-                none = unanswered;
-            }
-            cv.notify_all();
-        }
-    };
     /// `call` is no longer the waiting one.
-    void finished(const std::shared_ptr<PlatformCall>& call) {
-        std::lock_guard<std::mutex> l(platformMutex_);
-        if (waiting_ == call) waiting_.reset();
+    void finished(const std::shared_ptr<detail::PlatformCall>& call) {
+        {
+            std::lock_guard<std::mutex> l(platformMutex_);
+            if (waiting_ == call) waiting_.reset();
+        }
+        if (wait_) detail::HostedWaits::ended(*wait_, call);
     }
 
     /// What is queued and has neither run nor been dropped; `overflowed` once a message did not fit.
@@ -513,10 +646,12 @@ private:
 
     std::shared_ptr<Liveness> life_;
     const bool hosted_;
+    /// What moves its platform requests' deadlines (SandboxHostedWait); none: each is due `kPlatformAnswerSeconds` after its arrival.
+    const std::shared_ptr<SandboxHostedWait> wait_;
     const std::shared_ptr<Backlog> backlog_ = std::make_shared<Backlog>();
     /// The platform request waiting now, and whether requests are closed (`settleWaiting`).
     std::mutex platformMutex_;
-    std::shared_ptr<PlatformCall> waiting_;
+    std::shared_ptr<detail::PlatformCall> waiting_;
     bool requestsClosed_ = false;
 };
 
@@ -527,15 +662,16 @@ SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared
     attachClient(std::move(remote), false);
 }
 
-SandboxEngine::SandboxEngine(HostedTag, std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl)
+SandboxEngine::SandboxEngine(HostedTag, std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl,
+                             std::shared_ptr<SandboxHostedWait> wait)
     : SandboxEngine("widget.client", std::move(html), std::move(config), std::shared_ptr<SandboxResources>(), std::move(intl)) {
     hosted_ = hosted;
-    attachClient(std::move(hosted), true);
+    attachClient(std::move(hosted), true, std::move(wait));
 }
 
-void SandboxEngine::attachClient(std::shared_ptr<SandboxRemoteChannel> remote, bool hosted) {
+void SandboxEngine::attachClient(std::shared_ptr<SandboxRemoteChannel> remote, bool hosted, std::shared_ptr<SandboxHostedWait> wait) {
     remote_ = std::move(remote);
-    client_ = std::make_shared<RemoteClient>(liveness_, hosted);
+    client_ = std::make_shared<RemoteClient>(liveness_, hosted, std::move(wait));
     // Before anything the channel delivers: its calls run on the dispatch thread after this.
     routeOpen_ = bool(remote_);
     // A host's factory without a channel: dead from the first task, never in process.
@@ -543,8 +679,9 @@ void SandboxEngine::attachClient(std::shared_ptr<SandboxRemoteChannel> remote, b
     else thread_.async([this] { remoteKill(kEngineGone, false, false); });
 }
 
-std::unique_ptr<SandboxEngine> SandboxEngine::hostedClient(std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl) {
-    return std::unique_ptr<SandboxEngine>(new SandboxEngine(HostedTag{}, std::move(html), std::move(config), std::move(hosted), std::move(intl)));
+std::unique_ptr<SandboxEngine> SandboxEngine::hostedClient(std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl,
+                                                           std::shared_ptr<SandboxHostedWait> wait) {
+    return std::unique_ptr<SandboxEngine>(new SandboxEngine(HostedTag{}, std::move(html), std::move(config), std::move(hosted), std::move(intl), std::move(wait)));
 }
 
 bool SandboxEngine::isHosted() const { return client_ && client_->hosted(); }
@@ -670,6 +807,7 @@ bool SandboxEngine::keepHosted(SandboxEngineDelegate& kept) {
             remote_->stop("terminated");
         }
         grants_.clear();
+        pressAdmitted_ = false;
         remoteTaskOpen_ = false;
         delegate_ = &kept;
         kept_ = true;
@@ -684,16 +822,31 @@ void SandboxEngine::pressDelivered() {
     const double at = nowMs();
     thread_.async([this, at] {
         if (dead_ || config_.context.preview) return;
+        pressAdmitted_ = true;
         haptics_.press(at);
         if (visible_) grant(++hostedGesture_, at);
     });
 }
 
+// The press and its message in one job, stamped at the call: a grant never exists before the transport's writer took the message, nor for one a closed, ending or kept route or a refusing writer dropped.
+void SandboxEngine::platformPress(std::string message) {
+    if (!hosted_) return;
+    const double at = nowMs();
+    thread_.async([this, message = std::move(message), at] {
+        if (!routeOpen_ || !hosted_->platform(message)) return;
+        if (dead_ || kept_ || config_.context.preview) return;
+        pressAdmitted_ = true;
+        haptics_.press(at);
+        if (visible_) grant(++hostedGesture_, at);
+    });
+}
+
+// Only the end of a press that counted: a refused down leaves no touch window to its release.
 void SandboxEngine::releaseDelivered() {
     if (!hosted_) return;
     const double at = nowMs();
     thread_.async([this, at] {
-        if (!dead_ && !config_.context.preview) haptics_.release(at);
+        if (std::exchange(pressAdmitted_, false) && !dead_ && !config_.context.preview) haptics_.release(at);
     });
 }
 
@@ -799,6 +952,8 @@ bool SandboxEngine::remoteDeath(const std::string& reason) {
 void SandboxEngine::closeRoute(const std::string& reason, bool stop, bool ended) {
     if (!routeOpen_) return;
     routeOpen_ = false;
+    grants_.clear();
+    pressAdmitted_ = false;
     clientSettleWaiting();
     const std::string bounded = reason.substr(0, kRemoteTextLimit);
     if (stop) remote_->stop(bounded);

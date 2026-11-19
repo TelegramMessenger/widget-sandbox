@@ -19,6 +19,21 @@ namespace {
 /// Where a diagnostic of a new kind past WidgetHost::kMaxDiagKinds is counted.
 constexpr const char* kDiagKindDropped = "diag-kind-dropped";
 
+/// The platform message or request whose observer runs on this thread now (`WidgetHost::platformDelivery`), null outside one.
+thread_local const HostedPlatformDelivery* currentDelivery = nullptr;
+
+/// While it lives `WidgetHost::platformDelivery` on its thread gives `delivery`, then again what it gave before.
+class DeliveryScope {
+public:
+    explicit DeliveryScope(const HostedPlatformDelivery& delivery) : outer_(std::exchange(currentDelivery, &delivery)) {}
+    ~DeliveryScope() { currentDelivery = outer_; }
+    DeliveryScope(const DeliveryScope&) = delete;
+    DeliveryScope& operator=(const DeliveryScope&) = delete;
+
+private:
+    const HostedPlatformDelivery* const outer_;
+};
+
 } // namespace
 
 // The deprecated observers are members: their implicit construction and destruction here use nothing of them.
@@ -29,7 +44,8 @@ constexpr const char* kDiagKindDropped = "diag-kind-dropped";
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
-WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl)
+WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl,
+                       std::shared_ptr<SandboxHostedWait> wait)
     : hostThread_("twidget-host"),
       html_(std::move(html)),
       theme_(theme.colorScheme == "dark" ? "dark" : "light"),
@@ -37,7 +53,7 @@ WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, Widget
       config_(makeConfig(options, width, widgetTheme_)),
       hosting_{true, nullptr},
       validator_(nullptr, nullptr),
-      engine_(SandboxEngine::hostedClient(html_, config_, std::move(hosted), std::move(intl))),
+      engine_(SandboxEngine::hostedClient(html_, config_, std::move(hosted), std::move(intl), std::move(wait))),
       viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio) {}
 
 WidgetHost::~WidgetHost() {
@@ -125,8 +141,21 @@ void WidgetHost::pressDelivered() {
     if (hosting_.hosted && engine_) engine_->pressDelivered();
 }
 
+void WidgetHost::sendPlatformPress(std::string message) {
+    if (hosting_.hosted && engine_) engine_->platformPress(std::move(message));
+}
+
 void WidgetHost::releaseDelivered() {
     if (hosting_.hosted && engine_) engine_->releaseDelivered();
+}
+
+HostedPlatformDelivery WidgetHost::platformDelivery() { return currentDelivery ? *currentDelivery : HostedPlatformDelivery{}; }
+
+void WidgetHost::platformDiag(const std::string& kind, const std::string& detail) {
+    if (!hosting_.hosted) return;
+    host([this, kind, detail] {
+        if (!callbacksClosed_) diag(kind, detail);
+    });
 }
 
 void WidgetHost::destroy() {
@@ -355,6 +384,8 @@ void WidgetHost::onDied(SandboxEngine& engine, const std::string& reason) {
             diagnostics_.dead = effective;
         }
         changed();
+        // The end the owner asked for (`destroy()`, `keepRenderer()`) is no death to hear.
+        if (onDeath && !destroyed_) onDeath(effective);
         if (glue_) (this->*glue_->died)(effective);
     }, engine.remoteHold());
 }
@@ -386,10 +417,15 @@ void WidgetHost::changed() {
 
 // ───────────── a hosted client's reports (its dispatch thread) ─────────────
 
+// The observer finds the delivery's hold through `platformDelivery()` for as long as it runs.
 void WidgetHost::onHostedMessage(SandboxEngine& engine, const std::string& message) {
-    engineWork([this, message] {
-        if (!platformClosed() && onPlatformMessage) onPlatformMessage(message);
-    }, engine.remoteHold());
+    const SandboxEngine::RemoteHold hold = engine.remoteHold();
+    engineWork([this, message, hold] {
+        if (platformClosed() || !onPlatformMessage) return;
+        const HostedPlatformDelivery delivery{hold, 0};
+        DeliveryScope scope(delivery);
+        onPlatformMessage(message);
+    }, hold);
 }
 
 void WidgetHost::onHostedOps(SandboxEngine& engine, const std::string& json) {
@@ -434,11 +470,14 @@ void WidgetHost::onHostedNodes(SandboxEngine& engine, int nodes) {
 
 // The client waits for the answer on the request's own thread: this only hands it to `onPlatformRequest` on the host thread, whose `respond` holds only the request. One that comes once the platform observers are closed is left to the route's close (`destroy()`, a keep that keeps nothing), so it ends the widget as that close does.
 void WidgetHost::onHostedRequest(SandboxEngine& engine, const std::string& message, HostedRequestResponder respond) {
-    host([this, message, respond] {
+    const SandboxEngine::RemoteHold hold = engine.remoteHold();
+    host([this, message, respond, hold] {
         if (platformClosed()) return;
         if (!onPlatformRequest) return respond.unanswered();
+        const HostedPlatformDelivery delivery{hold, respond.request()};
+        DeliveryScope scope(delivery);
         onPlatformRequest(message, [respond](std::string answer) { respond(std::move(answer)); });
-    }, engine.remoteHold());
+    }, hold);
 }
 
 // The client goes on the host thread, after everything it handed this host before the switch (the platform traffic among it, `keeping_`), so each platform message reaches exactly one observer, this host's first.
@@ -470,7 +509,7 @@ std::unique_ptr<HostedKeptRenderer> WidgetHost::keepRenderer(HostedKeptRenderer:
 
 // ───────────── a kept renderer (HostedKeptRenderer) ─────────────
 
-/// Its platform traffic to the observers on the handle's thread, in order, each queued call keeping its message counted; every other call is dropped (the client delivers none of them past the keep but a layout query's refusal).
+/// Its platform traffic to the observers on the handle's thread, in order, each queued call keeping its message counted and giving it to `WidgetHost::platformDelivery()` while its observer runs (the first one too, which may run before `keepRenderer` returned); every other call is dropped (the client delivers none of them past the keep but a layout query's refusal).
 class HostedKeptRenderer::Delegate final : public SandboxEngineDelegate {
 public:
     explicit Delegate(HostedKeptRenderer& kept) : kept_(kept) {}
@@ -488,12 +527,17 @@ public:
 
     void onHostedMessage(SandboxEngine& engine, const std::string& message) override {
         kept_.thread_.async([&kept = kept_, message, hold = engine.remoteHold()] {
-            if (!kept.released_ && kept.observers_.onPlatformMessage) kept.observers_.onPlatformMessage(message);
+            if (kept.released_ || !kept.observers_.onPlatformMessage) return;
+            const HostedPlatformDelivery delivery{hold, 0};
+            DeliveryScope scope(delivery);
+            kept.observers_.onPlatformMessage(message);
         });
     }
     void onHostedRequest(SandboxEngine& engine, const std::string& message, HostedRequestResponder respond) override {
         kept_.thread_.async([&kept = kept_, message, respond, hold = engine.remoteHold()] {
             if (kept.released_ || !kept.observers_.onPlatformRequest) return respond.unanswered();
+            const HostedPlatformDelivery delivery{hold, respond.request()};
+            DeliveryScope scope(delivery);
             kept.observers_.onPlatformRequest(message, [respond](std::string answer) { respond(std::move(answer)); });
         });
     }

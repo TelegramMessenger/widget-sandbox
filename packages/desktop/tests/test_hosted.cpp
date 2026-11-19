@@ -5,6 +5,7 @@
 
 #include "twidget/bundle_stamp.h"
 #include "twidget/intl.h"
+#include "twidget/js_thread.h"
 #include "twidget/json.h"
 #include "twidget/remote_engine.h"
 #include "twidget/remote_hosted.h"
@@ -151,13 +152,13 @@ static SandboxConfig hostedConfig() {
     return c;
 }
 
-/// A hosted client over a fake channel, its recorder set first (the recorder outlives the engine), hosted-started with `start` unless `begin` is false.
+/// A hosted client over a fake channel, its recorder set first (the recorder outlives the engine), hosted-started with `start` unless `begin` is false; with `wait` its platform requests are due as that record says.
 struct HostedRun {
     std::shared_ptr<FakeRemoteChannel> channel = std::make_shared<FakeRemoteChannel>();
     RemoteRecorder recorder;
     std::unique_ptr<SandboxEngine> engine;
-    explicit HostedRun(SandboxConfig config = hostedConfig(), SandboxHostedStart start = SandboxHostedStart(), bool begin = true)
-        : engine(SandboxEngine::hostedClient("<p>x</p>", std::move(config), channel)) {
+    explicit HostedRun(SandboxConfig config = hostedConfig(), SandboxHostedStart start = SandboxHostedStart(), bool begin = true, std::shared_ptr<SandboxHostedWait> wait = nullptr)
+        : engine(SandboxEngine::hostedClient("<p>x</p>", std::move(config), channel, nullptr, std::move(wait))) {
         engine->setDelegate(&recorder);
         if (begin) engine->startHosted(std::move(start));
         settle();
@@ -197,7 +198,7 @@ static void engineOnlyInputs(SandboxEngine& engine) {
     engine.chargeValidator(5);
 }
 
-/// A hosted client's grants come only from `pressDelivered`: its `start()` and the other engine-only inputs reach the channel never (only `startHosted`, once), and neither they nor the engine's side's own word (a platform "press") allow a privileged call or open the haptic window; each delivered press allows one link, copy or tapped request within `kRemoteGrantWindowMs`, none while hidden or in a preview, and the newest `kRemoteMaxGrants` are kept.
+/// A hosted client's grants come only from `pressDelivered` and `platformPress` (the latter only once the channel's writer admitted its message on the open route that was never kept, timed from its call; a refused down touches no haptic gate and its release opens no window): its `start()` and the other engine-only inputs reach the channel never (only `startHosted`, once), and neither they nor the engine's side's own word (a platform "press") allow a privileged call or open the haptic window; each delivered press allows one link, copy or tapped request within `kRemoteGrantWindowMs`, none while hidden or in a preview, and the newest `kRemoteMaxGrants` are kept.
 TEST(hosted_client_grants_come_from_delivered_presses) {
     {
         HostedRun r(hostedConfig(), SandboxHostedStart(), false);
@@ -284,6 +285,103 @@ TEST(hosted_client_grants_come_from_delivered_presses) {
         trimmed.settle();
         CHECK_MSG(kept.recorder.eventsWith("copy:").size() == size_t(max - 1), std::to_string(kept.recorder.eventsWith("copy:").size()));
         CHECK_MSG(trimmed.recorder.eventsWith("copy:").size() == size_t(max), std::to_string(trimmed.recorder.eventsWith("copy:").size()));
+    }
+    {
+        // A press and its message in one step (`platformPress`): a call queued before it finds no grant, the message goes out and the press allows one call after it; hidden, the message goes out and allows nothing; once the route closed, neither.
+        HostedRun r;
+        r.sink().remoteCopyText("before");
+        r.engine->platformPress("down 1");
+        r.sink().remoteCopyText("pressed");
+        r.sink().remoteCopyText("again");
+        r.engine->setVisible(false);
+        r.engine->platformPress("down 2");
+        r.engine->setVisible(true);
+        r.sink().remoteCopyText("hidden press");
+        r.settle();
+        CHECK_MSG(callsWith(*r.channel, "platform:") == (std::vector<std::string>{"platform:down 1", "platform:down 2"}), joined(r.channel->calls()));
+        CHECK_MSG(r.recorder.eventsWith("copy:") == std::vector<std::string>{"copy:pressed"}, joined(r.recorder.events()));
+        CHECK_MSG(r.recorder.diags().size() == 3, joined(r.recorder.events()));
+        r.sink().remoteDied("CPU limit exceeded");
+        r.settle();
+        r.engine->platformPress("down 3");
+        r.settle();
+        CHECK_MSG(callsWith(*r.channel, "platform:").size() == 2 && r.channel->closes() == 1, joined(r.channel->calls()));
+    }
+    {
+        // The writer's word decides (`SandboxHostedChannel::platform`): a down it refused on the open route grants nothing; the next one it admits grants as before.
+        HostedRun r;
+        r.channel->admitsPlatform = false;
+        r.engine->platformPress("refused down");
+        r.sink().remoteCopyText("after the refusal");
+        r.settle();
+        CHECK_MSG(callsWith(*r.channel, "platform:") == std::vector<std::string>{"platform:refused down"}, joined(r.channel->calls()));
+        CHECK_MSG(r.recorder.eventsWith("copy:").empty() && r.recorder.diags().size() == 1, joined(r.recorder.events()));
+        r.channel->admitsPlatform = true;
+        r.engine->platformPress("admitted down");
+        r.sink().remoteCopyText("after the admission");
+        r.sink().remoteCopyText("again");
+        r.settle();
+        CHECK_MSG(r.recorder.eventsWith("copy:") == std::vector<std::string>{"copy:after the admission"}, joined(r.recorder.events()));
+        CHECK(r.recorder.deaths().empty());
+    }
+    {
+        // Timed from the call, not from the job: a down whose job waited 1.2 s behind the dispatch thread grants nothing 2.3 s after its call; a fresh one grants at once.
+        Gate gate;
+        HostedRun r;
+        r.engine->thread().async([&gate] { gate.wait(); });
+        CHECK(gate.waitedOn());
+        const auto called = std::chrono::steady_clock::now();
+        r.engine->platformPress("down held behind the thread");
+        sleepMs(1200);
+        gate.open();
+        r.settle();
+        std::this_thread::sleep_until(called + std::chrono::milliseconds(2300));
+        r.sink().remoteCopyText("2.3 s after the call");
+        r.engine->platformPress("fresh down");
+        r.sink().remoteCopyText("after the fresh down");
+        r.settle();
+        CHECK_MSG(r.recorder.eventsWith("copy:") == std::vector<std::string>{"copy:after the fresh down"}, joined(r.recorder.events()));
+    }
+    {
+        // A refused down's haptics: no touch while it would be down and no 5 s window from its release; an admitted one opens both.
+        HostedRun r;
+        r.sink().remoteBridge("haptic", "[\"selection\"]");
+        r.settle();
+        CHECK(r.recorder.eventsWith("action:").size() == 1);
+        sleepMs(int(sdk::HAPTIC_SERIES_MS) + 100);
+        r.channel->admitsPlatform = false;
+        r.engine->platformPress("refused down");
+        r.sink().remoteBridge("haptic", "[\"impact\",\"soft\"]");
+        r.settle();
+        r.engine->releaseDelivered();
+        r.sink().remoteBridge("haptic", "[\"notification\",\"success\"]");
+        r.settle();
+        CHECK_MSG(r.recorder.eventsWith("action:").size() == 1, joined(r.recorder.events()));
+        r.channel->admitsPlatform = true;
+        r.engine->platformPress("admitted down");
+        r.sink().remoteBridge("haptic", "[\"impact\",\"soft\"]");
+        r.settle();
+        r.engine->releaseDelivered();
+        r.sink().remoteBridge("haptic", "[\"notification\",\"success\"]");
+        r.settle();
+        const std::vector<std::string> actions = r.recorder.eventsWith("action:");
+        CHECK_MSG(actions.size() == 3 && actions[1] == "action:{\"kind\":\"haptic\",\"haptic\":\"impact\",\"value\":\"soft\"}" &&
+                      actions[2] == "action:{\"kind\":\"haptic\",\"haptic\":\"notification\",\"value\":\"success\"}",
+                  joined(actions));
+        CHECK_MSG(callsWith(*r.channel, "platform:") == (std::vector<std::string>{"platform:refused down", "platform:admitted down"}), joined(r.channel->calls()));
+    }
+    {
+        // Kept before the press's job: the down still goes out on the kept route (its renderer's platform traffic) and grants nothing.
+        RemoteRecorder kept;
+        HostedRun r;
+        r.sink().remoteRendererReady();
+        r.settle();
+        CHECK(r.engine->keepHosted(kept));
+        r.engine->platformPress("down after the keep");
+        r.engine->releaseDelivered();
+        r.settle();
+        CHECK_MSG(callsWith(*r.channel, "platform:") == std::vector<std::string>{"platform:down after the keep"}, joined(r.channel->calls()));
+        CHECK_MSG(kept.events().empty(), joined(kept.events()));
     }
     {
         // A preview's press: a preview allows no privileged call at all, and its press is not even a grant.
@@ -715,6 +813,356 @@ TEST(hosted_client_ends_a_kept_route_it_decides_to_end) {
     }
 }
 
+// ───────────── the embedder's hold of a platform request (SandboxHostedWait) ─────────────
+
+using WaitClock = SandboxHostedWait::Clock;
+
+static WaitClock::duration secondsOf(double seconds) { return std::chrono::duration_cast<WaitClock::duration>(std::chrono::duration<double>(seconds)); }
+
+static double between(WaitClock::time_point from, WaitClock::time_point to) { return std::chrono::duration<double>(to - from).count(); }
+
+/// What one held platform request of a hosted client with a SandboxHostedWait came to (`heldRequest`): what the renderer got and when, its deadline once the delegate held it, the deadlines and moments `during` noted, and what the delegate heard.
+struct HeldOutcome {
+    std::optional<std::string> answer;
+    WaitClock::time_point asked;
+    WaitClock::time_point ended;
+    std::optional<WaitClock::time_point> firstDue;
+    std::vector<std::optional<WaitClock::time_point>> dues;
+    std::vector<WaitClock::time_point> marks;
+    std::optional<WaitClock::time_point> dueAfter;
+    std::vector<std::string> deaths;
+    std::vector<std::pair<std::string, std::string>> diags;
+};
+
+/// One platform request ("held") of a hosted client over a fake channel with a SandboxHostedWait, its delegate keeping the responder: `before` runs on the record before the request, `during` once the delegate holds it (it may answer through the responder); nothing answers it otherwise.
+static HeldOutcome heldRequest(const std::function<void(SandboxHostedWait&)>& before, const std::function<void(SandboxHostedWait&, const HostedRequestResponder&, HeldOutcome&)>& during) {
+    HeldOutcome out;
+    auto wait = std::make_shared<SandboxHostedWait>();
+    HostedRun r(hostedConfig(), SandboxHostedStart(), true, wait);
+    r.recorder.holdPlatformRequests = true;
+    if (before) before(*wait);
+    out.asked = WaitClock::now();
+    Background<std::optional<std::string>> asking([&] { return r.sink().remotePlatformRequest("held"); });
+    std::optional<HostedRequestResponder> respond;
+    eventually([&] { return (respond = r.recorder.platformResponder(0)).has_value(); });
+    if (respond) {
+        out.firstDue = wait->due(respond->request());
+        if (during) during(*wait, *respond, out);
+    }
+    out.answer = asking.finish(40);
+    out.ended = WaitClock::now();
+    r.settle();
+    if (respond) out.dueAfter = wait->due(respond->request());
+    out.deaths = r.recorder.deaths();
+    out.diags = r.recorder.diags();
+    return out;
+}
+
+/// A hosted client with a SandboxHostedWait: a request whose arrival a published hold covers is due 3 s after that hold's release, so an answer 4 s after it is returned and the widget lives; one dropped inside the hold ends 3 to 4 s after the release, one dropped outside any hold (or arriving while an input exemption that outlasts the release is in force) 3 to 4 s after its arrival, each with `platform-timeout` and the death once. Only a hold the request actually meets extends it: one arriving in an exemption that the release outlasts is due 3 s after its arrival until the exemption ends, then (the hold resumed) 3 s after the release, so dropped it ends 3 to 4 s after the release; admitted during the exemption it was never held and keeps its arrival's deadline, also when the admission or a renewal (moving its check, then ending it with an exemption that outlasts the release) comes while its waiter sleeps until that check; renewed every 200 ms across the release it is never held and ends 3 to 3.25 s after its arrival (not 5 s); an exemption that lapses between renewals while the release lies 2 s ahead makes it due 3 s after that release, which the later renewals keep. While it waits for its admission a later release moves it to 3 s after that release, a repeated or earlier one does not; a release 25 s ahead is a finite deadline that its repeat leaves alone, and the admission then makes it due at most 3 s from then, which nothing moves again; an unheld request's admission never restarts its 3 s (admitted at 1 s or at 2.9 s, it ends 3 s after its arrival), and an extended one admitted at 4 s keeps its release + 3 s. The admission of an older request's number, that request's responder and a release whose deadline the clock cannot hold change nothing for the next one, and the client's destruction settles a held request at once.
+TEST(hosted_client_platform_requests_wait_for_the_embedders_hold) {
+    const WaitClock::duration answerTime = secondsOf(SandboxEngine::kPlatformAnswerSeconds);
+    const std::vector<std::pair<std::string, std::string>> lateDiag = {{"platform-timeout", kPlatformLate}};
+    WaitClock::time_point heldRelease, insideRelease, exemptRelease, exemptAdmittedRelease, renewedRelease, gapRelease, extendedRelease;
+    Background<HeldOutcome> heldPast([&] {
+        return heldRequest([&](SandboxHostedWait& w) { w.hold(heldRelease = WaitClock::now() + secondsOf(2)); },
+                           [](SandboxHostedWait&, const HostedRequestResponder& respond, HeldOutcome& out) {
+                               std::this_thread::sleep_until(out.asked + secondsOf(4));
+                               respond("held answer");
+                           });
+    });
+    Background<HeldOutcome> droppedInside([&] { return heldRequest([&](SandboxHostedWait& w) { w.hold(insideRelease = WaitClock::now() + secondsOf(1.5)); }, nullptr); });
+    Background<HeldOutcome> droppedOutside([] { return heldRequest(nullptr, nullptr); });
+    Background<HeldOutcome> exempted([&] {
+        return heldRequest([&](SandboxHostedWait& w) {
+            w.exempt(WaitClock::now() + secondsOf(1));
+            w.hold(exemptRelease = WaitClock::now() + secondsOf(2));
+        }, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            std::this_thread::sleep_until(out.asked + secondsOf(1.2));
+            out.dues.push_back(w.due(respond.request()));
+        });
+    });
+    Background<HeldOutcome> renewed([&] {
+        return heldRequest([&](SandboxHostedWait& w) {
+            w.exempt(WaitClock::now() + secondsOf(0.5));
+            w.hold(renewedRelease = WaitClock::now() + secondsOf(2));
+        }, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            for (WaitClock::time_point at = WaitClock::now(); at < out.asked + secondsOf(2.6); at += secondsOf(0.2)) {
+                std::this_thread::sleep_until(at);
+                w.exempt(WaitClock::now() + secondsOf(0.5));
+                out.dues.push_back(w.due(respond.request()));
+            }
+        });
+    });
+    Background<HeldOutcome> lapsed([&] {
+        return heldRequest([&](SandboxHostedWait& w) {
+            w.exempt(WaitClock::now() + secondsOf(0.2));
+            w.hold(gapRelease = WaitClock::now() + secondsOf(2.2));
+        }, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            std::this_thread::sleep_until(out.asked + secondsOf(0.5));
+            out.dues.push_back(w.due(respond.request()));
+            for (WaitClock::time_point at = WaitClock::now(); at < out.asked + secondsOf(2.6); at += secondsOf(0.2)) {
+                std::this_thread::sleep_until(at);
+                w.exempt(WaitClock::now() + secondsOf(0.5));
+            }
+            out.dues.push_back(w.due(respond.request()));
+        });
+    });
+    Background<HeldOutcome> exemptAdmitted([&] {
+        return heldRequest([&](SandboxHostedWait& w) {
+            w.exempt(WaitClock::now() + secondsOf(1));
+            w.hold(exemptAdmittedRelease = WaitClock::now() + secondsOf(2));
+        }, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            out.marks.push_back(WaitClock::now());
+            w.admitted(respond.request());
+            out.dues.push_back(w.due(respond.request()));
+        });
+    });
+    Background<HeldOutcome> asleepAdmitted([] {
+        return heldRequest([](SandboxHostedWait& w) {
+            w.exempt(WaitClock::now() + secondsOf(1));
+            w.hold(WaitClock::now() + secondsOf(2));
+        }, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            std::this_thread::sleep_until(out.asked + secondsOf(0.4));
+            out.dues.push_back(w.due(respond.request()));
+            w.admitted(respond.request());
+            out.dues.push_back(w.due(respond.request()));
+        });
+    });
+    Background<HeldOutcome> asleepRenewed([] {
+        return heldRequest([](SandboxHostedWait& w) {
+            w.exempt(WaitClock::now() + secondsOf(0.5));
+            w.hold(WaitClock::now() + secondsOf(2));
+        }, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            std::this_thread::sleep_until(out.asked + secondsOf(0.3));
+            w.exempt(WaitClock::now() + secondsOf(0.5));
+            out.dues.push_back(w.due(respond.request()));
+            std::this_thread::sleep_until(out.asked + secondsOf(0.6));
+            w.exempt(WaitClock::now() + secondsOf(2));
+            out.dues.push_back(w.due(respond.request()));
+            std::this_thread::sleep_until(out.asked + secondsOf(1));
+            w.admitted(respond.request());
+            out.dues.push_back(w.due(respond.request()));
+        });
+    });
+    Background<HeldOutcome> exemptOutlasting([] {
+        return heldRequest([](SandboxHostedWait& w) {
+            w.exempt(WaitClock::now() + secondsOf(3));
+            w.hold(WaitClock::now() + secondsOf(2));
+        }, nullptr);
+    });
+    Background<HeldOutcome> extended([] {
+        return heldRequest(nullptr, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            const WaitClock::time_point release = WaitClock::now() + secondsOf(3);
+            out.marks.push_back(release);
+            w.hold(release);
+            out.dues.push_back(w.due(respond.request()));
+            w.hold(release);
+            out.dues.push_back(w.due(respond.request()));
+            w.hold(release - secondsOf(1));
+            w.hold(WaitClock::now() - secondsOf(1));
+            out.dues.push_back(w.due(respond.request()));
+            std::this_thread::sleep_until(out.asked + secondsOf(4.5));
+            respond("extended answer");
+        });
+    });
+    Background<HeldOutcome> farAndAdmitted([] {
+        return heldRequest(nullptr, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            const WaitClock::time_point release = WaitClock::now() + secondsOf(25);
+            out.marks.push_back(release);
+            w.hold(release);
+            out.dues.push_back(w.due(respond.request()));
+            w.hold(release);
+            out.dues.push_back(w.due(respond.request()));
+            std::this_thread::sleep_until(out.asked + secondsOf(0.5));
+            out.marks.push_back(WaitClock::now());
+            w.admitted(respond.request());
+            out.dues.push_back(w.due(respond.request()));
+            w.admitted(respond.request());
+            w.hold(release + secondsOf(10));
+            out.dues.push_back(w.due(respond.request()));
+        });
+    });
+    Background<HeldOutcome> unheldAdmitted([] {
+        return heldRequest(nullptr, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            std::this_thread::sleep_until(out.asked + secondsOf(1));
+            w.admitted(respond.request());
+            out.dues.push_back(w.due(respond.request()));
+        });
+    });
+    Background<HeldOutcome> unheldLate([] {
+        return heldRequest(nullptr, [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+            std::this_thread::sleep_until(out.asked + secondsOf(2.9));
+            w.admitted(respond.request());
+            out.dues.push_back(w.due(respond.request()));
+        });
+    });
+    Background<HeldOutcome> extendedAdmitted([&] {
+        return heldRequest([&](SandboxHostedWait& w) { w.hold(extendedRelease = WaitClock::now() + secondsOf(2)); },
+                           [](SandboxHostedWait& w, const HostedRequestResponder& respond, HeldOutcome& out) {
+                               std::this_thread::sleep_until(out.asked + secondsOf(4));
+                               w.admitted(respond.request());
+                               out.dues.push_back(w.due(respond.request()));
+                           });
+    });
+
+    const HeldOutcome a = heldPast.finish(40);
+    CHECK_MSG(a.answer == std::optional<std::string>("held answer") && a.deaths.empty() && a.diags.empty(), a.answer.value_or("none") + " / " + joined(a.deaths));
+    CHECK_MSG(between(a.asked, a.ended) >= 4 && between(a.asked, a.ended) < 5, std::to_string(between(a.asked, a.ended)));
+    CHECK(a.firstDue == std::optional<WaitClock::time_point>(heldRelease + answerTime) && !a.dueAfter);
+    printf("    held past 3 s: answered %.2f s after the request\n", between(a.asked, a.ended));
+
+    const HeldOutcome b = droppedInside.finish(40);
+    CHECK(!b.answer && b.deaths == std::vector<std::string>{kPlatformLate} && b.diags == lateDiag);
+    CHECK(b.firstDue == std::optional<WaitClock::time_point>(insideRelease + answerTime));
+    CHECK_MSG(between(insideRelease, b.ended) >= SandboxEngine::kPlatformAnswerSeconds && between(insideRelease, b.ended) < SandboxEngine::kPlatformAnswerSeconds + 1,
+              std::to_string(between(insideRelease, b.ended)) + " s after the release");
+
+    const HeldOutcome c = droppedOutside.finish(40), d = exemptOutlasting.finish(40);
+    for (const HeldOutcome* plain : {&c, &d}) {
+        CHECK(!plain->answer && plain->deaths == std::vector<std::string>{kPlatformLate} && plain->diags == lateDiag);
+        CHECK_MSG(between(plain->asked, plain->ended) >= SandboxEngine::kPlatformAnswerSeconds && between(plain->asked, plain->ended) < SandboxEngine::kPlatformAnswerSeconds + 1,
+                  std::to_string(between(plain->asked, plain->ended)));
+        CHECK_MSG(plain->firstDue && between(plain->asked, *plain->firstDue) >= SandboxEngine::kPlatformAnswerSeconds && between(plain->asked, *plain->firstDue) < SandboxEngine::kPlatformAnswerSeconds + 0.5,
+                  plain->firstDue ? std::to_string(between(plain->asked, *plain->firstDue)) : "none");
+    }
+
+    // Due 3 s after its arrival (read before the delegate got it), within `slack` of it.
+    const auto arrivalDue = [](const HeldOutcome& o, double slack) {
+        const bool fromArrival = o.firstDue && between(o.asked, *o.firstDue) >= SandboxEngine::kPlatformAnswerSeconds && between(o.asked, *o.firstDue) < SandboxEngine::kPlatformAnswerSeconds + slack;
+        CHECK_MSG(fromArrival, o.firstDue ? std::to_string(between(o.asked, *o.firstDue)) + " s after the request" : "none");
+    };
+
+    // Arrived while input exempted the widget, behind a release that outlasts the exemption: not held then, so due 3 s after its arrival; once the exemption ended the hold resumed, so 3 s after that release.
+    const HeldOutcome x = exempted.finish(40);
+    CHECK(!x.answer && x.deaths == std::vector<std::string>{kPlatformLate} && x.diags == lateDiag);
+    arrivalDue(x, 0.25);
+    CHECK(x.dues.size() == 1 && x.dues[0] == std::optional<WaitClock::time_point>(exemptRelease + answerTime));
+    CHECK_MSG(between(exemptRelease, x.ended) >= SandboxEngine::kPlatformAnswerSeconds && between(exemptRelease, x.ended) < SandboxEngine::kPlatformAnswerSeconds + 1,
+              std::to_string(between(exemptRelease, x.ended)) + " s after the release");
+
+    // The same request admitted during the exemption: never held, so its admission keeps its arrival's deadline (no fresh 3 s).
+    const HeldOutcome y = exemptAdmitted.finish(40);
+    CHECK(!y.answer && y.deaths == std::vector<std::string>{kPlatformLate});
+    arrivalDue(y, 0.25);
+    CHECK(y.marks.size() == 1 && y.dues.size() == 1 && y.dues[0] == y.firstDue);
+    CHECK_MSG(between(y.asked, y.ended) >= SandboxEngine::kPlatformAnswerSeconds && between(y.asked, y.ended) < SandboxEngine::kPlatformAnswerSeconds + 1,
+              std::to_string(between(y.asked, y.ended)) + " s after the request");
+
+    // Exempt without a gap across the release, renewed every 200 ms: never held, so it ends 3 to 3.25 s after its arrival, every reading its arrival's deadline.
+    const HeldOutcome ra = renewed.finish(40);
+    CHECK(!ra.answer && ra.deaths == std::vector<std::string>{kPlatformLate} && ra.diags == lateDiag);
+    arrivalDue(ra, 0.25);
+    CHECK_MSG(ra.dues.size() >= 10 && std::all_of(ra.dues.begin(), ra.dues.end(), [&](const auto& due) { return due == ra.firstDue; }), std::to_string(ra.dues.size()) + " readings");
+    CHECK_MSG(between(ra.asked, ra.ended) >= SandboxEngine::kPlatformAnswerSeconds && between(ra.asked, ra.ended) < SandboxEngine::kPlatformAnswerSeconds + 0.25,
+              std::to_string(between(ra.asked, ra.ended)) + " s after the request");
+    CHECK(between(ra.asked, renewedRelease) > 1.5);
+    printf("    exempt through a release 2 s ahead: ended %.3f s after the request\n", between(ra.asked, ra.ended));
+
+    // The exemption lapsed between renewals with the release 2 s ahead: held from then, so due 3 s after that release, kept by the renewals after it.
+    const HeldOutcome rb = lapsed.finish(40);
+    CHECK(!rb.answer && rb.deaths == std::vector<std::string>{kPlatformLate} && rb.diags == lateDiag);
+    arrivalDue(rb, 0.25);
+    CHECK(rb.dues.size() == 2 && rb.dues[0] == std::optional<WaitClock::time_point>(gapRelease + answerTime) && rb.dues[1] == rb.dues[0]);
+    CHECK_MSG(between(gapRelease, rb.ended) >= SandboxEngine::kPlatformAnswerSeconds && between(gapRelease, rb.ended) < SandboxEngine::kPlatformAnswerSeconds + 0.5,
+              std::to_string(between(gapRelease, rb.ended)) + " s after the release");
+    printf("    exemption lapsed 2 s before the release: ended %.3f s after the request, %.3f s after the release\n", between(rb.asked, rb.ended), between(gapRelease, rb.ended));
+
+    // The waiter asleep until its check (the end of an exemption the release outlasts) when the admission or a renewal comes: each ends or moves that check while the waiter waits for it, the request was never held, so it keeps and freezes its arrival's deadline.
+    const HeldOutcome sa = asleepAdmitted.finish(40), sr = asleepRenewed.finish(40);
+    for (const auto& [asleep, readings] : {std::pair{&sa, size_t(2)}, std::pair{&sr, size_t(3)}}) {
+        CHECK(!asleep->answer && asleep->deaths == std::vector<std::string>{kPlatformLate} && asleep->diags == lateDiag);
+        arrivalDue(*asleep, 0.25);
+        CHECK_MSG(asleep->dues.size() == readings && std::all_of(asleep->dues.begin(), asleep->dues.end(), [&](const auto& due) { return due == asleep->firstDue; }), std::to_string(asleep->dues.size()) + " readings");
+        CHECK_MSG(between(asleep->asked, asleep->ended) >= SandboxEngine::kPlatformAnswerSeconds && between(asleep->asked, asleep->ended) < SandboxEngine::kPlatformAnswerSeconds + 0.25,
+                  std::to_string(between(asleep->asked, asleep->ended)) + " s after the request");
+    }
+    printf("    admitted, renewed and admitted while asleep on the check: ended %.3f and %.3f s after the request\n", between(sa.asked, sa.ended), between(sr.asked, sr.ended));
+
+    const HeldOutcome e = extended.finish(40);
+    CHECK_MSG(e.answer == std::optional<std::string>("extended answer") && e.deaths.empty(), e.answer.value_or("none") + " / " + joined(e.deaths));
+    CHECK(e.marks.size() == 1 && e.dues.size() == 3);
+    if (e.marks.size() == 1 && e.dues.size() == 3) {
+        const std::optional<WaitClock::time_point> moved = e.marks[0] + answerTime;
+        CHECK(e.dues[0] == moved && e.dues[1] == moved && e.dues[2] == moved);
+        CHECK(e.firstDue && *e.firstDue < *moved);
+    }
+
+    const HeldOutcome f = farAndAdmitted.finish(40);
+    CHECK(!f.answer && f.deaths == std::vector<std::string>{kPlatformLate});
+    CHECK(f.marks.size() == 2 && f.dues.size() == 4);
+    if (f.marks.size() == 2 && f.dues.size() == 4) {
+        CHECK(f.dues[0] == std::optional<WaitClock::time_point>(f.marks[0] + answerTime) && f.dues[1] == f.dues[0]);
+        CHECK_MSG(f.dues[2] && between(f.marks[1] + answerTime, *f.dues[2]) >= 0 && between(f.marks[1] + answerTime, *f.dues[2]) < 0.1,
+                  f.dues[2] ? std::to_string(between(f.marks[1] + answerTime, *f.dues[2])) : "none");
+        CHECK(f.dues[3] == f.dues[2]);
+        CHECK_MSG(between(f.marks[1], f.ended) >= SandboxEngine::kPlatformAnswerSeconds && between(f.marks[1], f.ended) < SandboxEngine::kPlatformAnswerSeconds + 1,
+                  std::to_string(between(f.marks[1], f.ended)) + " s after the admission");
+    }
+
+    const HeldOutcome g = unheldAdmitted.finish(40);
+    CHECK(!g.answer && g.deaths == std::vector<std::string>{kPlatformLate} && g.dues.size() == 1 && g.dues[0] == g.firstDue);
+    CHECK_MSG(between(g.asked, g.ended) >= SandboxEngine::kPlatformAnswerSeconds && between(g.asked, g.ended) < SandboxEngine::kPlatformAnswerSeconds + 1, std::to_string(between(g.asked, g.ended)));
+
+    // Admitted at 2.9 s, unheld: frozen at its arrival's deadline, so it ends 3 to 3.25 s after its arrival, never 3 s after the admission.
+    const HeldOutcome h = unheldLate.finish(40);
+    CHECK(!h.answer && h.deaths == std::vector<std::string>{kPlatformLate} && h.dues.size() == 1 && h.dues[0] == h.firstDue);
+    arrivalDue(h, 0.25);
+    CHECK_MSG(between(h.asked, h.ended) >= SandboxEngine::kPlatformAnswerSeconds && between(h.asked, h.ended) < SandboxEngine::kPlatformAnswerSeconds + 0.25, std::to_string(between(h.asked, h.ended)));
+
+    // Held at its arrival (due 3 s after a release 2 s on), admitted at 4 s: frozen at that release + 3 s, sooner than 3 s after the admission.
+    const HeldOutcome k = extendedAdmitted.finish(40);
+    CHECK(!k.answer && k.deaths == std::vector<std::string>{kPlatformLate});
+    CHECK(k.firstDue == std::optional<WaitClock::time_point>(extendedRelease + answerTime) && k.dues.size() == 1 && k.dues[0] == k.firstDue);
+    CHECK_MSG(between(extendedRelease, k.ended) >= SandboxEngine::kPlatformAnswerSeconds && between(extendedRelease, k.ended) < SandboxEngine::kPlatformAnswerSeconds + 0.5,
+              std::to_string(between(extendedRelease, k.ended)) + " s after the release");
+
+    {
+        // An older request's number and responder are stale for the next one.
+        auto wait = std::make_shared<SandboxHostedWait>();
+        HostedRun r(hostedConfig(), SandboxHostedStart(), true, wait);
+        r.recorder.holdPlatformRequests = true;
+        Background<std::optional<std::string>> first([&] { return r.sink().remotePlatformRequest("first"); });
+        CHECK(eventually([&] { return r.recorder.platformResponder(0).has_value(); }));
+        const std::optional<HostedRequestResponder> old = r.recorder.platformResponder(0);
+        if (!old) return;
+        CHECK(wait->due(old->request()).has_value());
+        (*old)("first answer");
+        CHECK(first.finish(5) == std::optional<std::string>("first answer"));
+        CHECK(!wait->due(old->request()));
+        Background<std::optional<std::string>> second([&] { return r.sink().remotePlatformRequest("second"); });
+        CHECK(eventually([&] { return r.recorder.platformResponder(1).has_value(); }));
+        const std::optional<HostedRequestResponder> next = r.recorder.platformResponder(1);
+        if (!next) return;
+        CHECK(next->request() > old->request());
+        const std::optional<WaitClock::time_point> due = wait->due(next->request());
+        wait->admitted(old->request());
+        // No deadline the clock cannot hold either.
+        wait->hold(WaitClock::time_point::max());
+        CHECK(due && wait->due(next->request()) == due);
+        (*old)("stale");
+        CHECK(!second.within(0.2));
+        (*next)("second answer");
+        CHECK(second.finish(5) == std::optional<std::string>("second answer"));
+        r.settle();
+        CHECK(r.recorder.deaths().empty());
+
+        // Held 25 s more, then the client goes: the request is settled at once, unanswered, and its responder does nothing.
+        wait->hold(WaitClock::now() + secondsOf(25));
+        Background<std::optional<std::string>> third([&] { return r.sink().remotePlatformRequest("third"); });
+        CHECK(eventually([&] { return r.recorder.platformResponder(2).has_value(); }));
+        const std::optional<HostedRequestResponder> last = r.recorder.platformResponder(2);
+        const WaitClock::time_point gone = WaitClock::now();
+        r.engine.reset();
+        CHECK(!third.finish(5));
+        CHECK_MSG(between(gone, WaitClock::now()) < 1, std::to_string(between(gone, WaitClock::now())));
+        if (last) {
+            CHECK(!wait->due(last->request()));
+            (*last)("after the client");
+        }
+        CHECK(r.recorder.deaths().empty());
+    }
+}
+
 // ───────────── a hosted WidgetHost over the loopback (SandboxHostedLoopbackChannel) ─────────────
 
 /// The calling thread's name, "" where the tests read no thread names.
@@ -746,14 +1194,15 @@ private:
     std::vector<std::string> threads_;
 };
 
-/// A hosted WidgetHost over a loopback whose engine's side builds a HostedTestRenderer (`configure` runs on it first); `renderer` is that renderer once it announced itself.
+/// A hosted WidgetHost over a loopback whose engine's side builds a HostedTestRenderer (`configure` runs on it first); `renderer` is that renderer once it announced itself; with `wait` its platform requests are due as that record says.
 struct HostedWidget {
     HostedTestRenderer* renderer = nullptr;
     std::unique_ptr<WidgetHost> host;
     explicit HostedWidget(const std::string& html, WidgetTheme theme = WidgetTheme{}, WidgetHostOptions options = WidgetHostOptions(), std::shared_ptr<IntlProvider> intl = nullptr,
-                          std::function<void(HostedTestRenderer&)> configure = nullptr, std::shared_ptr<SandboxResources> resources = RES)
+                          std::function<void(HostedTestRenderer&)> configure = nullptr, std::shared_ptr<SandboxResources> resources = RES, std::shared_ptr<SandboxHostedWait> wait = nullptr)
         : host(std::make_unique<WidgetHost>(html, std::move(theme), 300, std::move(options),
-                                            std::make_shared<SandboxHostedLoopbackChannel>(std::move(resources), hostedTest(renderer, std::move(configure))), std::move(intl))) {}
+                                            std::make_shared<SandboxHostedLoopbackChannel>(std::move(resources), hostedTest(renderer, std::move(configure))), std::move(intl),
+                                            std::move(wait))) {}
     HostedWidget(const HostedWidget&) = delete;
     HostedWidget& operator=(const HostedWidget&) = delete;
     /// Started, loaded and rendered on the engine's side.
@@ -900,6 +1349,34 @@ TEST(hosted_widget_host_gets_validated_ops_only_when_it_asked) {
     CHECK_MSG(late.empty(), std::to_string(late.size()) + " batches after start");
 }
 
+/// The tap sees the batch a theme change re-sanitises the stylesheets into: after `setTheme` the engine's side's validator re-themes them and that batch reaches the hosted host's `onRenderOps` too.
+TEST(hosted_widget_host_gets_the_rethemed_batch) {
+    std::mutex m;
+    std::vector<std::string> asked;
+    HostedWidget w("<style>@media (prefers-color-scheme: dark){p{color:red}}</style><p>x</p>");
+    w.host->onRenderOps = [&](const std::string& ops) {
+        std::lock_guard<std::mutex> l(m);
+        asked.push_back(ops);
+    };
+    CHECK(w.begin());
+    CHECK(eventually([&] { return w.renderer->drew("x"); }));
+    w.settle();
+    size_t before = 0;
+    {
+        std::lock_guard<std::mutex> l(m);
+        before = asked.size();
+    }
+    WidgetTheme dark;
+    dark.colorScheme = "dark";
+    w.host->setTheme(dark);
+    CHECK(eventually([&] {
+        std::lock_guard<std::mutex> l(m);
+        return asked.size() > before && asked.back().find("min-width: 0px") != std::string::npos;
+    }));
+    const WidgetDiagnostics d = w.host->diagnostics();
+    CHECK_MSG(d.countDiag("protocol-violation") == 0 && !d.dead, d.dead.value_or("alive"));
+}
+
 /// Its haptics, links, copies and requests (`mode`), and the inputs it reports in `log`.
 static const char* kPressWidget =
     "<button id='b'>go</button><script>var mode = 'haptic', log = [], clicks = 0, H = TelegramWidget.HapticFeedback; H.selectionChanged();"
@@ -913,7 +1390,7 @@ static const char* kPressWidget =
     "  else if (mode === 'copy') TelegramWidget.copyText('copied ' + clicks);"
     "  else TelegramWidget.request('tap').then(function (a) { log.push('ok:' + a.result); }, function (e) { log.push('err:' + e.code); }); });</script>";
 
-/// A hosted host decides every privileged call on the presses its embedder delivered: a tap the engine's side's renderer reports (and the engine's side allows) is refused without `pressDelivered` and allowed once with it, for links, copies, requests and haptics (outside the boot's series only within a delivered press and the 5 s after its release); the theme, data, safe area and visibility reach the engine's side's renderer and the widget; a CPU kill and a validator's `limit` freeze that renderer with `stoppedLabel`, and its diagnostics (a renderer's violation too) reach the host; `renderer()` throws, `event()` reaches no widget and `onGesture` never runs.
+/// A hosted host decides every privileged call on the presses its embedder delivered: a tap the engine's side's renderer reports (and the engine's side allows) is refused without a delivered press and allowed once when the tap's own message carried it (`sendPlatformPress`), for links, copies, requests and haptics (outside the boot's series only within a delivered press and the 5 s after its release); the theme, data, safe area and visibility reach the engine's side's renderer and the widget; a CPU kill and a validator's `limit` freeze that renderer with `stoppedLabel`, and its diagnostics (a renderer's violation too) reach the host; `renderer()` throws, `event()` reaches no widget and `onGesture` never runs.
 TEST(hosted_widget_host_decides_privileged_calls_on_its_own_presses) {
     WidgetHostOptions options;
     options.context = messageContext(false, true, false, "private");
@@ -943,10 +1420,10 @@ TEST(hosted_widget_host_decides_privileged_calls_on_its_own_presses) {
     };
     CHECK(w.begin());
     int clicks = 0;
-    // A press-framed tap of the engine's side's renderer, which the engine's side allows; settled once the widget handled it.
+    // A press-framed tap of the engine's side's renderer, which the engine's side allows, its message carrying the delivered press or not; settled once the widget handled it.
     const auto tap = [&](bool delivered) {
-        if (delivered) w.host->pressDelivered();
-        w.host->sendPlatform("tap");
+        if (delivered) w.host->sendPlatformPress("tap");
+        else w.host->sendPlatform("tap");
         const std::string expected = std::to_string(++clicks);
         CHECK_MSG(probeUntil(*w.host, "clicks", expected) == expected, w.host->probe("clicks"));
         w.settle();
@@ -1496,6 +1973,254 @@ TEST(hosted_widget_host_keeps_nothing_it_cannot_keep) {
     }
 }
 
+/// The platform deliveries an observer copies (`WidgetHost::platformDelivery`), in order under a lock: what each held and the message it delivered, and how many observer calls found none.
+struct KeptDeliveries {
+    std::mutex mutex;
+    std::vector<HostedPlatformDelivery> deliveries;
+    std::vector<std::string> messages;
+    int empty = 0;
+
+    void keep(const std::string& message) {
+        const HostedPlatformDelivery delivery = WidgetHost::platformDelivery();
+        std::lock_guard<std::mutex> l(mutex);
+        if (!delivery.hold) empty++;
+        deliveries.push_back(delivery);
+        messages.push_back(message);
+    }
+    /// What the kept copies hold: their messages' bytes and their count.
+    SandboxEngine::RemoteBacklog held() {
+        std::lock_guard<std::mutex> l(mutex);
+        SandboxEngine::RemoteBacklog out;
+        for (const std::string& m : messages) out.bytes += m.size();
+        out.calls = messages.size();
+        return out;
+    }
+    void drop() {
+        std::lock_guard<std::mutex> l(mutex);
+        deliveries.clear();
+        messages.clear();
+    }
+    bool heard(const std::string& m) {
+        std::lock_guard<std::mutex> l(mutex);
+        return std::find(messages.begin(), messages.end(), m) != messages.end();
+    }
+    size_t with(const std::string& prefix) {
+        std::lock_guard<std::mutex> l(mutex);
+        return size_t(std::count_if(messages.begin(), messages.end(), [&](const std::string& m) { return m.rfind(prefix, 0) == 0; }));
+    }
+    int unheld() {
+        std::lock_guard<std::mutex> l(mutex);
+        return empty;
+    }
+};
+
+/// What a platform observer delivers stays counted while its copy lives (`WidgetHost::platformDelivery`), on a live WidgetHost and across its keep: empty outside an observer; inside one a message's hold, or a request's hold and its number, which names the request waiting in the client's SandboxHostedWait. Kept copies keep their messages counted against the client's bounds after the observers returned, exactly those bytes and calls; across the keep the handle's backlog (the same client's) counts what the live observer kept and what the handle's observers keep (each of their calls, the first ones, maybe made before `keepRenderer` returned, among them, with a hold of its own); dropped, it comes back to 0.
+TEST(hosted_platform_deliveries_stay_counted_across_the_keep) {
+    const HostedPlatformDelivery outside = WidgetHost::platformDelivery();
+    CHECK(!outside.hold && outside.request == 0);
+    KeptDeliveries live, kept;
+    std::mutex m;
+    uint64_t number = 0;
+    bool waiting = false;
+    auto wait = std::make_shared<SandboxHostedWait>();
+    HostedWidget w("<p>x</p>", WidgetTheme{}, WidgetHostOptions(), nullptr, nullptr, RES, wait);
+    w.host->onPlatformMessage = [&](const std::string& message) { live.keep(message); };
+    w.host->onPlatformRequest = [&](const std::string& message, std::function<void(std::string)> respond) {
+        const HostedPlatformDelivery delivery = WidgetHost::platformDelivery();
+        {
+            std::lock_guard<std::mutex> l(m);
+            number = delivery.request;
+            waiting = wait->due(delivery.request).has_value();
+        }
+        live.keep(message);
+        respond("answer:" + message);
+    };
+    CHECK(w.begin());
+    // The widget's own reports (its stats among them) pass through and go: in the end nothing is held.
+    CHECK_MSG(eventually([&] { return backlogIs(*w.host, 0, 0); }), backlogText(*w.host));
+    w.host->sendPlatform("say:one");
+    w.host->sendPlatform("say:two");
+    w.host->sendPlatform("ask:q");
+    CHECK(eventually([&] { return live.heard("got:answer:q"); }));
+    // "one", "two", the request "q" and "got:answer:q", each still counted by its copy.
+    const SandboxEngine::RemoteBacklog held = live.held();
+    CHECK_MSG(held.calls == 4 && eventually([&] { return backlogIs(*w.host, held.bytes, held.calls); }), backlogText(*w.host) + " for " + std::to_string(held.bytes) + " bytes kept");
+    {
+        std::lock_guard<std::mutex> l(m);
+        CHECK(number > 0 && waiting);
+    }
+    live.drop();
+    CHECK_MSG(eventually([&] { return backlogIs(*w.host, 0, 0); }), backlogText(*w.host));
+
+    // A burst just before the keep: a first part to the WidgetHost's observer, the rest to the handle's.
+    w.host->sendPlatform("say:before the keep");
+    CHECK(eventually([&] { return live.heard("before the keep"); }));
+    w.host->sendPlatform("burst:100");
+    HostedKeptRenderer::Observers observers;
+    observers.onPlatformMessage = [&](const std::string& message) { kept.keep(message); };
+    std::unique_ptr<HostedKeptRenderer> handle = w.host->keepRenderer(std::move(observers));
+    CHECK(handle);
+    if (!handle) return;
+    CHECK(eventually([&] { return live.with("b:") + kept.with("b:") == 100; }));
+    const auto both = [&] {
+        const SandboxEngine::RemoteBacklog a = live.held(), b = kept.held();
+        return SandboxEngine::RemoteBacklog{a.bytes + b.bytes, a.calls + b.calls};
+    };
+    CHECK_MSG(eventually([&] { return backlogIs(*handle, both().bytes, both().calls); }), backlogText(*handle) + " for " + std::to_string(both().bytes) + " bytes kept");
+    printf("    the burst of 100 at the keep: %zu to the WidgetHost, %zu to the handle\n", live.with("b:"), kept.with("b:"));
+    w.host.reset();
+    handle->sendPlatform("say:kept");
+    CHECK(eventually([&] { return kept.heard("kept"); }));
+    CHECK(live.unheld() == 0 && kept.unheld() == 0);
+    CHECK_MSG(eventually([&] { return backlogIs(*handle, both().bytes, both().calls); }), backlogText(*handle));
+    live.drop();
+    CHECK_MSG(eventually([&] { return backlogIs(*handle, kept.held().bytes, kept.held().calls); }), backlogText(*handle));
+    kept.drop();
+    CHECK_MSG(eventually([&] { return backlogIs(*handle, 0, 0); }), backlogText(*handle));
+    CHECK(!handle->ended());
+    handle->release();
+}
+
+/// The deaths `onDeath` heard, under a lock: each reason, and whether every one came on the host thread, with `diagnostics().dead` already that reason and (`frozenYet`, when given) before the renderer got `frozen`.
+struct HeardDeaths {
+    std::mutex mutex;
+    std::vector<std::string> reasons;
+    bool fine = true;
+
+    void watch(WidgetHost& host, std::function<bool()> frozenYet = nullptr) {
+        std::thread::id thread;
+        host.onHostThread([&] { thread = std::this_thread::get_id(); });
+        host.onDeath = [this, &host, thread, frozenYet = std::move(frozenYet)](const std::string& reason) {
+            const bool recorded = host.diagnostics().dead == std::optional<std::string>(reason);
+            const bool frozen = frozenYet && frozenYet();
+            std::lock_guard<std::mutex> l(mutex);
+            reasons.push_back(reason);
+            fine = fine && recorded && !frozen && std::this_thread::get_id() == thread;
+        };
+    }
+    std::vector<std::string> all() {
+        std::lock_guard<std::mutex> l(mutex);
+        return reasons;
+    }
+    bool allFine() {
+        std::lock_guard<std::mutex> l(mutex);
+        return fine;
+    }
+};
+
+/// `onDeath` hears each death once, on the host thread, once `diagnostics().dead` has it: a hosted widget's own limit, the client's own end of it (a platform request with no `onPlatformRequest`) and, with `keepsRenderer`, a death before the keep, whose renderer is then kept; never the end `destroy()` makes or the keep of a live widget. A local widget's own limit too, before its renderer gets `frozen`.
+TEST(hosted_widget_host_tells_its_death_once) {
+    {
+        HeardDeaths heard;
+        HostedWidget dying(kDyingWidget);
+        heard.watch(*dying.host);
+        CHECK(dying.begin());
+        CHECK(dying.host->waitUntil(isDead, 10));
+        dying.settle();
+        const std::string reason = dying.host->diagnostics().dead.value_or("");
+        CHECK_MSG(reason.rfind("CPU limit exceeded", 0) == 0, reason);
+        CHECK_MSG(heard.all() == std::vector<std::string>{reason} && heard.allFine(), joined(heard.all()));
+        dying.host->destroy();
+        dying.settle();
+        CHECK(heard.all().size() == 1);
+    }
+    {
+        HeardDeaths heard;
+        HostedWidget unobserved("<p>x</p>");
+        heard.watch(*unobserved.host);
+        CHECK(unobserved.begin());
+        unobserved.host->sendPlatform("ask:anyone");
+        CHECK(unobserved.host->waitUntil(isDead, 3));
+        unobserved.settle();
+        CHECK_MSG(heard.all() == std::vector<std::string>{kNoPlatform} && heard.allFine(), joined(heard.all()));
+    }
+    {
+        HeardDeaths heard;
+        HostedWidget destroyed("<p>x</p>");
+        heard.watch(*destroyed.host);
+        CHECK(destroyed.begin());
+        destroyed.host->destroy();
+        CHECK(destroyed.host->waitUntil(isDead, 2) && destroyed.host->diagnostics().dead == std::optional<std::string>("terminated"));
+        destroyed.settle();
+        CHECK_MSG(heard.all().empty(), joined(heard.all()));
+    }
+    for (const bool dead : {true, false}) {
+        HeardDeaths heard;
+        HostedWidget w(dead ? kDyingWidget : "<p>x</p>");
+        heard.watch(*w.host);
+        w.host->keepsRenderer = dead;
+        CHECK(w.begin());
+        if (dead) CHECK(w.host->waitUntil(isDead, 10));
+        w.settle();
+        const std::vector<std::string> before = heard.all();
+        CHECK_MSG(before.size() == (dead ? 1u : 0u) && heard.allFine(), joined(before));
+        HeardPlatform after;
+        std::unique_ptr<HostedKeptRenderer> kept = w.host->keepRenderer(after.observers());
+        CHECK(kept);
+        CHECK(w.host->diagnostics().dead.has_value());
+        w.host.reset();
+        CHECK_MSG(heard.all() == before, joined(heard.all()));
+        if (kept) kept->release();
+    }
+    {
+        // A local widget: not a fixture's renderer, so the hosted switch leaves it in process.
+        WidgetHost::setHostedChannelFactory(nullptr);
+        struct HookBack {
+            ~HookBack() { restoreHostedFactory(); }
+        } hookBack;
+        std::atomic<ScriptedRenderer*> renderer{nullptr};
+        WidgetHost local(kDyingWidget, WidgetTheme{}, 300, WidgetHostOptions(), RES, [&](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> {
+            auto made = std::make_unique<ScriptedRenderer>();
+            renderer = made.get();
+            return made;
+        });
+        CHECK(!local.isHosted() && renderer.load());
+        HeardDeaths heard;
+        heard.watch(local, [&] { return !renderer.load()->sent("frozen").empty(); });
+        local.start();
+        CHECK(local.waitUntil(isDead, 10));
+        settleHost(local);
+        const std::string reason = local.diagnostics().dead.value_or("");
+        CHECK_MSG(reason.rfind("CPU limit exceeded", 0) == 0, reason);
+        CHECK_MSG(heard.all() == std::vector<std::string>{reason} && heard.allFine(), joined(heard.all()));
+        CHECK(!renderer.load()->sent("frozen").empty());
+    }
+}
+
+/// The embedder's own diagnostics of a hosted widget (`platformDiag`) land as a local renderer's do: in the diagnostics on the host thread, `onChange` after each, within `kMaxDiagKinds` kinds; nothing once the host was destroyed, and nothing on a local host.
+TEST(hosted_widget_host_takes_the_embedders_diagnostics) {
+    ObservedChanges changes;
+    HostedWidget w("<p>x</p>");
+    w.host->onChange = changes.observer();
+    CHECK(w.begin());
+    w.settle();
+    const size_t seen = changes.all().size();
+    w.host->platformDiag("paint-bounds", "a list past its bounds");
+    w.settle();
+    WidgetDiagnostics d = w.host->diagnostics();
+    CHECK(d.countDiag("paint-bounds") == 1 && d.diags["paint-bounds"].second == std::vector<std::string>{"a list past its bounds"});
+    CHECK(changes.all().size() > seen && changes.all().back().countDiag("paint-bounds") == 1);
+    for (int i = 0; i < 80; i++) w.host->platformDiag("kind-" + std::to_string(i), "x");
+    w.settle();
+    d = w.host->diagnostics();
+    CHECK_MSG(d.diags.size() <= WidgetHost::kMaxDiagKinds && d.countDiag("diag-kind-dropped") > 0, std::to_string(d.diags.size()) + " kinds");
+    w.host->destroy();
+    w.host->platformDiag("after", "the destroy");
+    w.host->onHostThread([] {});
+    CHECK(w.host->diagnostics().countDiag("after") == 0);
+
+    WidgetHost::setHostedChannelFactory(nullptr);
+    struct HookBack {
+        ~HookBack() { restoreHostedFactory(); }
+    } hookBack;
+    WidgetHost local("<p>local</p>", WidgetTheme{}, 300, WidgetHostOptions(), RES,
+                     [](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> { return std::make_unique<ScriptedRenderer>(); });
+    CHECK(!local.isHosted());
+    local.platformDiag("paint-bounds", "local");
+    local.onHostThread([] {});
+    CHECK(local.diagnostics().countDiag("paint-bounds") == 0);
+}
+
 /// A hosted renderer may wait for its platform on the glue's host thread over the loopback: a request inside `onMessage` (`wait:`) and one inside the glue's call that hands it each batch (`askOnOps`) are answered while the widget, which makes layout queries, loads and renders; and the same `wait:` once the renderer is kept.
 TEST(hosted_renderer_waits_on_the_glue_thread) {
     HostedWidget w(kWholeWidget, WidgetTheme{}, WidgetHostOptions(), nullptr, [](HostedTestRenderer& r) { r.askOnOps = true; });
@@ -1526,6 +2251,226 @@ TEST(hosted_renderer_waits_on_the_glue_thread) {
     CHECK_MSG(eventually([&] { return after.heard("waited:answer:kept"); }), joined(after.with("")));
     CHECK(!kept->ended());
     kept->release();
+}
+
+/// When `pred` first held, polled for up to `seconds`; nullopt when it never did.
+static std::optional<WaitClock::time_point> seenWithin(const std::function<bool()>& pred, double seconds) {
+    const WaitClock::time_point until = WaitClock::now() + secondsOf(seconds);
+    for (;;) {
+        if (pred()) return WaitClock::now();
+        if (WaitClock::now() >= until) return std::nullopt;
+        sleepMs(5);
+    }
+}
+
+/// How a served layout query went (`servedQuery`): the widths the widget logged and when the first came after the trigger, its `got` once settled ("" once dead), its death and when, whether the measure began while its glue waited inside a held platform request, and for a widget that lives the query time its stats charged (`SandboxStats::queryMs`, -1 until its query was counted).
+struct ServedQuery {
+    std::vector<std::string> widths;
+    std::optional<double> widthAfter;
+    std::string got;
+    std::optional<std::string> dead;
+    std::optional<double> deathAfter;
+    bool measuredDuringWait = false;
+    double queryMs = -1;
+};
+
+/// The served queries of `hosted_served_query_leaves_out_its_glues_platform_waits`: the glue asks its platform inside the query, at once as the query reaches it, and the host answers 4 s later (`RealWait`); the glue waits inside a held request when the widget's timer measures (`WaitingAtStart`); the glue is slow 3.5 s with no request (`SlowGlue`); the same while its renderer's own thread waits for a held request (`Unrelated`); the glue answers at once with no request (`NoWait`, the control).
+enum class QueryCase { RealWait, WaitingAtStart, SlowGlue, Unrelated, NoWait };
+
+/// One hosted widget over the loopback with a SandboxHostedWait whose renderer answers its layout queries with a 77 px rect, measured as `kind` says; the host holds the request the case names (the glue's `query:`, the glue's `held`, the renderer thread's `far`) under a published hold and answers every other at once.
+static ServedQuery servedQuery(QueryCase kind) {
+    ServedQuery out;
+    std::mutex m;
+    std::vector<std::function<void(std::string)>> held;
+    const std::string heldPrefix = kind == QueryCase::RealWait ? "query:" : kind == QueryCase::WaitingAtStart ? "held" : "far";
+    const auto heldOne = [&]() -> std::function<void(std::string)> {
+        std::lock_guard<std::mutex> l(m);
+        return held.empty() ? nullptr : held.front();
+    };
+    auto wait = std::make_shared<SandboxHostedWait>();
+    HostedWidget w(kind == QueryCase::WaitingAtStart ? kMeasuredLater : kMeasuredOnTap, WidgetTheme{}, WidgetHostOptions(), nullptr,
+                   [](HostedTestRenderer& r) { r.queryResult = kRect77; }, RES, wait);
+    w.host->onPlatformRequest = [&](const std::string& message, std::function<void(std::string)> respond) {
+        {
+            std::lock_guard<std::mutex> l(m);
+            if (message.rfind(heldPrefix, 0) == 0) return held.push_back(std::move(respond));
+        }
+        respond("answer:" + message);
+    };
+    if (!w.begin()) return out;
+    const auto widths = [&] { return widthsLogged(w.host->diagnostics()); };
+    WaitClock::time_point trigger = WaitClock::now();
+    switch (kind) {
+    case QueryCase::RealWait:
+        w.renderer->askOnQuery = true;
+        wait->hold(WaitClock::now() + secondsOf(2));
+        trigger = WaitClock::now();
+        w.host->sendPlatform("tap");
+        seenWithin([&] { return heldOne() != nullptr; }, 5);
+        std::this_thread::sleep_until(trigger + secondsOf(4));
+        if (const auto respond = heldOne()) respond("measured");
+        break;
+    case QueryCase::WaitingAtStart: {
+        wait->hold(WaitClock::now() + secondsOf(2.5));
+        w.host->sendPlatform("wait:held");
+        seenWithin([&] { return heldOne() != nullptr; }, 5);
+        trigger = WaitClock::now();
+        // `measuring` comes on the engine's own path, so it shows the measure began behind the glue's wait.
+        out.measuredDuringWait = seenWithin([&] { return w.host->diagnostics().hasLog("measuring"); }, 4.5).has_value();
+        std::this_thread::sleep_until(trigger + secondsOf(5));
+        if (const auto respond = heldOne()) respond("released");
+        break;
+    }
+    case QueryCase::Unrelated:
+        wait->hold(WaitClock::now() + secondsOf(3));
+        w.host->sendPlatform("ask:far");
+        seenWithin([&] { return heldOne() != nullptr; }, 5);
+        [[fallthrough]];
+    case QueryCase::SlowGlue:
+        w.renderer->queryStallMs = 3500;
+        trigger = WaitClock::now();
+        w.host->sendPlatform("tap");
+        break;
+    case QueryCase::NoWait:
+        trigger = WaitClock::now();
+        w.host->sendPlatform("tap");
+        break;
+    }
+    const bool dies = kind == QueryCase::SlowGlue || kind == QueryCase::Unrelated;
+    if (const std::optional<WaitClock::time_point> at = seenWithin([&] { return !widths().empty(); }, dies ? 4 : 10)) out.widthAfter = between(trigger, *at);
+    if (dies) {
+        if (const std::optional<WaitClock::time_point> at = seenWithin([&] { return w.host->diagnostics().dead.has_value(); }, 10)) out.deathAfter = between(trigger, *at);
+    }
+    w.settle();
+    out.got = w.host->probe("got.join(',')");
+    // A query whose time passed the budget stops the widget at its task's end, which comes before this.
+    sleepMs(100);
+    w.settle();
+    out.widths = widths();
+    out.dead = w.host->diagnostics().dead;
+    // The stats after the measuring task, which the engine reports at its end (at most 200 ms later).
+    if (!dies && seenWithin([&] { return w.host->diagnostics().stats.queries >= 1; }, 5)) out.queryMs = w.host->diagnostics().stats.queryMs;
+    return out;
+}
+
+/// A served host's layout query gets 3 s of its glue's own time, its glue thread's waits inside its renderer's platform requests left out of them and of the widget's query budget: a query whose glue asks its platform as soon as the query reaches it and is answered 4 s later under a published hold gets its renderer's 77 px, and so does one that begins while the glue waits inside a held request (the measure's own log comes during that wait), each widget living on and charged no more query time than a query whose glue answers at once with no request (the control: well under the 1 s budget, as are they); a glue slow 3.5 s with no request of its own, alone or while its renderer's own thread waits for a held request, answers the query the timeout instead (no `w=77`, a width logged, if at all, before the glue's answer could come) and the widget stops at its query budget.
+TEST(hosted_served_query_leaves_out_its_glues_platform_waits) {
+    Background<ServedQuery> realWait([] { return servedQuery(QueryCase::RealWait); });
+    Background<ServedQuery> waitingAtStart([] { return servedQuery(QueryCase::WaitingAtStart); });
+    Background<ServedQuery> slowGlue([] { return servedQuery(QueryCase::SlowGlue); });
+    Background<ServedQuery> unrelated([] { return servedQuery(QueryCase::Unrelated); });
+    Background<ServedQuery> noWait([] { return servedQuery(QueryCase::NoWait); });
+    const ServedQuery control = noWait.finish(40);
+    CHECK_MSG(control.widths == std::vector<std::string>{"w=77"} && control.got == "77" && !control.dead,
+              joined(control.widths) + " / " + control.got + " / " + control.dead.value_or("alive"));
+    CHECK_MSG(control.queryMs >= 0 && control.queryMs < 500, std::to_string(control.queryMs));
+    const ServedQuery a = realWait.finish(40);
+    CHECK_MSG(a.widths == std::vector<std::string>{"w=77"} && a.got == "77" && !a.dead, joined(a.widths) + " / " + a.got + " / " + a.dead.value_or("alive"));
+    CHECK_MSG(a.widthAfter && *a.widthAfter >= 4 && *a.widthAfter < 5, a.widthAfter ? std::to_string(*a.widthAfter) : "no width");
+    const ServedQuery b = waitingAtStart.finish(40);
+    CHECK_MSG(b.measuredDuringWait && b.widths == std::vector<std::string>{"w=77"} && b.got == "77" && !b.dead, joined(b.widths) + " / " + b.got + " / " + b.dead.value_or("alive"));
+    for (const auto& [name, run] : std::vector<std::pair<std::string, ServedQuery>>{{"4 s platform wait", a}, {"begun while the glue waits", b}})
+        CHECK_MSG(run.queryMs >= 0 && run.queryMs < 500 && run.queryMs <= control.queryMs + 250,
+                  name + ": " + std::to_string(run.queryMs) + " ms charged, the control " + std::to_string(control.queryMs) + " ms");
+    if (a.widthAfter) printf("    the query behind a 4 s platform wait: its width %.2f s after the tap\n", *a.widthAfter);
+    printf("    query time charged: %.1f ms behind the 4 s platform wait, %.1f ms begun while the glue waits, %.1f ms with no wait\n", a.queryMs, b.queryMs, control.queryMs);
+    for (const auto& [name, run] : std::vector<std::pair<std::string, ServedQuery>>{{"slow glue", slowGlue.finish(40)}, {"unrelated request", unrelated.finish(40)}}) {
+        CHECK_MSG(run.dead && run.dead->rfind("Layout query limit exceeded: host queries blocked the renderer", 0) == 0, name + ": " + run.dead.value_or("alive"));
+        CHECK_MSG(std::find(run.widths.begin(), run.widths.end(), "w=77") == run.widths.end(), name + ": " + joined(run.widths));
+        CHECK_MSG(run.widths.size() <= 1 && (run.widths.empty() || (run.widthAfter && *run.widthAfter >= 3 && *run.widthAfter < 3.5)),
+                  name + ": " + joined(run.widths) + (run.widthAfter ? " after " + std::to_string(*run.widthAfter) : ""));
+        CHECK_MSG(run.deathAfter && *run.deathAfter >= 3, name + ": " + (run.deathAfter ? std::to_string(*run.deathAfter) : "no death"));
+        printf("    %s: %s, dead %.2f s after the tap\n", name.c_str(), run.widths.empty() ? "no width logged" : (run.widths[0] + " " + std::to_string(run.widthAfter.value_or(-1)) + " s after the tap").c_str(),
+               run.deathAfter.value_or(-1));
+    }
+}
+
+/// A thread's request of a kept platform, the thread one with a joined thread's id (`requestFromRecycledId`): how many threads it took, whether one got that id, and that one's answer and how long it took.
+struct RecycledRequest {
+    int threads = 0;
+    bool matched = false;
+    std::optional<std::string> answer = "unset";
+    double seconds = -1;
+};
+
+/// From threads with a JSThread's stack (as a glue's), one after another, at most 64, until one has `id`, a joined thread's id that the system hands out again: that thread's `platform.request`.
+static RecycledRequest requestFromRecycledId(SandboxHostedPlatform& platform, std::thread::id id) {
+    RecycledRequest out;
+    while (out.threads < 64 && !out.matched) {
+        out.threads++;
+        JSThread thread("hosted.recycled");
+        thread.sync([&] {
+            if (std::this_thread::get_id() != id) return;
+            out.matched = true;
+            const auto at = std::chrono::steady_clock::now();
+            out.answer = platform.request("recycled");
+            out.seconds = secondsSince(at);
+        });
+    }
+    return out;
+}
+
+/// A renderer may keep its platform past its widget and call it from any thread. Over a hosted loopback whose sink holds the served glue's own request (`wait:held`), the runtime closed and destroyed on a thread of its own: a request of another thread answers none at once instead of waiting for the held one's turn; the destruction waits for the held request alone, which still gets its answer; and from then on, in the renderer's own destructor once the glue thread was joined and after the runtime is gone, a request answers none at once, also from a thread that got the glue thread's id again, and never reaches the sink. Before all that a request of another thread is the sink's as usual.
+TEST(hosted_kept_platform_reaches_no_host_after_close_and_join) {
+    auto sink = std::make_shared<StreamSink>();
+    Gate held;
+    std::shared_ptr<SandboxHostedPlatform> kept;
+    std::thread::id glue;
+    RecycledRequest inDestructor;
+    HostedTestRenderer* renderer = nullptr;
+    auto channel = std::make_unique<SandboxHostedLoopbackChannel>(RES, hostedTest(renderer, [&](HostedTestRenderer& r) {
+        kept = r.platform;
+        r.inventory = [&glue] {
+            glue = std::this_thread::get_id();
+            return std::string("glue");
+        };
+        r.onDestroyed = [&] { inDestructor = requestFromRecycledId(*kept, glue); };
+    }));
+    channel->attach(sink);
+    channel->startHosted("<p>x</p>", testConfig(), SandboxHostedStart{});
+    CHECK(eventually([&] { return sink->saw("rendered"); }, 20));
+    channel->platform("threads");
+    CHECK(eventually([&] { return sink->saw("platform:threads:glue"); }));
+    CHECK(kept && glue != std::thread::id());
+    if (!kept || glue == std::thread::id()) return;
+    CHECK(kept->request("unrelated") == std::optional<std::string>("ANSWER"));
+    sink->platformGate = &held;
+    channel->platform("wait:held");
+    CHECK(held.waitedOn());
+    Background<bool> destroying([&] {
+        channel.reset();
+        return true;
+    });
+    sleepMs(200);
+    CHECK_MSG(!destroying.within(0), "the runtime was destroyed while its glue thread waited inside a request");
+    Background<std::pair<std::optional<std::string>, double>> closedCall([&] {
+        const auto at = std::chrono::steady_clock::now();
+        std::optional<std::string> answer = kept->request("closed");
+        return std::make_pair(answer, secondsSince(at));
+    });
+    const std::optional<std::pair<std::optional<std::string>, double>> closed = closedCall.within(1);
+    CHECK_MSG(closed && !closed->first && closed->second < 0.5, closed ? closed->first.value_or("none") + " after " + std::to_string(closed->second) + " s" : "still waiting after 1 s");
+    sleepMs(100);
+    held.open();
+    CHECK(destroying.finish(10));
+    closedCall.finish(5);
+    if (inDestructor.matched) {
+        CHECK_MSG(!inDestructor.answer && inDestructor.seconds >= 0 && inDestructor.seconds < 0.5,
+                  inDestructor.answer.value_or("none") + " after " + std::to_string(inDestructor.seconds) + " s");
+    }
+    const auto at = std::chrono::steady_clock::now();
+    CHECK(!kept->request("after"));
+    CHECK(secondsSince(at) < 0.5);
+    const RecycledRequest after = requestFromRecycledId(*kept, glue);
+    if (after.matched) CHECK_MSG(!after.answer && after.seconds >= 0 && after.seconds < 0.5, after.answer.value_or("none") + " after " + std::to_string(after.seconds) + " s");
+    const std::vector<std::string> events = sink->events();
+    const auto count = [&](const std::string& event) { return std::count(events.begin(), events.end(), event); };
+    CHECK(count("platform-request:unrelated") == 1 && count("platform-request:held") == 1 && count("platform-request-done") == 2);
+    for (const std::string& unreached : {"platform-request:closed", "platform-request:recycled", "platform-request:after", "platform:waited:ANSWER"})
+        CHECK_MSG(count(unreached) == 0, unreached);
+    printf("    the glue thread's id again: %s in the renderer's destructor (%d threads), %s after the runtime (%d threads)\n", inDestructor.matched ? "got" : "not got",
+           inDestructor.threads, after.matched ? "got" : "not got", after.threads);
+    kept.reset();
 }
 
 /// The widget's scheme and bottom inset, as a probe reads them.

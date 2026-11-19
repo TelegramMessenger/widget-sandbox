@@ -38,6 +38,8 @@ public:
     bool disconnectOnClose = false;
     /// `attach` reports a disconnection from inside, as a transport that cannot reach the engine's side may.
     bool disconnectOnAttach = false;
+    /// What `platform` answers once it recorded the message: false as a writer that refuses it (a stream's full queue, a route that is ending).
+    std::atomic<bool> admitsPlatform{true};
     std::string probeAnswer = "{\"ok\":true}";
 
     void attach(std::shared_ptr<SandboxRemoteSink> sink) override {
@@ -77,7 +79,10 @@ public:
         record("hostedStart:" + html + ":" + SandboxRemoteCoding::encodeConfig(config) + ":" + SandboxRemoteCoding::encodeHostedStart(start));
     }
     void hostedTheme(const WidgetTheme& theme) override { record("hostedTheme:" + SandboxRemoteCoding::encodeTheme(theme)); }
-    void platform(const std::string& message) override { record("platform:" + message); }
+    bool platform(const std::string& message) override {
+        record("platform:" + message);
+        return admitsPlatform;
+    }
     void kept() override { record("kept"); }
     void close() override {
         std::shared_ptr<SandboxRemoteSink> sink;
@@ -531,6 +536,22 @@ inline const std::string kRect77 = "{\"x\":0,\"y\":0,\"width\":77,\"height\":20,
 
 inline const char* kMeasure = "<p id='p'>x</p><script>console.log('w=' + document.getElementById('p').getBoundingClientRect().width);</script>";
 
+/// A button a tap measures again (its text changed first): each width logged `w=<width>` right after its query and kept in `got`.
+inline const char* kMeasuredOnTap = "<button id='b'>go</button><script>var got = [], b = document.getElementById('b');"
+                                    "b.onclick = function () { b.textContent = 'go ' + got.length; var w = b.getBoundingClientRect().width; console.log('w=' + w); got.push(w); };</script>";
+
+/// The same measure once, 1.5 s after the load, `measuring` logged before it.
+inline const char* kMeasuredLater = "<button id='b'>go</button><script>var got = [], b = document.getElementById('b');"
+                                    "setTimeout(function () { console.log('measuring'); b.textContent = 'later'; var w = b.getBoundingClientRect().width; console.log('w=' + w); got.push(w); }, 1500);</script>";
+
+/// The `w=` logs of a measured widget so far, in order.
+inline std::vector<std::string> widthsLogged(const WidgetDiagnostics& d) {
+    std::vector<std::string> out;
+    for (const auto& [level, text] : d.logs)
+        if (text.rfind("w=", 0) == 0) out.push_back(text);
+    return out;
+}
+
 inline SandboxConfig walletConfig() {
     SandboxConfig c = testConfig();
     c.context = messageContext(false, true, false, "private");
@@ -549,7 +570,7 @@ inline const char* kRealEngineWidget =
     "    return TelegramWidget.wallet.signData({ type: 'text', text: 'sign' }, 'w'); })"
     "  .then(function (b) { log.push('signed:' + b.result); }, function (e) { log.push('err:' + e.code); }); };</script>";
 
-/// The engine process's renderer of the hosted tests (`hostedTest`), talking to the host's platform: as ScriptedRenderer it announces `ready` on load (unless `readyOnLoad` is false), answers every query with `queryResult` and keeps what the glue sent; it keeps its platform's messages too and acts on them: `say:<x>` sends x, `ask:<x>` asks x from a thread of its own and then sends `got:<answer>` (`got:none` for none), `wait:<x>` asks x on the glue's thread itself (where its platform's messages come) and then sends `waited:<answer>` (`waited:none`), both answers kept in order (`answers`), `burst:<n>` sends `b:0` .. `b:<n-1>`, `threads` sends `threads:` and its `inventory` ("unlisted" without one), `tap` frames a trusted click on the widget's first element (`kTapOnButton`) with a press as a native renderer does (`gesture`, the click, `release`), `untrusted-tap` sends that click alone and untrusted, `stall` holds the glue's thread for 200 ms; with `echoOps` it sends `ops:<n>` after its nth batch, with `askOnOps` it asks `laid:<n>` inside the glue's call that hands it that batch and then sends `laid:<n>:<answer>`; a set `gone` turns true when it is destroyed.
+/// The engine process's renderer of the hosted tests (`hostedTest`), talking to the host's platform: as ScriptedRenderer it announces `ready` on load (unless `readyOnLoad` is false), answers every query with `queryResult` and keeps what the glue sent; it keeps its platform's messages too and acts on them: `say:<x>` sends x, `ask:<x>` asks x from a thread of its own and then sends `got:<answer>` (`got:none` for none), `wait:<x>` asks x on the glue's thread itself (where its platform's messages come) and then sends `waited:<answer>` (`waited:none`), both answers kept in order (`answers`), `burst:<n>` sends `b:0` .. `b:<n-1>`, `threads` sends `threads:` and its `inventory` ("unlisted" without one), `tap` frames a trusted click on the widget's first element (`kTapOnButton`) with a press as a native renderer does (`gesture`, the click, `release`), `untrusted-tap` sends that click alone and untrusted, `stall` holds the glue's thread for 200 ms; with `echoOps` it sends `ops:<n>` after its nth batch, with `askOnOps` it asks `laid:<n>` inside the glue's call that hands it that batch and then sends `laid:<n>:<answer>`; with `askOnQuery` it asks `query:<qid>` inside the glue's call that hands it an engine's layout query and with `queryStallMs` holds the glue's thread that long there, both before it answers; a set `gone` turns true when it is destroyed, after a set `onDestroyed` ran.
 struct HostedTestRenderer final : Renderer {
     explicit HostedTestRenderer(std::shared_ptr<SandboxHostedPlatform> platform) : platform(std::move(platform)) {
         this->platform->onMessage = [this](const std::string& message) { heard(message); };
@@ -557,6 +578,7 @@ struct HostedTestRenderer final : Renderer {
     /// Waits for a request it is still asking.
     ~HostedTestRenderer() override {
         asker_.join();
+        if (onDestroyed) onDestroyed();
         if (gone) *gone = true;
     }
 
@@ -571,8 +593,17 @@ struct HostedTestRenderer final : Renderer {
         std::optional<Json> m = Json::parse(json);
         if (!m) return;
         const std::string& type = (*m)["type"].asString();
-        if (type == "query") onMessage("{\"type\":\"result\",\"qid\":" + std::to_string((*m)["qid"].asInt()) + ",\"result\":" + queryResult + "}");
-        else if (type == "ops" && (echoOps || askOnOps)) {
+        if (type == "query") {
+            const int qid = (*m)["qid"].asInt();
+            // An engine's query (the glue's own acknowledgement is -1), inside the glue's call, on its thread, as a layout that measures a text.
+            if (qid > 0 && queryStallMs > 0) sleepMs(queryStallMs);
+            if (qid > 0 && askOnQuery) {
+                std::optional<std::string> answer = platform->request("query:" + std::to_string(qid));
+                std::lock_guard<std::mutex> l(mutex);
+                answers_.push_back(std::move(answer));
+            }
+            onMessage("{\"type\":\"result\",\"qid\":" + std::to_string(qid) + ",\"result\":" + queryResult + "}");
+        } else if (type == "ops" && (echoOps || askOnOps)) {
             const std::string n = std::to_string(++batches_);
             if (echoOps) platform->send("ops:" + n);
             // Inside the glue's own call, on its thread, as a renderer whose layout asks its platform (a font, a text's width).
@@ -616,10 +647,15 @@ struct HostedTestRenderer final : Renderer {
     std::string queryResult = "null";
     bool echoOps = false;
     bool askOnOps = false;
+    /// Set at any time; read on the glue's thread at each layout query.
+    std::atomic<bool> askOnQuery{false};
+    std::atomic<int> queryStallMs{0};
     /// What `threads` reports (a test's thread inventory); set before the host starts.
     std::function<std::string()> inventory;
     /// Set before the host starts: true once this renderer is destroyed.
     std::shared_ptr<std::atomic<bool>> gone;
+    /// Set before the host starts: called from its destructor, after its asker's join, on the thread destroying it (a served host's renderer: once that host's glue thread was joined).
+    std::function<void()> onDestroyed;
     std::mutex mutex;
     std::vector<std::string> messages;
     std::vector<std::string> themes;

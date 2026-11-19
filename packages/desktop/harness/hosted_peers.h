@@ -438,7 +438,7 @@ private:
             inner_->startHosted(html, config, start);
         }
         void hostedTheme(const WidgetTheme& theme) override { inner_->hostedTheme(theme); }
-        void platform(const std::string& message) override { inner_->platform(message); }
+        bool platform(const std::string& message) override { return inner_->platform(message); }
         // The client is the kept renderer's from now on and its WidgetHost may go first: no fixture input reaches that host any more.
         void kept() override {
             session_->detachHost();

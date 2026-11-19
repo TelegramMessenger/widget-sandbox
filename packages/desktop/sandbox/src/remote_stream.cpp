@@ -131,7 +131,7 @@ public:
     }
     void startHosted(const std::string&, const SandboxConfig&, const SandboxHostedStart&) override {}
     void hostedTheme(const WidgetTheme&) override {}
-    void platform(const std::string&) override {}
+    bool platform(const std::string&) override { return false; }
     void start(const std::string&, const SandboxConfig&) override {}
     void event(const std::string&) override {}
     void activationEvent(const std::string&, int) override {}
@@ -298,10 +298,10 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
         return route.id;
     }
 
-    /// A frame of `route`'s encoded outside the lock, queued only while the route and the stream still are.
-    void admit(HostRoute& route, std::string frame) {
+    /// A frame of `route`'s encoded outside the lock, queued only while the route and the stream still are: whether the writer took it (false for a route no longer live, a stream ending, or a queue past its bounds, which ends the stream).
+    bool admit(HostRoute& route, std::string frame) {
         std::lock_guard<std::mutex> l(mutex_);
-        if (route.state == HostRoute::State::Live) queueLocked(std::move(frame));
+        return route.state == HostRoute::State::Live && queueLocked(std::move(frame));
     }
 
     /// The channel's `kept`: a live route counts no more among the open runtimes, and the monitor reports the new count.
@@ -698,17 +698,18 @@ public:
         if (SandboxRemoteCoding::decodeTheme(coded)) send(Kind::HostedTheme, {coded});
         else connection_->lose(route_);
     }
-    void platform(const std::string& message) override { send(Kind::Platform, {message}); }
+    bool platform(const std::string& message) override { return send(Kind::Platform, {message}); }
     void kept() override { connection_->keep(*route_); }
 
 private:
-    /// Encoded outside the lock once the route is live, then admitted only if it still is.
-    void send(Kind kind, std::initializer_list<Field> fields) {
+    /// Encoded outside the lock once the route is live, then admitted only if it still is: whether the writer took the frame (false too for one past the frame bound, which loses the runtime).
+    bool send(Kind kind, std::initializer_list<Field> fields) {
         const std::optional<uint32_t> id = connection_->liveId(*route_);
-        if (!id) return;
+        if (!id) return false;
         std::optional<std::string> frame = Codec::encode(*id, kind, SandboxRemoteWire::kMaxFrameBytes, fields);
-        if (frame) connection_->admit(*route_, std::move(*frame));
-        else connection_->lose(route_);
+        if (frame) return connection_->admit(*route_, std::move(*frame));
+        connection_->lose(route_);
+        return false;
     }
 
     const std::shared_ptr<Connection> connection_;

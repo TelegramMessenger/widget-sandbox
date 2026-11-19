@@ -6,12 +6,15 @@
 #include "twidget/widget_host.h"
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -19,26 +22,97 @@ namespace twidget {
 
 namespace {
 
-/// A hosted renderer's platform over its runtime's sink: each message straight to it, the requests one at a time; nothing once the runtime closed.
+/// A hosted renderer's platform over its runtime's sink: each message straight to it, the requests one at a time; nothing once the runtime closed. It keeps the time the served host's glue thread spends inside `request`, its wait for its turn included, as the glue's layout queries read it (`WidgetHost::glueWaits_`), and wakes them at each such wait's end while the runtime watches that thread: from `watchGlue` to `unwatchGlue`, which the runtime calls while its host and that thread live, both under the count's lock, so a renderer that keeps its platform past its widget never reaches a host that is gone, from that thread's id given to another thread either.
 class HostedPlatform final : public SandboxHostedPlatform {
 public:
+    using Clock = std::chrono::steady_clock;
+    struct Waited {
+        Clock::time_point at;
+        Clock::duration total{};
+        bool waiting = false;
+    };
+
     explicit HostedPlatform(std::shared_ptr<SandboxRemoteSink> sink) : sink_(std::move(sink)) {}
 
     void send(const std::string& message) override {
         if (!closed_) sink_->remotePlatformMessage(message);
     }
     std::optional<std::string> request(const std::string& message) override {
+        // Closed: nullopt at once, neither counted nor behind the turn of a request still under way.
+        if (closed_) return std::nullopt;
+        const GlueWait counted(*this);
         std::lock_guard<std::mutex> l(requesting_);
         if (closed_) return std::nullopt;
         return sink_->remotePlatformRequest(message);
     }
     /// From now on no message goes out, and every request, one waiting for its turn too, answers nullopt.
     void close() { closed_ = true; }
+    /// Once, before the served host starts: its glue thread, whose time in `request` counts, and what hears each such wait end (on that thread, outside the count's lock, the count already updated).
+    void watchGlue(std::thread::id glue, std::function<void()> ended) {
+        std::lock_guard<std::mutex> l(accounting_);
+        glue_ = glue;
+        waitEnded_ = std::move(ended);
+    }
+    /// While the served host and its glue thread still live, before the join that frees that thread's id: from now on no wait in `request` is counted from it or heard, and once this returns an `ended` under way has returned too, so none reaches the host after it.
+    void unwatchGlue() {
+        std::unique_lock<std::mutex> l(accounting_);
+        glue_ = std::thread::id();
+        idle_.wait(l, [this] { return hearing_ == 0; });
+        waitEnded_ = nullptr;
+    }
+    /// The glue thread's time in `request` to now, a wait in progress included, and whether one is, read together.
+    Waited waited() const {
+        std::lock_guard<std::mutex> l(accounting_);
+        const Clock::time_point now = Clock::now();
+        return {now, total_ + (since_ ? now - *since_ : Clock::duration::zero()), since_.has_value()};
+    }
 
 private:
+    /// Admitted on the watched glue thread alone, under the count's lock: that thread's wait in `request` counts, and its end is heard if the watch still lasts then; never under `requesting_`, and the count's lock is held for no call.
+    class GlueWait {
+    public:
+        explicit GlueWait(HostedPlatform& platform) : platform_(platform) {
+            std::lock_guard<std::mutex> l(platform_.accounting_);
+            if (platform_.glue_ != std::this_thread::get_id()) return;
+            counted_ = true;
+            platform_.since_ = Clock::now();
+        }
+        ~GlueWait() {
+            if (!counted_) return;
+            {
+                std::lock_guard<std::mutex> l(platform_.accounting_);
+                if (platform_.since_) platform_.total_ += Clock::now() - *platform_.since_;
+                platform_.since_.reset();
+                // Unwatched meanwhile: the host is being destroyed, which answers a query that waited through this.
+                if (platform_.glue_ != std::this_thread::get_id()) return;
+                platform_.hearing_++;
+            }
+            if (platform_.waitEnded_) platform_.waitEnded_();
+            {
+                std::lock_guard<std::mutex> l(platform_.accounting_);
+                platform_.hearing_--;
+            }
+            platform_.idle_.notify_all();
+        }
+        GlueWait(const GlueWait&) = delete;
+        GlueWait& operator=(const GlueWait&) = delete;
+
+    private:
+        HostedPlatform& platform_;
+        bool counted_ = false;
+    };
+
     const std::shared_ptr<SandboxRemoteSink> sink_;
     std::mutex requesting_;
     std::atomic<bool> closed_{false};
+    /// Under `accounting_`: the watched glue thread (none before `watchGlue` and after `unwatchGlue`), what hears its waits end (called outside the lock, changed only while no call of it is under way), how many such calls are and the signal of their end.
+    std::thread::id glue_;
+    std::function<void()> waitEnded_;
+    int hearing_ = 0;
+    std::condition_variable idle_;
+    mutable std::mutex accounting_;
+    Clock::duration total_{};
+    std::optional<Clock::time_point> since_;
 };
 
 constexpr const char* kNotBuilt = "the widget could not be built in the engine process: ";
@@ -50,7 +124,7 @@ class SandboxHostedRuntime final : public detail::HostedRuntime, public SandboxE
 public:
     SandboxHostedRuntime(std::shared_ptr<SandboxRemoteSink> sink, std::shared_ptr<SandboxResources> resources, HostedRendererFactory renderers)
         : sink_(std::move(sink)), resources_(std::move(resources)), renderers_(std::move(renderers)), forwarder_(sink_, resources_), platform_(std::make_shared<HostedPlatform>(sink_)) {}
-    /// Closes, then destroys the served host, joining its threads while this delegate and the forwarder still exist.
+    /// Closes, stops the platform's watch of the glue thread, then destroys the served host, joining its threads while this delegate and the forwarder still exist.
     ~SandboxHostedRuntime() override;
     SandboxHostedRuntime(const SandboxHostedRuntime&) = delete;
     SandboxHostedRuntime& operator=(const SandboxHostedRuntime&) = delete;
@@ -154,6 +228,8 @@ SandboxHostedRuntime::~SandboxHostedRuntime() {
         std::lock_guard<std::mutex> l(mutex_);
         host = std::move(host_);
     }
+    // While the host and its glue thread live: a renderer that keeps the platform reaches neither from here on, its glue thread's id free for another thread after the join.
+    platform_->unwatchGlue();
     // Outside the lock: the host's destructor joins its threads, whose last calls come here.
     host.reset();
 }
@@ -173,6 +249,14 @@ std::unique_ptr<WidgetHost> SandboxHostedRuntime::build(const std::string& html,
                                                     *this, std::move(reports)));
     host->stoppedLabel = start.stoppedLabel;
     if (start.validatedOps) host->onRenderOps = [sink](const std::string& json) { sink->remoteValidatedOps(json); };
+    // Only the glue's own waits in its platform requests leave its layout queries' time; `ended` is called on the glue thread alone, until the destructor unwatches it before the host goes.
+    const std::shared_ptr<HostedPlatform> platform = platform_;
+    WidgetHost* served = host.get();
+    host->glueWaits_ = [platform] {
+        const HostedPlatform::Waited w = platform->waited();
+        return WidgetHost::GlueWaited{w.at, w.total, w.waiting};
+    };
+    platform->watchGlue(host->hostThread_.sync([] { return std::this_thread::get_id(); }), [served] { served->glueWaitEnded(); });
     return host;
 }
 
@@ -295,7 +379,11 @@ void SandboxHostedLoopbackChannel::hostedTheme(const WidgetTheme& theme) {
     if (std::optional<WidgetTheme> coded = SandboxRemoteCoding::decodeTheme(SandboxRemoteCoding::encodeTheme(theme))) runtime_->theme(*coded);
     else client_->remoteDisconnected();
 }
-void SandboxHostedLoopbackChannel::platform(const std::string& message) { runtime_->platform(message); }
+bool SandboxHostedLoopbackChannel::platform(const std::string& message) {
+    if (closed_ || !runtime_) return false;
+    runtime_->platform(message);
+    return true;
+}
 void SandboxHostedLoopbackChannel::contentSafeArea(const WidgetContentSafeArea& area) {
     if (std::optional<WidgetContentSafeArea> coded = SandboxRemoteCoding::decodeSafeArea(SandboxRemoteCoding::encodeSafeArea(area))) runtime_->contentSafeArea(*coded);
     else client_->remoteDisconnected();
@@ -311,7 +399,10 @@ void SandboxHostedLoopbackChannel::answer(int64_t id, const SandboxRemoteOutcome
     else client_->remoteDisconnected();
 }
 std::string SandboxHostedLoopbackChannel::probe(const std::string& code) { return runtime_->probe(code); }
-void SandboxHostedLoopbackChannel::close() { runtime_->close(); }
+void SandboxHostedLoopbackChannel::close() {
+    closed_ = true;
+    runtime_->close();
+}
 
 // The engine-only calls, which a hosted client never makes: the widget's own glue makes them inside the runtime.
 void SandboxHostedLoopbackChannel::start(const std::string&, const SandboxConfig&) {}

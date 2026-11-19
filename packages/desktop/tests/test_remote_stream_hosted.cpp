@@ -565,16 +565,16 @@ static std::vector<std::string> diagsOf(const WidgetDiagnostics& d, const std::s
 /// How a hosted widget dies when its host's platform let its renderer's request go unanswered (WidgetHost's `kPlatformAnswerSeconds`).
 static const std::string kPlatformLate = "the host's platform did not answer the widget's renderer within 3 s";
 
-/// A hosted WidgetHost on `end`'s hosting stream (its `hostedChannel`), `width` px wide (what the engine end's renderer factory gets), started after `configure` ran on it: its Intl provider answers `intlAnswer`, its platform requests are answered "answer:<message>" (with `answering` false each responder is kept and never called); what reached its callbacks, in order under a lock: each validated batch (asked for before its start), platform message and platform request, each request and wallet call with its responder.
+/// A hosted WidgetHost on `end`'s hosting stream (its `hostedChannel`), `width` px wide (what the engine end's renderer factory gets), started after `configure` ran on it, its platform requests due as `wait` says when given: its Intl provider answers `intlAnswer`, its platform requests are answered "answer:<message>" (with `answering` false each responder is kept and never called); what reached its callbacks, in order under a lock: each validated batch (asked for before its start), platform message and platform request, each request and wallet call with its responder.
 struct HostedStreamHost {
     using Respond = std::function<void(const WidgetRequestOutcome&)>;
     const std::shared_ptr<StreamIntl> intl = std::make_shared<StreamIntl>();
     std::unique_ptr<WidgetHost> host;
 
     HostedStreamHost(SandboxRemoteHostEnd& end, const char* html, WidgetHostOptions options, double width, std::string intlAnswer, bool answering = true,
-                     const std::function<void(WidgetHost&)>& configure = nullptr) {
+                     const std::function<void(WidgetHost&)>& configure = nullptr, std::shared_ptr<SandboxHostedWait> wait = nullptr) {
         intl->answer = std::move(intlAnswer);
-        host = std::make_unique<WidgetHost>(html, WidgetTheme{}, width, std::move(options), end.hostedChannel(), intl);
+        host = std::make_unique<WidgetHost>(html, WidgetTheme{}, width, std::move(options), end.hostedChannel(), intl, std::move(wait));
         host->onRenderOps = [this](const std::string& ops) {
             std::lock_guard<std::mutex> l(mutex_);
             rendered_ += ops;
@@ -753,10 +753,52 @@ TEST(remote_stream_hosted_widget_host) {
     refusing->attach(sink);
     refusing->startHosted("<p>x</p>", testConfig(), SandboxHostedStart{});
     refusing->hostedTheme(WidgetTheme{});
-    refusing->platform("x");
+    CHECK(!refusing->platform("x"));
     CHECK(refusing->probe("1") == "ERROR no runtime");
     refusing->close();
     CHECK_MSG(sink->events() == std::vector<std::string>{"died:no hosting here"}, joined(sink->events()));
+}
+
+/// A hosted channel's `platform` says whether the writer took the message, the word a hosted client's press waits for (`SandboxEngine::platformPress`): on a hosting stream false before `attach` and after `close`, true on a live route (a kept one too), false for a message the queue cannot hold (whose refusal ends the stream, as a queue past its bounds always did) and for every one once the stream ended; only the admitted ones reach the engine's end. The hosted loopback admits from `attach` until the client's `close`; a refusing channel never.
+TEST(remote_stream_hosted_platform_tells_its_writer_admission) {
+    {
+        SandboxRemoteHostEnd::Limits bounded;
+        bounded.queuedBytes = size_t(1) << 20;
+        ScriptedEngine engine(bounded, true);
+        CHECK(engine.ready());
+        const std::shared_ptr<SandboxHostedChannel> early = engine.host().hostedChannel(), a = engine.host().hostedChannel(), b = engine.host().hostedChannel();
+        CHECK(!early->platform("before attach"));
+        auto sinkA = std::make_shared<StreamSink>(), sinkB = std::make_shared<StreamSink>();
+        a->attach(sinkA);
+        b->attach(sinkB);
+        CHECK(a->platform("a live"));
+        CHECK(b->platform("b live"));
+        b->kept();
+        CHECK(b->platform("b kept"));
+        b->close();
+        CHECK(!b->platform("b closed"));
+        CHECK_MSG(eventually([&] { return engine.saw(2, "close") && engine.saw(1, "platform:a live"); }), joined(engine.frames(2)));
+        CHECK(!engine.events().ended());
+        // Past the queue's bound: refused, and the stream ends.
+        CHECK(!a->platform(std::string(size_t(2) << 20, 'p')));
+        const std::string reason = "more than 1048576 bytes queued for the stream";
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }, 2) && endsOnce(engine.events().all(), reason), joined(engine.events().all()));
+        CHECK(!a->platform("after the end"));
+        CHECK_MSG(eventually([&] { return sinkA->saw("disconnected"); }), joined(sinkA->events()));
+        CHECK_MSG((engine.frames(1) == std::vector<std::string>{"open", "platform:a live"}), joined(engine.frames(1)));
+        CHECK_MSG((engine.frames(2) == std::vector<std::string>{"open", "platform:b live", "platform:b kept", "close"}), joined(engine.frames(2)));
+        CHECK(engine.frames(3).empty());
+    }
+    {
+        SandboxHostedLoopbackChannel loopback(RES, nullptr);
+        CHECK(!loopback.platform("before attach"));
+        auto sink = std::make_shared<StreamSink>();
+        loopback.attach(sink);
+        CHECK(loopback.platform("attached"));
+        loopback.close();
+        CHECK(!loopback.platform("closed"));
+        CHECK_MSG(sink->events().empty(), joined(sink->events()));
+    }
 }
 
 /// The bridge call of runtime 1 an engine end writes by hand.
@@ -1242,6 +1284,105 @@ TEST(remote_stream_hosted_kept_renderers) {
     CHECK_MSG(eventually([&] { return deadGone->load(); }), "the other renderer outlived its engine process's end");
     deadKept->release();
     CHECK_MSG(deadHeard.ends().size() == 1 && stoppedHeard.ends().empty() && !stoppedKept->ended(), joined(stoppedHeard.events()));
+}
+
+/// Seconds from `from` to now.
+static double secondsSince(std::chrono::steady_clock::time_point from) { return std::chrono::duration<double>(std::chrono::steady_clock::now() - from).count(); }
+
+/// Hosted WidgetHosts with a SandboxHostedWait on one stream between real ends: A's renderer asks on a thread of its own under a published hold and A's host answers 4 s later: the renderer gets that answer and A goes on; C's request, under a hold released 1.5 s on, is never answered and C dies 3 to 4 s after that release with `platform-timeout` (`Stop` and `Close` for C alone, a late answer changing nothing); B, with no record, exchanges its traffic meanwhile and goes on. Kept, A's route keeps its client and so its record: its renderer's request under a new hold, answered through the handle 4 s later, gets that answer and the route goes on.
+TEST(remote_stream_hosted_held_request_outlives_three_seconds) {
+    using namespace std::chrono_literals;
+    BuiltRenderers built;
+    StreamPeers peers(kBuild, *RES, nullptr, built.factory(tall));
+    const auto waitA = std::make_shared<SandboxHostedWait>(), waitC = std::make_shared<SandboxHostedWait>();
+    HostedStreamHost a(*peers.end, kHostWidget, WidgetHostOptions(), 301, "INTL-A", false, nullptr, waitA);
+    HostedStreamHost b(*peers.end, kHostWidget, WidgetHostOptions(), 302, "INTL-B");
+    HostedStreamHost c(*peers.end, kHostWidget, WidgetHostOptions(), 303, "INTL-C", false, nullptr, waitC);
+    CHECK(a.shown() && b.shown() && c.shown());
+    const auto heldAt = std::chrono::steady_clock::now();
+    waitA->hold(heldAt + 2s);
+    const auto releaseC = heldAt + 1500ms;
+    waitC->hold(releaseC);
+    a.host->sendPlatform("ask:held");
+    c.host->sendPlatform("ask:dropped");
+    CHECK_MSG(eventually([&] { return a.requests() == std::vector<std::string>{"held"} && c.requests() == std::vector<std::string>{"dropped"}; }), joined(a.requests()) + " / " + joined(c.requests()));
+    b.host->sendPlatform("say:b");
+    b.host->sendPlatform("ask:b");
+    CHECK_MSG(eventually([&] { return b.messages() == std::vector<std::string>{"b", "got:answer:b"}; }), joined(b.messages()));
+    std::this_thread::sleep_until(heldAt + 4s);
+    CHECK_MSG(!a.host->diagnostics().dead, a.host->diagnostics().dead.value_or(""));
+    if (const std::function<void(std::string)> respond = a.unanswered(0)) respond("held answer");
+    CHECK_MSG(eventually([&] { return a.messages() == std::vector<std::string>{"got:held answer"}; }), joined(a.messages()));
+
+    CHECK(c.host->waitUntil(died, 6));
+    const double afterRelease = std::chrono::duration<double>(std::chrono::steady_clock::now() - releaseC).count();
+    CHECK_MSG(afterRelease >= WidgetHost::kPlatformAnswerSeconds && afterRelease < WidgetHost::kPlatformAnswerSeconds + 1, std::to_string(afterRelease) + " s after its release");
+    const WidgetDiagnostics d = c.host->diagnostics();
+    CHECK_MSG(d.dead == std::optional<std::string>(kPlatformLate) && diagsOf(d, "platform-timeout") == std::vector<std::string>{kPlatformLate}, d.dead.value_or("alive"));
+    CountingStream& counted = *peers.counted;
+    CHECK_MSG(eventually([&] { return counted.readOf(wire::Stop, 3) == 1 && counted.readOf(wire::Close, 3) == 1; }), std::to_string(counted.readOf(wire::Close, 3)) + " closes");
+    if (const std::function<void(std::string)> late = c.unanswered(0)) late("too late");
+    settleHost(*c.host);
+    CHECK(c.host->diagnostics().dead == std::optional<std::string>(kPlatformLate));
+    for (const uint32_t runtime : {1u, 2u}) CHECK(counted.readOf(wire::Stop, runtime) == 0 && counted.readOf(wire::Close, runtime) == 0);
+    CHECK_MSG(!a.host->diagnostics().dead && !b.host->diagnostics().dead && !peers.events.ended(), joined(peers.events.all()));
+    printf("    A's request answered 4 s after it under its hold; C's dropped one ended it %.2f s after its release\n", afterRelease);
+
+    KeptObservers heard;
+    heard.hold = "kept ask";
+    std::unique_ptr<HostedKeptRenderer> kept = a.host->keepRenderer(heard.observers());
+    CHECK(kept);
+    if (!kept) return;
+    const auto keptAt = std::chrono::steady_clock::now();
+    waitA->hold(keptAt + 2s);
+    kept->sendPlatform("ask:kept ask");
+    CHECK_MSG(eventually([&] { return heard.held(0) != nullptr; }), joined(heard.events()));
+    std::this_thread::sleep_until(keptAt + 4s);
+    CHECK_MSG(!kept->ended() && heard.ends().empty(), joined(heard.events()));
+    if (const std::function<void(std::string)> respond = heard.held(0)) respond("kept answer");
+    CHECK_MSG(eventually([&] { return heard.heard("got:kept answer"); }), joined(heard.events()));
+    CHECK_MSG(!kept->ended() && heard.ends().empty() && secondsSince(keptAt) >= 4, joined(heard.events()));
+    kept->release();
+}
+
+/// A served host's layout query over real ends leaves its glue's platform wait out of its 3 s and of the widget's query budget: A's glue asks its platform inside the query a tap makes and A's host answers 4 s later under a published hold, and A's widget gets its renderer's 77 px and lives; C's glue is slow 3.5 s inside the same query with no request of its own, and C's widget gets no 77 and stops at its query budget; B, on the same stream, goes on meanwhile.
+TEST(remote_stream_hosted_served_query_leaves_out_its_glues_platform_wait) {
+    using namespace std::chrono_literals;
+    StreamPeers peers(kBuild, *RES, nullptr, [](std::shared_ptr<SandboxResources>, const std::string&, double width, std::shared_ptr<SandboxHostedPlatform> platform) -> std::unique_ptr<Renderer> {
+        auto renderer = std::make_unique<HostedTestRenderer>(std::move(platform));
+        renderer->queryResult = width == 302 ? kTallAnswer : kRect77;
+        renderer->askOnQuery = width == 301;
+        renderer->queryStallMs = width == 303 ? 3500 : 0;
+        return renderer;
+    });
+    const auto waitA = std::make_shared<SandboxHostedWait>();
+    HostedStreamHost a(*peers.end, kMeasuredOnTap, WidgetHostOptions(), 301, "INTL-A", false, nullptr, waitA);
+    HostedStreamHost b(*peers.end, kHostWidget, WidgetHostOptions(), 302, "INTL-B");
+    HostedStreamHost c(*peers.end, kMeasuredOnTap, WidgetHostOptions(), 303, "INTL-C");
+    CHECK(a.shown() && b.shown() && c.shown());
+    waitA->hold(std::chrono::steady_clock::now() + 2s);
+    const auto tapped = std::chrono::steady_clock::now();
+    a.host->sendPlatform("tap");
+    c.host->sendPlatform("tap");
+    CHECK_MSG(eventually([&] { return a.requests().size() == 1 && a.requests()[0].rfind("query:", 0) == 0; }), joined(a.requests()));
+    b.host->sendPlatform("say:meanwhile");
+    CHECK_MSG(eventually([&] { return b.messages() == std::vector<std::string>{"meanwhile"}; }), joined(b.messages()));
+    CHECK(b.host->probe("d.textContent") == "h:20");
+    std::this_thread::sleep_until(tapped + 4s);
+    if (const std::function<void(std::string)> respond = a.unanswered(0)) respond("measured");
+    CHECK_MSG(eventually([&] { return widthsLogged(a.host->diagnostics()) == std::vector<std::string>{"w=77"}; }), joined(widthsLogged(a.host->diagnostics())));
+    const double answeredAfter = secondsSince(tapped);
+    CHECK(probeUntil(*a.host, "got.join(',')", "77") == "77");
+    settleHost(*a.host);
+    CHECK_MSG(!a.host->diagnostics().dead && answeredAfter >= 4, a.host->diagnostics().dead.value_or("alive") + ", " + std::to_string(answeredAfter) + " s");
+
+    CHECK(c.host->waitUntil(died, 10));
+    const std::string reason = c.host->diagnostics().dead.value_or("");
+    CHECK_MSG(reason.rfind("Layout query limit exceeded: host queries blocked the renderer", 0) == 0, reason);
+    const std::vector<std::string> widths = widthsLogged(c.host->diagnostics());
+    CHECK_MSG(std::find(widths.begin(), widths.end(), "w=77") == widths.end(), joined(widths));
+    CHECK_MSG(!b.host->diagnostics().dead && !peers.events.ended(), joined(peers.events.all()));
+    printf("    A's query behind its 4 s platform wait answered %.2f s after the tap; C's slow glue: %s\n", answeredAfter, widths.empty() ? "no width logged" : widths[0].c_str());
 }
 
 /// The bridge call of runtime `runtime` an engine end writes by hand.

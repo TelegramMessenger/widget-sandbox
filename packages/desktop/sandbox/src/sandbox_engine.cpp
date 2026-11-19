@@ -854,8 +854,10 @@ std::string SandboxEngine::syncQuery(const std::string& json) {
     if (!queryLimitHit_.empty()) return "{\"error\":\"query budget exceeded\"}";
     double t0 = nowSeconds();
     QueryAnswer answer = delegate_->onQuery(*this, json);
-    double dt = nowSeconds() - t0;
-    js_->deadline += dt; // time spent waiting is not widget CPU time
+    double waited = nowSeconds() - t0;
+    js_->deadline += waited; // time spent waiting is not widget CPU time
+    // Nor is the part a served host's glue spent waiting for its embedder's platform layout time.
+    double dt = waited - std::clamp(answer.platformSeconds, 0.0, waited);
     stats_.queries++;
     stats_.queryMs += dt * 1000;
     taskQueryMs_ += dt * 1000;

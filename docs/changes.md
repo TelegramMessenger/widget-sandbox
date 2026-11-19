@@ -3,6 +3,105 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: a hosted widget's platform held by its embedder, its deliveries counted, its death heard (2026-11-18)
+
+C++, desktop core only, the hosted mode (no Swift or Kotlin twin: they have no hosted mode). Opt-in: a host that gives
+no `SandboxHostedWait` and uses none of the new calls keeps every deadline, bound and observer call it had; no frame
+kind, wire rule or observer signature changes. One transport contract does: `SandboxHostedChannel::platform` returns
+`bool`, whether the channel's writer admitted the message (below), so a channel of the embedder's own returns that
+too. An embedder that serves a hosted renderer's platform traffic in order
+behind a meter of its own (tdesktop's renderer move: a widget whose painting is over its share is held 4 to 6 s) can now
+hold a request past the 3 s without the widget dying, while a request nobody answers still ends at a finite deadline.
+
+- `SandboxHostedWait` (`sandbox_engine.h`), optional, one per hosted client, given to `SandboxEngine::hostedClient(...,
+  intl, wait)` or the hosted `WidgetHost(..., hosted, intl, wait)` (both default to none; a kept route keeps its
+  client's): the embedder's meter publishes its release (`hold(time_point)`, at each charge, with nothing queued too)
+  and its input exemption (`exempt(time_point)`) on `std::chrono::steady_clock`. A request is due
+  `kPlatformAnswerSeconds` after its arrival unless the meter actually holds the widget while the request (so the
+  embedder's queue ahead of it) waits for its admission: a release still ahead and no exemption in force, at its
+  arrival, at a later release the meter publishes, or from the end of an exemption a release outlasts that no renewal
+  reached before it ended. Then it is due 3 s after that release, a later release moving it again. An exemption renewed
+  before it ends keeps the arrival's 3 s however long the renewals go on: a request continuously eligible behind a 2 s
+  debt dies 3 s after its arrival (the first form of this record extended it at arrival to the release + 3 s, a measured
+  5.001 s, and let an admission during the exemption restart 3 s); the waiter wakes at the exemption's end to read the
+  record again, each renewal moving that wake (the call's `check`). `admitted(number)` makes it due at most 3 s from
+  then, never later (a hold met until then counted), and fixes it. A repeated or earlier release, a release the clock
+  cannot hold, an older request's number or responder move nothing; nothing suspends a deadline. The client registers
+  each request and its first deadline before its delegate hears it, re-reads both at every wake under the request's
+  lock, keeps the late, unanswered and closed outcomes apart, and never calls out of the record. Its waiter sleeps until a
+  copy of the wake time it chose under that lock, never on a reference into the call: libc++'s `wait_until` reads its
+  time argument again once it has the lock back, when an admission or a renewal may already have ended the `check` it
+  chose (the first form of this record passed `std::min` of the deadline and that `check`); it chooses again at each
+  wake. `due(number)` reads the waiting request's deadline (tests).
+- `HostedRequestResponder::request()`: the request's number, unique in the process. `WidgetHost::platformDelivery()`:
+  inside `onPlatformMessage` or `onPlatformRequest`, a WidgetHost's or a kept renderer's (its first calls, which may run
+  before `keepRenderer` returned, included), the `HostedPlatformDelivery` being delivered: the client's `remoteHold()` of
+  it, which keeps the message or request counted against `kRemoteQueuedBytes` and `kRemoteQueuedCalls` while a copy
+  lives (across the keep too: the handle owns the same client), and a request's number; empty elsewhere.
+- `WidgetHost::onDeath(reason)`: the widget's death once, on the host thread, right after `diagnostics().dead` took it
+  and `onChange`, before a local renderer's `frozen`, in either mode: its own limit, a validator cap, the client's own
+  end (a lost engine process, a flood, a platform request left unanswered); never the end the owner asked for
+  (`destroy()`, `keepRenderer()`), nor a kept route's end (`onEnded`).
+- `WidgetHost::platformDiag(kind, detail)`, hosted only: a diagnostic of the embedder's own checks of that traffic,
+  recorded on the host thread as a local renderer's `onDiag` (the bounded `diags`, then `onChange`); nothing once
+  `destroy()` or `keepRenderer()` returned.
+- The served host's layout query (the engine process): its 3 s are the glue's own time, the glue thread's waits inside
+  its renderer's platform requests while the query waits (one it was in when the query came, its wait for its turn
+  behind another thread's request included) left out, read from one coherent count kept by the runtime's platform and
+  woken at each wait's end; that time is left out of the widget's query budget and main-thread window too
+  (`QueryAnswer::platformSeconds`, 0 elsewhere, which `SandboxEngine::syncQuery` takes off the query's time). Both
+  count from a reading taken before the glue can run the query, so an engine thread that waits late (descheduled
+  right after handing the query over) misses none of the glue's wait, up to the answer's own reading; a timeout leaves
+  the waits in it out too. A request of another thread or widget buys nothing, a glue slow with no request of its own
+  times out at 3 s and stops at the query budget as before, and in-process and local queries keep their 3 s.
+- A renderer may keep its `SandboxHostedPlatform` past its widget and call it from any thread: once the runtime
+  closed, `request` answers nullopt at once (before, after the turn of a request still under way), and the runtime
+  stops counting and hearing its glue thread's waits, under the count's lock and after a wait's end being heard
+  returned, before it destroys the served host and joins that thread, so no call reaches a host that is gone, from a
+  thread given the glue thread's id again either.
+- Tests: `twidget-tests hosted_` (a name filter: 41, 31 before): `hosted_client_platform_requests_wait_for_the_embedders_hold`
+  (a held answer past 3 s, an answer dropped inside and outside a hold, an exemption at arrival that the release outlasts,
+  dropped (due at its arrival's 3 s until the exemption ends, then the release's) and admitted (its arrival's 3 s kept),
+  one renewed every 200 ms across the release (3 to 3.25 s after its arrival; with the first form 5.0 s), one that
+  lapses between renewals 2 s before the release (the release + 3 s), one that outlasts the release, a later release, a
+  repeat, a release 25 s ahead and the admission that fixes it, unheld admissions at 1 s and 2.9 s, an extended request
+  admitted at 4 s, an admission and two renewals that move and then end the check its waiter sleeps until (its
+  arrival's 3 s kept), a stale number and responder, a close), `hosted_platform_deliveries_stay_counted_across_the_keep`, `hosted_widget_host_tells_its_death_once`,
+  `hosted_widget_host_takes_the_embedders_diagnostics`, `hosted_served_query_leaves_out_its_glues_platform_waits`
+  (a 4 s platform wait the glue begins as the query reaches it, a query that begins while its glue waits, each charged
+  no more query time than a query with no wait, a slow glue alone and with an unrelated request of the renderer's own
+  thread) and `hosted_kept_platform_reaches_no_host_after_close_and_join` (a kept platform while the glue waits inside
+  a held request and the runtime is closed and destroyed, then from the renderer's destructor and after the runtime, a
+  thread with the glue thread's id again among the callers); over the stream (`remote_stream_hosted_` 19, so
+  `remote_stream_` 49, `remote_` 112): `remote_stream_hosted_held_request_outlives_three_seconds` (held, dropped and
+  plain neighbours on one stream, then the kept route under its record),
+  `remote_stream_hosted_served_query_leaves_out_its_glues_platform_wait` and
+  `remote_stream_hosted_platform_tells_its_writer_admission` (below).
+- `WidgetHost::sendPlatformPress(message)` / `SandboxEngine::platformPress(message)`, hosted only: a platform message
+  that delivers a primary press to the engine process's renderer and that press (`pressDelivered`) in one job on the
+  dispatch thread, stamped at the call (the grant's 2 s run from the input, not from the job). The press counts (the
+  haptic touch, and the grant while visible) only when the channel's writer admitted the message for the open route of
+  a widget that was never kept: `SandboxHostedChannel::platform` now returns `bool`, the stream's channel true only
+  when its queue took the frame for a live route (false for a route closed or never attached, a stream ending, a queue
+  past its bounds, which ends the stream as before), the refusing channel false, the hosted loopback true from `attach`
+  until the client's `close`. An embedder that hands its press over this way leaves no grant for a press its renderer
+  was not sent (a route retired, closed or ending between two separate calls, a writer that refused it) and none before
+  the press was admitted (a privileged call queued meanwhile finds none). `releaseDelivered` now ends only a press that
+  counted (`pressDelivered`, or `platformPress` admitted): the release of a refused down opens no 5 s touch window. The
+  route's close clears every grant and the press, as the keep already cleared the grants. `pressDelivered` grants
+  as before (a press its release ends), and `WidgetHost::sendPlatformPress` stays `void`. Tests: blocks in
+  `hosted_client_grants_come_from_delivered_presses` (a refused down, a down whose job waited 1.2 s, a refused down's
+  haptics and release, a keep before the press's job), `remote_stream_hosted_platform_tells_its_writer_admission`
+  (before attach, live, kept, closed, past the queue's bound, after the end; the loopback; the refusing channel), and
+  `hosted_widget_host_decides_privileged_calls_on_its_own_presses` now delivers its presses with their taps.
+- Default, both modes: the batch a theme change re-sanitises the stylesheets into (`setTheme`) now reaches
+  `onRenderOps` too when it is not empty, as every other validated batch does, so the harness's leak scan sees all of
+  them; a hosted host that asked for the batches gets it from the engine process. Tests
+  `sdk_widget_host_rethemed_batch_reaches_on_render_ops` (a test source of its own, `test_render_ops.cpp`) and
+  `hosted_widget_host_gets_the_rethemed_batch`.
+  The suite runs 235 tests on macOS (Windows: those less the POSIX-only cases, as before). `HostedTestRenderer` gains
+  `askOnQuery`, `queryStallMs` and `onDestroyed`; `FakeRemoteChannel` gains `admitsPlatform`.
+
 ## Unreleased: a socket read that sees the end of its stream on macOS (2026-11-17)
 
 C++, desktop core: the tests' harness and the stream adapter guidance only. No library code, frame kind, wire rule or

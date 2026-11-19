@@ -20,8 +20,8 @@ public:
     virtual void startHosted(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) = 0;
     /// The chat's whole theme changed (WidgetHost's `setTheme`), for the renderer and the widget in the engine process.
     virtual void hostedTheme(const WidgetTheme& theme) = 0;
-    /// An opaque message of the host's platform for the widget's renderer, in order (`SandboxHostedPlatform::onMessage`).
-    virtual void platform(const std::string& message) = 0;
+    /// An opaque message of the host's platform for the widget's renderer, in order (`SandboxHostedPlatform::onMessage`): whether the transport's writer admitted it for this live route (a stream's queue took its frame); false, and it never goes out, once the route is not live, closed or not yet attached, the stream ends, or the writer refuses it. A hosted client grants a press only on true (`SandboxEngine::platformPress`).
+    virtual bool platform(const std::string& message) = 0;
     /// The host kept the widget's renderer (the client's `keepHosted`, once, after the widget died): from now on only the renderer's platform traffic crosses on this route, until `close`; a transport may count the route out of its live runtimes. The default does nothing.
     virtual void kept() {}
 };
@@ -32,7 +32,7 @@ public:
     virtual ~SandboxHostedPlatform() = default;
     /// A message for the host's platform, from any thread; the host gets them in the order they were sent.
     virtual void send(const std::string& message) = 0;
-    /// A request the renderer waits for, from any thread, the glue's host thread included (inside `onMessage` and inside the renderer calls the glue makes, while the widget lives or once its renderer is kept), but never inside the `HostedRendererFactory` (the thread that builds the renderer would wait for itself): the host's answer, given within `SandboxEngine::kPlatformAnswerSeconds` or the widget dies; a wait on the glue's host thread holds up only that widget's glue (its layout queries, its other platform messages, a probe), never another widget; one waits at a time per widget (a second waits here for the first), and nullopt once the runtime closed or the transport ended, also for a request that was waiting then.
+    /// A request the renderer waits for, from any thread, the glue's host thread included (inside `onMessage` and inside the renderer calls the glue makes, while the widget lives or once its renderer is kept), but never inside the `HostedRendererFactory` (the thread that builds the renderer would wait for itself): the host's answer, given before it is due (`SandboxEngine::kPlatformAnswerSeconds` after its arrival, or as the host's SandboxHostedWait moved it) or the widget dies; a wait on the glue's host thread holds up only that widget's glue (its layout queries, its other platform messages, a probe), never another widget; one waits at a time per widget (a second waits here for the first), and nullopt once the runtime closed or the transport ended, also for a request that was waiting then, and at once for one made after the close: a renderer may keep its platform past its widget.
     virtual std::optional<std::string> request(const std::string& message) = 0;
     /// The host's platform messages for the renderer, in order, on the glue's host thread (the thread every renderer call is made on, which a kept renderer keeps); set it when the renderer is built, before the factory returns.
     std::function<void(const std::string& message)> onMessage;
@@ -46,7 +46,7 @@ namespace detail {
 class HostedRuntime;
 } // namespace detail
 
-/// Both halves of a hosted widget in one process (tests, the harness, parity runs), the hosted twin of `SandboxLoopbackChannel`: `attach` builds the engine's side's runtime, which builds the widget's engine, validator and renderer (from `renderers`) at `startHosted` and sends what they report straight to the client's sink; the config, the hosted start, the theme, data, safe areas and outcomes cross through `SandboxRemoteCoding` as a transport's bytes would, and a form that does not decode is a lost connection (`remoteDisconnected`). The engine-only calls do nothing. `close` closes the runtime and keeps it, as the client may close from its dispatch thread while the runtime's engine waits for that thread: only this channel's destructor, on the owner's thread, destroys it.
+/// Both halves of a hosted widget in one process (tests, the harness, parity runs), the hosted twin of `SandboxLoopbackChannel`: `attach` builds the engine's side's runtime, which builds the widget's engine, validator and renderer (from `renderers`) at `startHosted` and sends what they report straight to the client's sink; the config, the hosted start, the theme, data, safe areas and outcomes cross through `SandboxRemoteCoding` as a transport's bytes would, and a form that does not decode is a lost connection (`remoteDisconnected`). The engine-only calls do nothing. `platform` hands the message to the runtime at once, admitted until the client's `close` (no writer refuses here). `close` closes the runtime and keeps it, as the client may close from its dispatch thread while the runtime's engine waits for that thread: only this channel's destructor, on the owner's thread, destroys it.
 class SandboxHostedLoopbackChannel final : public SandboxHostedChannel {
 public:
     SandboxHostedLoopbackChannel(std::shared_ptr<SandboxResources> resources, HostedRendererFactory renderers);
@@ -55,7 +55,7 @@ public:
     void attach(std::shared_ptr<SandboxRemoteSink> sink) override;
     void startHosted(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) override;
     void hostedTheme(const WidgetTheme& theme) override;
-    void platform(const std::string& message) override;
+    bool platform(const std::string& message) override;
     void contentSafeArea(const WidgetContentSafeArea& area) override;
     void setData(const WidgetData& data) override;
     void setVisible(bool visible) override;
@@ -79,6 +79,8 @@ private:
     const HostedRendererFactory renderers_;
     std::shared_ptr<SandboxRemoteSink> client_;
     std::unique_ptr<detail::HostedRuntime> runtime_;
+    /// The client's `close` came (its dispatch thread makes every call, its destructor the last after joining it): `platform` admits nothing more.
+    bool closed_ = false;
 };
 
 } // namespace twidget

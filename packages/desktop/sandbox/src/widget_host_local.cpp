@@ -238,7 +238,12 @@ void WidgetHost::localSetTheme() {
     renderer_->setTheme(theme_);
     toRenderer(themeMessage());
     // Past the cut the renderer never gets the nodes the re-themed stylesheets would name.
-    if (!engineCut_) toRenderer("{\"type\":\"ops\",\"ops\":" + validator_->setTheme(theme_) + "}");
+    if (!engineCut_) {
+        // A validated batch too: `onRenderOps` (the harness's leak scan) sees every batch the renderer gets.
+        const std::string clean = validator_->setTheme(theme_);
+        toRenderer("{\"type\":\"ops\",\"ops\":" + clean + "}");
+        if (clean != "[]" && onRenderOps) onRenderOps(clean);
+    }
     engine_->theme(theme_, widgetTheme_.params);
 }
 
@@ -325,6 +330,8 @@ QueryAnswer WidgetHost::localQuery(SandboxEngine& engine, const std::string& jso
         if (pendingQuery_ == pending) pendingQuery_.reset();
         return {"{\"error\":\"dead\"}", std::nullopt};
     }
+    // 3 s of the glue's own time, read before the glue can run this query: a served host's glue thread waiting inside its renderer's platform requests from here on (one ahead of this query too) is the embedder's time, left out here and in the widget's query budget, however late this thread waits.
+    const GlueWaited first = glueWaited();
     host([this, pending, clean] {
         if (destroyed_ || engineCut_ || rendererOnly_) return resolveQuery("{\"error\":\"dead\"}", std::nullopt);
         if (!clean) return resolveQuery("{\"error\":\"invalid query\"}", std::nullopt);
@@ -336,12 +343,34 @@ QueryAnswer WidgetHost::localQuery(SandboxEngine& engine, const std::string& jso
         // Not kept: the cut, or destroy(), resolved this query and no longer waits for its qid.
         engineToRenderer("{\"type\":\"query\",\"qid\":" + std::to_string(qid_) + ",\"query\":" + *clean + "}");
     }, std::move(*hold));
+    const auto platformSeconds = [&](std::chrono::steady_clock::duration total) {
+        return std::chrono::duration<double>(std::max(total - first.total, std::chrono::steady_clock::duration::zero())).count();
+    };
     std::unique_lock<std::mutex> l(queryMutex_);
-    if (!queryCv_.wait_for(l, std::chrono::seconds(3), [&] { return pending->done; })) {
-        if (pendingQuery_ == pending) pendingQuery_.reset();
-        return {"{\"error\":\"timeout\"}", std::nullopt};
+    while (!pending->done) {
+        const GlueWaited now = glueWaited();
+        const auto deadline = first.at + std::chrono::seconds(3) + (now.total - first.total);
+        if (now.at >= deadline) {
+            if (pendingQuery_ == pending) pendingQuery_.reset();
+            // Its 3 s of the glue's own time are charged, the platform waits in it are not, as for an answer.
+            return {"{\"error\":\"timeout\"}", std::nullopt, platformSeconds(now.total)};
+        }
+        // A wait in progress moves the deadline with it: its end (`glueWaitEnded`) or the answer wakes this.
+        if (now.waiting) queryCv_.wait(l);
+        else queryCv_.wait_until(l, deadline);
     }
-    return {pending->json, pending->binary};
+    // Up to the answer's own reading (`resolveQuery`), whenever this thread woke.
+    return {pending->json, pending->binary, platformSeconds(pending->glueWaited)};
+}
+
+WidgetHost::GlueWaited WidgetHost::glueWaited() const { return glueWaits_ ? glueWaits_() : GlueWaited{std::chrono::steady_clock::now()}; }
+
+void WidgetHost::glueWaitEnded() {
+    // Under the query's lock, so a query between its reading and its wait cannot miss it.
+    {
+        std::lock_guard<std::mutex> l(queryMutex_);
+    }
+    queryCv_.notify_all();
 }
 
 void WidgetHost::resolveQuery(const std::string& json, std::optional<std::vector<uint8_t>> binary) {
@@ -351,6 +380,7 @@ void WidgetHost::resolveQuery(const std::string& json, std::optional<std::vector
     if (!p) return;
     p->json = json;
     p->binary = std::move(binary);
+    p->glueWaited = glueWaited().total;
     p->done = true;
     queryCv_.notify_all();
 }
