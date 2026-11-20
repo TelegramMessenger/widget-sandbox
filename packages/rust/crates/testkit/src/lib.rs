@@ -244,3 +244,68 @@ pub fn framed(tag: u8, bytes: &[u8]) -> Vec<u8> {
     out.extend_from_slice(bytes);
     out
 }
+
+/// Little-endian fields of an oracle record or answer, as `oracle/oracle_io.h` reads and writes them: a
+/// string is a u32 length and its bytes, an optional one a u8 flag first.
+#[derive(Clone, Debug, Default)]
+pub struct Fields(pub Vec<u8>);
+
+impl Fields {
+    pub fn new() -> Fields {
+        Fields::default()
+    }
+
+    pub fn u8(&mut self, v: u8) -> &mut Fields {
+        self.0.push(v);
+        self
+    }
+
+    pub fn flag(&mut self, v: bool) -> &mut Fields {
+        self.u8(u8::from(v))
+    }
+
+    pub fn u32(&mut self, v: u32) -> &mut Fields {
+        self.0.extend_from_slice(&v.to_le_bytes());
+        self
+    }
+
+    pub fn i32(&mut self, v: i32) -> &mut Fields {
+        self.0.extend_from_slice(&v.to_le_bytes());
+        self
+    }
+
+    pub fn u64(&mut self, v: u64) -> &mut Fields {
+        self.0.extend_from_slice(&v.to_le_bytes());
+        self
+    }
+
+    pub fn i64(&mut self, v: i64) -> &mut Fields {
+        self.0.extend_from_slice(&v.to_le_bytes());
+        self
+    }
+
+    pub fn f64(&mut self, v: f64) -> &mut Fields {
+        self.0.extend_from_slice(&v.to_bits().to_le_bytes());
+        self
+    }
+
+    pub fn str(&mut self, v: &[u8]) -> &mut Fields {
+        self.u32(v.len() as u32);
+        self.0.extend_from_slice(v);
+        self
+    }
+
+    pub fn opt_str(&mut self, v: Option<&[u8]>) -> &mut Fields {
+        self.flag(v.is_some());
+        self.str(v.unwrap_or_default())
+    }
+
+    /// The fields as a record of the oracles' framing.
+    pub fn framed(&self, tag: u8) -> Vec<u8> {
+        framed(tag, &self.0)
+    }
+
+    pub fn take(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.0)
+    }
+}

@@ -10,6 +10,10 @@ from `packages/desktop/sandbox` and compared with it at every stage; the plan an
 |---|---|
 | `crates/js` | `twidget_js`: the engine thread (`js_thread.h`) and the Nova context on it (`nova_context.h`), over nova-safe's `nova_embed` |
 | `crates/json` | `twidget_json`: `twidget::Json` (`packages/desktop/sandbox/include/twidget/json.h`) |
+| `crates/cpu_budget` | `twidget_cpu_budget`: the CPU quota, its deferrals and kill, the layout-query guard (`cpu_budget.h`) |
+| `crates/sdk_policy` | `twidget_sdk_policy`: the SDK v1 checks, the request and haptic gates (`sdk_policy.h`) |
+| `crates/gesture` | `twidget_gesture`: the touch-action claim and the gesture arbiter (`gesture_policy.h`) |
+| `crates/bundle_stamp` | `twidget_bundle_stamp`: the bundles' VERSION.json stamp, the versions, the bundles as read (`bundle_stamp.h`) |
 | `crates/stream` | `twidget_stream`: the remote engine's byte stream: kinds, shapes, the bounded codec, the exact frame reader (`src/remote_wire.h`) |
 | `crates/testkit` | `twidget_testkit`, tests only: the C++ suites' seeded generator and mutator, the oracles' client |
 | `oracle/` | the C++ the port is compared with: small programs built from `packages/desktop/sandbox`, cases on stdin |
@@ -19,8 +23,5 @@ from `packages/desktop/sandbox` and compared with it at every stage; the plan an
 ```sh
 python -I tools/gate.py            # add --release to run the tests optimized too
 ```
-
-nova-safe is checked out next to widget-sandbox (`../nova-safe`, as tdesktop has it): the workspace repeats its
-`[patch.crates-io]` and starts from its `Cargo.lock`, so the engine links what nova-safe checked.
 
 Fixtures come from `packages/core/tests/fixtures`, as every other port reads them.

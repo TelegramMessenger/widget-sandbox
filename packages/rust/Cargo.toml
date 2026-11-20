@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/js", "crates/json", "crates/stream", "crates/testkit"]
+members = ["crates/bundle_stamp", "crates/cpu_budget", "crates/gesture", "crates/js", "crates/json", "crates/sdk_policy", "crates/stream", "crates/testkit"]
 
 [workspace.package]
 version = "0.1.0"
