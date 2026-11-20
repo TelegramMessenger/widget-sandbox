@@ -186,7 +186,7 @@ impl Host for NovaHost {
                     HostReturn::ArrayBuffer(b) => nova_embed::HostReturn::ArrayBuffer(b),
                     HostReturn::String(s) => match String::from_utf8(s) {
                         Ok(text) => nova_embed::HostReturn::String(text),
-                        Err(e) => nova_embed::HostReturn::Wtf8(e.into_bytes()),
+                        Err(e) => nova_embed::HostReturn::StringBytes(e.into_bytes()),
                     },
                     HostReturn::RangeError(s) => nova_embed::HostReturn::RangeError(String::from_utf8_lossy(&s).into_owned()),
                 }
@@ -408,7 +408,7 @@ impl NovaContext {
         if args.len() > MAX_CALL_ARGS {
             return Err(JsError::catchable(format!("more than {MAX_CALL_ARGS} arguments to {name}")));
         }
-        let result = self.engine.call_wtf8(name, args);
+        let result = self.engine.call_with_bytes(name, args);
         self.finish(result)
     }
 
