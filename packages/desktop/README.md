@@ -47,7 +47,7 @@ packages/desktop/
   harness/                   twidget-run + RecordingHost (fake host with canned layout answers) + png.h
                              + stream_peers.h (test byte streams and the TW_ENGINE_STREAM switch, not the library's;
                                memory_stream.h its in-memory pair alone)
-                             + engine_end.h/.cpp (TW_ENGINE_END=rust: the engine process's end in ../rust; -DTW_RUST_ENGINE_END=ON only)
+                             + engine_end.h/.cpp (TW_ENGINE_END=rust: the engine process's end in ../rust, for engine and hosting streams; -DTW_RUST_ENGINE_END=ON only)
                              + hosted_peers.h (the TW_ENGINE_HOSTED switch and the canned renderer, not the library's)
                              + host_only.cpp (twidget-host-only, built from the host's side alone)
   tests/                     twidget-tests (XCTest suite ported) + fixtures/
@@ -90,6 +90,7 @@ TW_ENGINE_STREAM=1 TW_ENGINE_END=rust ./build-rust/twidget-tests   # the same wi
 TW_ENGINE_HOSTED=loopback ./build/twidget-tests    # the same 249 with every fixture WidgetHost hosted (below): its engine, validator and glue behind a SandboxHostedLoopbackChannel, its renderer here; any build type; fails unless every fixture widget went hosted
 TW_ENGINE_HOSTED=stream ./build/twidget-tests      # the same over a hosting stream per widget; also fails when a kind that stays in the engine process crossed one
 TW_ENGINE_HOSTED=stream ./build/twidget-run --attacks      # 133 attacks, 0 leaks in the validated ops the run asked for, "133 hosted over the stream"; =loopback too, and --corpus ../../corpus/compat with either
+TW_ENGINE_HOSTED=stream TW_ENGINE_END=rust ./build-rust/twidget-tests   # the same with every hosting stream (the switch's and the hosted stream tests' own) served by the end in Rust: the widgets' engines, validators and glue in ../rust's twidget_host (twidget_engine_serve_hosting), their C++ renderers behind its C renderer factory (harness/engine_end.cpp); 2026-11-20 (Windows x64 RelWithDebInfo): 230 tests, 0 failures, 19 of 19 fixture widgets over the stream, the C++ end's frame tallies; twidget-run --attacks and --corpus give the C++ end's rows
 ```
 
 On Windows (MSVC, Git Bash) the same suites build and run from `packages/desktop` as checked out with
