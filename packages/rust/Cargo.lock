@@ -392,6 +392,8 @@ name = "twidget_engine_ffi"
 version = "0.1.0"
 dependencies = [
  "nova_embed_ffi",
+ "twidget_bundle_stamp",
+ "twidget_host",
  "twidget_js",
  "twidget_server",
  "twidget_stream",
@@ -403,6 +405,19 @@ version = "0.1.0"
 dependencies = [
  "twidget_json",
  "twidget_testkit",
+]
+
+[[package]]
+name = "twidget_host"
+version = "0.1.0"
+dependencies = [
+ "twidget_bundle_stamp",
+ "twidget_engine",
+ "twidget_js",
+ "twidget_json",
+ "twidget_sdk_policy",
+ "twidget_server",
+ "twidget_stream",
 ]
 
 [[package]]

@@ -54,6 +54,25 @@ pub trait SandboxRemoteSink: Send + Sync {
     fn remote_died(&self, reason: &[u8]);
     /// The transport lost the engine's side or never reached it: the widget dies.
     fn remote_disconnected(&self);
+
+    /// The first of a hosted runtime's calls (`remote_hosted.h`: the widget's validator and renderer run on the
+    /// engine's side too), which a client of an engine-only runtime refuses (`protocol-violation`) and a sink
+    /// that does not carry them ignores: a message of the engine's side's renderer for the host's platform,
+    /// opaque (`SandboxHostedPlatform::send`).
+    fn remote_platform_message(&self, _message: &[u8]) {}
+    /// Synchronous like `remote_query`: the renderer's one waiting request (`SandboxHostedPlatform::request`)
+    /// and the host's answer, none when there is none (the runtime closed, the widget died, the transport ended).
+    fn remote_platform_request(&self, _message: &[u8]) -> Option<Vec<u8>> {
+        None
+    }
+    /// A batch the engine's side's validator passed, for a host that asked for them at its hosted start.
+    fn remote_validated_ops(&self, _json: &[u8]) {}
+    /// The engine's side's renderer announced itself.
+    fn remote_renderer_ready(&self) {}
+    /// The engine's side's glue saw the loaded widget's first render.
+    fn remote_rendered(&self) {}
+    /// The widget's node count after a validated batch, as the engine's side reports it (the client clamps it).
+    fn remote_nodes(&self, _nodes: i64) {}
 }
 
 /// The engine's Intl provider on the engine's side: the host's provider formats each request through the
@@ -248,7 +267,7 @@ impl SandboxRemoteServer {
                 return;
             }
         };
-        engine.set_delegate(Arc::new(ServerDelegate { sink: Arc::clone(&self.sink), state: Arc::clone(&self.state) }));
+        engine.set_delegate(self.delegate());
         let waiting = {
             let mut st = lock(&self.state);
             st.engine = Some(Arc::clone(&engine));
@@ -335,6 +354,13 @@ impl SandboxRemoteServer {
             }),
             SandboxRemoteOutcome::Unsupported => respond.unsupported(),
         }
+    }
+
+    /// The server as its engine's delegate (the C++'s `SandboxRemoteServer` is one): each call sent on to the
+    /// sink, requests and wallet calls numbered for `answer` and refused after `close`. A hosted runtime's
+    /// never-started server relays its own engine's calls through it.
+    pub fn delegate(&self) -> Arc<dyn EngineDelegate> {
+        Arc::new(ServerDelegate { sink: Arc::clone(&self.sink), state: Arc::clone(&self.state) })
     }
 
     /// The engine's `probe`, waiting for its thread; "ERROR no runtime" before `start` and after `close`.

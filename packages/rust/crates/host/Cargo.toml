@@ -1,0 +1,19 @@
+[package]
+name = "twidget_host"
+description = "The engine process's half of a hosted widget: the hosted runtime, its platform and the served WidgetHost between the widget's engine, validator and renderer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+twidget_bundle_stamp = { path = "../bundle_stamp" }
+twidget_engine = { path = "../engine" }
+twidget_js = { path = "../js" }
+twidget_json = { path = "../json" }
+twidget_sdk_policy = { path = "../sdk_policy" }
+twidget_server = { path = "../server" }
+twidget_stream = { path = "../stream" }
