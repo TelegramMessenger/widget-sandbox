@@ -1,16 +1,7 @@
 #include "twidget/nova_context.h"
 
 #include "steady_clock.h"
-
-#ifdef _WIN32
-#include <windows.h>
-#if (defined(_M_IX86) || defined(_M_X64)) && !defined(_M_ARM64EC) // ARM64EC code defines _M_X64 too
-#include <intrin.h>
-#define TW_TSC 1
-#endif
-#else
-#include <time.h>
-#endif
+#include "twidget/engine_platform.h"
 
 #include <algorithm>
 #include <cmath>
@@ -170,144 +161,12 @@ struct NovaTrampoline {
     }
 
     /// Seconds east of UTC in the user's time zone, daylight saving time included.
-    static int32_t timeZone(void* /*context*/, int64_t epochSeconds) {
-#ifdef _WIN32
-        TIME_ZONE_INFORMATION info{};
-        const DWORD id = GetTimeZoneInformation(&info);
-        if (id == TIME_ZONE_ID_INVALID) return 0;
-        const LONG bias = info.Bias + ((id == TIME_ZONE_ID_DAYLIGHT) ? info.DaylightBias : 0);
-        return int32_t(-bias * 60);
-#else
-        const auto clamped = std::clamp<int64_t>(epochSeconds, std::numeric_limits<time_t>::min(), std::numeric_limits<time_t>::max());
-        const time_t seconds = time_t(clamped);
-        struct tm local {};
-        if (!localtime_r(&seconds, &local)) return 0;
-        return int32_t(local.tm_gmtoff);
-#endif
-    }
+    static int32_t timeZone(void* /*context*/, int64_t epochSeconds) { return platform::timeZoneOffset(epochSeconds); }
 };
 
 double NovaContext::now() { return detail::steadySeconds(); }
 
-#ifdef _WIN32
-namespace {
-
-constexpr double kFileTimeTicksPerSecond = 1e7;
-
-struct ThreadClockSource {
-    bool cycles = false;
-    double ticksPerSecond = kFileTimeTicksPerSecond;
-};
-
-struct ThreadClock {
-    double seconds = 0.;
-    uint64_t count = 0;
-    bool counting = false;
-};
-
-#ifdef TW_TSC
-constexpr unsigned kHypervisorPresent = 1u << 31;
-constexpr unsigned kInvariantTsc = 1u << 8;
-constexpr unsigned kCreatePartitions = 1u << 0;
-constexpr unsigned kNestedHypervisor = 1u << 12;
-constexpr double kMinTscRate = 1e8;
-constexpr double kMaxTscRate = 1e11;
-
-struct CpuidLeaf {
-    unsigned eax = 0;
-    unsigned ebx = 0;
-    unsigned ecx = 0;
-    unsigned edx = 0;
-};
-
-CpuidLeaf readCpuid(unsigned leaf) {
-    int registers[4] = {};
-    __cpuid(registers, int(leaf));
-    return {unsigned(registers[0]), unsigned(registers[1]), unsigned(registers[2]), unsigned(registers[3])};
-}
-
-bool onArm64Windows() {
-    using Function = BOOL(WINAPI*)(HANDLE, USHORT*, USHORT*);
-    const auto address = GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "IsWow64Process2");
-    const auto isWow64Process2 = reinterpret_cast<Function>(reinterpret_cast<void*>(address));
-    if (!isWow64Process2) return false; // missing before Windows 10 1709, older than any ARM64 Windows
-    auto process = USHORT(0);
-    auto native = USHORT(0);
-    return !isWow64Process2(GetCurrentProcess(), &process, &native) || native == IMAGE_FILE_MACHINE_ARM64;
-}
-
-// Hyper-V's root partition, not nested within Hyper-V, as Hyper-V's own leaves identify it:
-// https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/tlfs/feature-discovery
-bool hyperVRootPartition() {
-    if (readCpuid(0x40000000).eax < 0x40000004) return false;
-    const auto signature = readCpuid(0x40000001).eax;
-    if (std::memcmp(&signature, "Hv#1", sizeof(signature)) != 0) return false;
-    if (!(readCpuid(0x40000003).ebx & kCreatePartitions)) return false;
-    return !(readCpuid(0x40000004).eax & kNestedHypervisor);
-}
-
-double enumeratedTscRate() {
-    if (onArm64Windows()) return 0.;
-    const auto basic = readCpuid(0);
-    const unsigned vendor[] = {basic.ebx, basic.edx, basic.ecx};
-    if (std::memcmp(vendor, "GenuineIntel", sizeof(vendor)) != 0 || basic.eax < 0x15) return 0.;
-    if (readCpuid(0x80000000).eax < 0x80000007) return 0.;
-    if (!(readCpuid(0x80000007).edx & kInvariantTsc)) return 0.;
-    if ((readCpuid(1).ecx & kHypervisorPresent) && !hyperVRootPartition()) return 0.;
-    const auto tsc = readCpuid(0x15);
-    const auto denominator = tsc.eax;
-    const auto numerator = tsc.ebx;
-    const auto crystalHz = tsc.ecx;
-    if (!denominator || !numerator || !crystalHz) return 0.;
-    const auto rate = double(crystalHz) * numerator / denominator;
-    return (rate >= kMinTscRate && rate <= kMaxTscRate) ? rate : 0.;
-}
-#endif
-
-const ThreadClockSource& threadClockSource() {
-    static const ThreadClockSource source = [] {
-#ifdef TW_TSC
-        const auto rate = enumeratedTscRate();
-        if (rate > 0.) return ThreadClockSource{true, rate};
-#endif
-        return ThreadClockSource();
-    }();
-    return source;
-}
-
-} // namespace
-#endif
-
-double NovaContext::threadCpuTime() {
-#ifdef _WIN32
-    const auto& source = threadClockSource();
-    thread_local ThreadClock state;
-    auto count = uint64_t(0);
-    auto ok = false;
-    if (source.cycles) {
-        auto cycles = ULONG64(0);
-        ok = QueryThreadCycleTime(GetCurrentThread(), &cycles) != FALSE;
-        count = cycles;
-    } else {
-        FILETIME creation{}, exit{}, kernel{}, user{};
-        ok = GetThreadTimes(GetCurrentThread(), &creation, &exit, &kernel, &user) != FALSE;
-        auto ticks = [](const FILETIME& f) { return (uint64_t(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
-        count = ticks(kernel) + ticks(user);
-    }
-    if (!ok) {
-        state.counting = false;
-        return state.seconds;
-    }
-    if (state.counting && count > state.count) state.seconds += double(count - state.count) / source.ticksPerSecond;
-    state.count = count;
-    state.counting = true;
-    return state.seconds;
-#else
-    timespec t{};
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
-    return double(t.tv_sec) + double(t.tv_nsec) / 1e9;
-#endif
-}
+double NovaContext::threadCpuTime() { return platform::threadCpuSeconds(); }
 
 std::string NovaContext::engineVersion() {
     const char* version = nova_embed_version();

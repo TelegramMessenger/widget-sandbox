@@ -109,6 +109,7 @@ if(NOT MSVC)
 endif()
 
 add_library(twidget-sandbox STATIC
+    sandbox/src/engine_platform.cpp
     sandbox/src/nova_context.cpp
     sandbox/src/cpu_budget.cpp
     sandbox/src/bundle_stamp.cpp
