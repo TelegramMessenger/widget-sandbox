@@ -1,5 +1,6 @@
 # twidget desktop core: the Nova sandbox engine, trusted validator, CPU budget and WidgetHost as a Qt-free C++20 library (for tdesktop or any Qt/C++ host), plus a console harness and tests.
 # The engine is Nova (github.com/TelegramMessenger/nova-safe) behind the C interface of its nova_embed_ffi crate: -DTW_NOVA_ROOT=<a nova-safe checkout> builds it with cargo, or -DTW_NOVA_LIBRARY=<its static library> with -DTW_NOVA_INCLUDE=<the directory of nova_engine.h> links a built one.
+# -DTW_RUST_ENGINE_END=ON links the engine process's end in Rust (../rust, crates/engine_ffi, built by cargo; Nova's C interface comes from the same library, so it takes TW_NOVA_ROOT's place) for the tests' and the harness's TW_ENGINE_END=rust.
 # -DTW_BLITZ=ON adds the Blitz renderer prototype (the Rust crate in ../../apps/renderer-blitz built by cargo; dev tooling, see docs/blitz-experiment.md).
 # Two libraries: twidget-sandbox-host, the host's side as objects (a hosted WidgetHost with its client and kept renderers, the stream's host end, the coding, the SDK and gesture policies, Intl, resources and threads; no engine, validator, in-process engine, local glue or engine end), and twidget-sandbox, the whole core: the engine and local side plus those objects, which every other program links.
 # twidget-host-only links those objects alone, so its link proves the division.
@@ -17,6 +18,7 @@ if(MSVC)
 endif()
 
 option(TW_BLITZ "Build the Blitz renderer prototype (needs rustup's cargo)" OFF)
+option(TW_RUST_ENGINE_END "Link the engine process's end in Rust for TW_ENGINE_END=rust (needs rustup's cargo)" OFF)
 
 set(TW_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
@@ -24,7 +26,32 @@ set(TW_NOVA_ROOT "" CACHE PATH "A checkout of github.com/TelegramMessenger/nova-
 set(TW_NOVA_LIBRARY "" CACHE FILEPATH "A built nova_embed_ffi static library, in place of TW_NOVA_ROOT")
 set(TW_NOVA_INCLUDE "" CACHE PATH "The directory of nova_engine.h, with TW_NOVA_LIBRARY")
 add_library(twnova STATIC IMPORTED)
-if(TW_NOVA_LIBRARY)
+if(TW_RUST_ENGINE_END)
+    # One Rust library: two would each bring their own std into the link.
+    set(TW_RUST_ROOT "${TW_ROOT}/rust")
+    set(TW_RUST_NOVA "${TW_ROOT}/../../nova-safe")
+    find_program(TW_CARGO cargo HINTS /opt/homebrew/opt/rustup/bin "$ENV{HOME}/.cargo/bin")
+    if(NOT TW_CARGO)
+        message(FATAL_ERROR "TW_RUST_ENGINE_END needs cargo (rustup); none found in PATH, /opt/homebrew/opt/rustup/bin or ~/.cargo/bin")
+    endif()
+    set(TW_RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust-target")
+    set(TW_RUST_BUILT "${TW_RUST_TARGET_DIR}/release/${CMAKE_STATIC_LIBRARY_PREFIX}twidget_engine_ffi${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    file(GLOB_RECURSE TW_RUST_SOURCES CONFIGURE_DEPENDS "${TW_RUST_ROOT}/crates/*.rs" "${TW_RUST_NOVA}/nova_embed_ffi/src/*.rs" "${TW_RUST_NOVA}/nova_embed/src/*.rs" "${TW_RUST_NOVA}/nova_vm/src/*.rs")
+    add_custom_command(OUTPUT "${TW_RUST_BUILT}"
+        COMMAND "${TW_CARGO}" rustc --release --locked --offline --package twidget_engine_ffi --features nova-c-api --lib --crate-type staticlib --target-dir "${TW_RUST_TARGET_DIR}"
+        WORKING_DIRECTORY "${TW_RUST_ROOT}"
+        DEPENDS ${TW_RUST_SOURCES} "${TW_RUST_ROOT}/Cargo.toml" "${TW_RUST_ROOT}/Cargo.lock"
+        COMMENT "cargo build twidget_engine_ffi (the first build takes a minute or two)"
+        VERBATIM)
+    add_custom_target(twnova-cargo DEPENDS "${TW_RUST_BUILT}")
+    add_dependencies(twnova twnova-cargo)
+    set_target_properties(twnova PROPERTIES IMPORTED_LOCATION "${TW_RUST_BUILT}")
+    target_include_directories(twnova INTERFACE "${TW_RUST_NOVA}/nova_embed_ffi/include" "${TW_RUST_ROOT}/crates/engine_ffi/include")
+    target_compile_definitions(twnova INTERFACE TW_RUST_ENGINE_END=1)
+    if(WIN32)
+        set_property(TARGET twnova APPEND PROPERTY INTERFACE_LINK_LIBRARIES dbghelp)
+    endif()
+elseif(TW_NOVA_LIBRARY)
     if(NOT EXISTS "${TW_NOVA_INCLUDE}/nova_engine.h")
         message(FATAL_ERROR "TW_NOVA_LIBRARY needs TW_NOVA_INCLUDE, the directory of nova_engine.h")
     endif()
@@ -187,6 +214,10 @@ add_executable(twidget-tests tests/test_main.cpp tests/test_render_ops.cpp tests
 target_link_libraries(twidget-tests PRIVATE twidget-sandbox)
 target_compile_definitions(twidget-tests PRIVATE TW_WIDGET_JS="${TW_WIDGET_JS}" TW_CORPUS="${TW_CORPUS}" TW_FIXTURES="${TW_FIXTURES}")
 
+if(TW_RUST_ENGINE_END)
+    target_sources(twidget-run PRIVATE harness/engine_end.cpp)
+    target_sources(twidget-tests PRIVATE harness/engine_end.cpp)
+endif()
 if(TW_BLITZ)
     target_link_libraries(twidget-run PRIVATE twidget-renderer-blitz)
     target_link_libraries(twidget-tests PRIVATE twidget-renderer-blitz)

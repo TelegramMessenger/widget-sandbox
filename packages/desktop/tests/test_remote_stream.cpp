@@ -1473,7 +1473,7 @@ struct JoinedEnds {
 
     JoinedEnds(std::shared_ptr<SandboxRemoteStream> host, std::shared_ptr<SandboxRemoteStream> engine)
         : hostSide(std::move(host)), engineSide(std::move(engine)), end(SandboxRemoteHostEnd::start(hostSide, *RES, kBuild, events.events(), {})),
-          serving([this] { return SandboxRemoteEngineEnd::serve(*engineSide, kBuild); }) {}
+          serving([this] { return serveEngineEnd(*engineSide, kBuild); }) {}
     ~JoinedEnds() {
         end->stop();
         serving.finish(5);
@@ -1988,7 +1988,7 @@ TEST(remote_stream_engine_blocked_write_shutdown) {
         SocketStreamPair pair = socketStreamPair(4096);
         CHECK(pair.host && pair.engine);
         if (!pair.host) continue;
-        Background<std::string> serving([&] { return SandboxRemoteEngineEnd::serve(*pair.engine, kBuild); });
+        Background<std::string> serving([&] { return serveEngineEnd(*pair.engine, kBuild); });
         CHECK(pair.host->write(openingOf(*RES)));
         FrameStreamReader hostSide(*pair.host);
         const std::optional<ParsedFrame> ready = hostSide.next();
@@ -2209,7 +2209,7 @@ TEST(remote_stream_thread_process) {
     SocketStreamPair pair = socketStreamPair();
     CHECK(pair.host && pair.engine);
     if (!pair.host || !pair.engine) return;
-    Background<std::string> serving([&] { return SandboxRemoteEngineEnd::serve(*pair.engine, kBuild); });
+    Background<std::string> serving([&] { return serveEngineEnd(*pair.engine, kBuild); });
     const ChildRun child = runChildOn("remote_stream_host_process", *pair.host, 60);
     CHECK_MSG(serving.within(5).has_value(), "serve still runs 5 s after the child ended");
     std::string lines;
@@ -2627,7 +2627,7 @@ CHILD_CASE(remote_stream_reaper_at_the_thread_limit) {
 static void endWithNoReaper() {
     const std::string leg = "the end with no reaper";
     MemoryStreamPair pair = memoryStreamPair(size_t(1) << 20);
-    Background<std::string> serving([&] { return SandboxRemoteEngineEnd::serve(*pair.engine, kBuild); });
+    Background<std::string> serving([&] { return serveEngineEnd(*pair.engine, kBuild); });
     FrameStreamReader reader(*pair.host);
     std::map<uint32_t, std::vector<std::string>> seen;
     // Reads on until `runtime` sent a frame that `describe`s as starting with `prefix`; false once the stream ended before it.
