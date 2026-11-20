@@ -146,3 +146,136 @@ fn widget_code_cannot_reach_host_globals() {
     r.wait("loaded", |s| s.loaded || s.died.is_some());
     assert_eq!(engine.probe(b"typeof __host + typeof __hostBinary + typeof __twDispatch"), b"undefinedundefinedundefined");
 }
+
+type Diags = Arc<Mutex<Vec<(String, String)>>>;
+
+fn validator(theme: &str) -> (TrustedValidator, Diags) {
+    let diags: Diags = Arc::default();
+    let sink = Arc::clone(&diags);
+    let v = TrustedValidator::new(
+        theme.as_bytes(),
+        resources(),
+        Some(Arc::new(move |k: &[u8], d: &[u8]| sink.lock().unwrap().push((text(k), text(d))))),
+        Arc::new(TestPlatform),
+    )
+    .unwrap();
+    (v, diags)
+}
+
+fn saw(diags: &Diags, kind: &str) -> bool {
+    diags.lock().unwrap().iter().any(|(k, _)| k == kind)
+}
+
+#[test]
+fn validator_diag_bridge() {
+    let (v, diags) = validator("light");
+    // An unknown element is reported through __diag (tag-replaced).
+    v.process_ops(br#"[{"op":"el","id":2,"tag":"x-foo"}]"#);
+    assert!(saw(&diags, "tag-replaced"), "{:?}", diags.lock().unwrap());
+}
+
+#[test]
+fn validator_validates_anim_records() {
+    let (v, diags) = validator("light");
+    v.process_ops(br#"[{"op":"el","id":2,"tag":"html"},{"op":"el","id":3,"tag":"body"},{"op":"ins","parent":2,"id":3,"before":null},{"op":"el","id":7,"tag":"div"},{"op":"ins","parent":3,"id":7,"before":null}]"#);
+    let record = |values: &str, duration: &str, easing: &str| {
+        format!(
+            r#"[{{"aid":1,"target":7,"keyframes":[{{"offset":0,"easing":"linear","composite":null,"values":{values}}}],"timing":{{"duration":{duration},"delay":0,"endDelay":0,"iterations":null,"iterationStart":0,"direction":"normal","fill":"none","easing":"{easing}"}},"composite":"replace","iterationComposite":"replace","startTime":1000,"holdTime":null,"playbackRate":1}}]"#
+        )
+    };
+    for bad in [
+        record("{}", "1e999", "linear"),
+        record("{}", "1e12", "linear"),
+        record("{}", "1000", "evil(1)"),
+        r#"{"not":"a list"}"#.to_string(),
+        r#"[{"aid":-1}]"#.to_string(),
+    ] {
+        diags.lock().unwrap().clear();
+        assert_eq!(v.validate_anim(bad.as_bytes()), b"[]", "{bad}");
+        assert!(saw(&diags, "protocol-violation"), "{bad}");
+    }
+    let clean = text(&v.validate_anim(
+        record(
+            r#"{"opacity":"0.5","background-image":"url(https://evil.example/x)","width":"expression(alert(1))","behavior":"url(x.htc)","animation-name":"x"}"#,
+            "1000",
+            "ease-in",
+        )
+        .as_bytes(),
+    ));
+    assert!(clean.contains(r#""opacity":"0.5""#), "{clean}");
+    assert!(!clean.contains("url(") && !clean.contains("expression") && !clean.contains("animation-name"), "{clean}");
+}
+
+#[test]
+fn validator_strips_external_urls_and_handlers() {
+    let (v, diags) = validator("light");
+    let ops = concat!(
+        r#"[{"op":"el","id":2,"tag":"html"},{"op":"ins","parent":1,"id":2,"before":null},"#,
+        r#"{"op":"el","id":3,"tag":"body"},{"op":"ins","parent":2,"id":3,"before":null},"#,
+        r#"{"op":"el","id":4,"tag":"img","attrs":{"src":"http://127.0.0.1:9999/hit/x","onerror":"fetch('http://127.0.0.1:9999/e')"}},{"op":"ins","parent":3,"id":4,"before":null},"#,
+        r#"{"op":"el","id":5,"tag":"iframe","attrs":{"src":"http://127.0.0.1:9999/hit/f"}},{"op":"ins","parent":3,"id":5,"before":null},"#,
+        r#"{"op":"el","id":6,"tag":"style"},{"op":"ins","parent":3,"id":6,"before":null},"#,
+        r#"{"op":"text","id":7,"data":"@import url(http://127.0.0.1:9999/i); p{color:red;background:url(http://127.0.0.1:9999/b)}"},{"op":"ins","parent":3,"id":7,"before":null}]"#
+    );
+    let out = v.process_ops(ops.as_bytes());
+    let rendered = Json::parse(&out).unwrap();
+    assert!(rendered.is_array());
+    // Nothing that is attached, set as an attribute or emitted as CSS may carry the canary.
+    let mut attached = String::new();
+    for op in rendered.arr() {
+        if [&b"ins"[..], b"attr", b"css", b"style", b"el"].contains(&op.get("op").as_str()) {
+            attached += &text(&op.dump());
+        }
+    }
+    assert!(!attached.contains("127.0.0.1"), "{attached}");
+    assert!(!attached.to_lowercase().contains("onerror"), "{attached}");
+    assert!(!attached.contains(r#""tag":"iframe""#), "{attached}");
+    assert!(text(&out).contains("data-tg-placeholder"), "{}", text(&out));
+    assert!(saw(&diags, "url-blocked"));
+    assert_eq!(v.validate_query(br#"{"q":"rect","id":4}"#), Some(br#"{"q":"rect","id":4}"#.to_vec()));
+    assert_eq!(v.validate_query(br#"{"q":"eval","code":"1"}"#), None);
+    assert_eq!(v.rewrite_media_query(b"(prefers-color-scheme: dark)"), b"(min-width: 99999px)");
+}
+
+/// Churn validators, each with its own thread, and let them tear down.
+#[test]
+fn validator_repeated_create_and_teardown() {
+    for i in 0..25 {
+        let (v, _) = validator(if i % 2 == 0 { "light" } else { "dark" });
+        assert!(
+            text(&v.process_ops(br#"[{"op":"el","id":2,"tag":"p"},{"op":"ins","parent":1,"id":2,"before":null}]"#))
+                .contains(r#""tag":"p""#)
+        );
+        assert_eq!(v.node_count(), 2);
+    }
+}
+
+#[test]
+fn validator_stylesheet_text_is_only_shipped_sanitized() {
+    let (v, diags) = validator("dark");
+    let ops = concat!(
+        r#"[{"op":"el","id":2,"tag":"html"},{"op":"ins","parent":1,"id":2,"before":null},"#,
+        r#"{"op":"el","id":6,"tag":"style"},{"op":"ins","parent":2,"id":6,"before":null},"#,
+        r#"{"op":"text","id":7,"data":"@import url(http://127.0.0.1:9999/i); @media (prefers-color-scheme: dark){p{color:red}} p{background:url(http://127.0.0.1:9999/b)}"},{"op":"ins","parent":6,"id":7,"before":null}]"#
+    );
+    let out = text(&v.process_ops(ops.as_bytes()));
+    assert!(out.contains(r#"{"op":"rm","id":7}"#), "{out}");
+    assert!(out.contains("@media (min-width: 0px){p{color:red}}"), "{out}");
+    assert!(saw(&diags, "url-blocked") || saw(&diags, "css-dropped"));
+    assert!(!out.contains(r#""css","id":6,"text":"@import"#), "{out}");
+    assert_eq!(v.node_count(), 4);
+}
+
+/// The validator's time on the widget's messages reaches its CPU sink, the widget's quota.
+#[test]
+fn validator_measures_its_calls_for_the_cpu_sink() {
+    let (v, _) = validator("light");
+    let charged = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&charged);
+    v.set_cpu_sink(Some(Box::new(move |ms| sink.lock().unwrap().push(ms))));
+    v.process_ops(br#"[{"op":"el","id":2,"tag":"p"}]"#);
+    v.validate_query(br#"{"q":"rect","id":2}"#);
+    v.set_theme(b"dark");
+    assert_eq!(charged.lock().unwrap().len(), 2, "processOps and validateQuery are metered, setTheme is not");
+    assert!(charged.lock().unwrap().iter().all(|&ms| ms >= 0.0));
+}
