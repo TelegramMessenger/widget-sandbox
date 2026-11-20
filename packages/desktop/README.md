@@ -1594,7 +1594,10 @@ is unchanged:
   entry points both modes take, the clock, the value types' JSON),
   `sandbox_engine_client.cpp` (the client mode) and `widget_host.cpp` (what
   every `WidgetHost` runs, the hosted mode and `HostedKeptRenderer`).
-- The rest: `nova_context.cpp`, `cpu_budget.cpp`, `bundle_stamp.cpp`,
+- The rest: `engine_platform.cpp` (`twidget/engine_platform.h`: the thread CPU
+  clock, the steady clock, the time zone and the CSPRNG the engine asks the
+  OS for, apart from Nova, so an engine process whose end is in Rust links
+  them alone), `nova_context.cpp`, `cpu_budget.cpp`, `bundle_stamp.cpp`,
   `trusted_validator.cpp`, `sandbox_engine.cpp` (the in-process engine,
   `release`, `make` and the channel factory slot), `remote_engine.cpp`
   (`SandboxRemoteServer` and the loopback), `remote_stream_engine.cpp` (the

@@ -2,6 +2,7 @@
 #include "twidget/sandbox_engine.h"
 
 #include "twidget/bundle_stamp.h"
+#include "twidget/engine_platform.h"
 #include "twidget/json.h"
 #include "twidget/remote_engine.h"
 
@@ -18,15 +19,6 @@
 #include <string_view>
 #include <utility>
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__ANDROID__)
-#include <stdlib.h>
-#elif defined(__linux__)
-#include <sys/random.h>
-#elif defined(_WIN32)
-#include <windows.h>
-#include <bcrypt.h>
-#endif
-
 namespace twidget {
 
 static constexpr double kInf = std::numeric_limits<double>::infinity();
@@ -35,23 +27,6 @@ static constexpr const char* kHideHostGlobals =
     "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__hostOps','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
 static constexpr double kWallBackstopFactor = 10.0;
 static constexpr double kWallBackstopMinMs = 5000.0;
-
-static void randomBytes(uint8_t* buf, size_t n) {
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__ANDROID__)
-    arc4random_buf(buf, n);
-#elif defined(__linux__)
-    size_t got = 0;
-    while (got < n) {
-        ssize_t r = getrandom(buf + got, n - got, 0);
-        if (r <= 0) break;
-        got += size_t(r);
-    }
-#elif defined(_WIN32)
-    BCryptGenRandom(nullptr, buf, (ULONG)n, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
-#else
-#error "no CSPRNG for this platform"
-#endif
-}
 
 static std::pair<std::string, std::string> splitPrefix(const std::string& s) {
     size_t i = s.find(':');
@@ -705,7 +680,7 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         long n = std::strtol(arg.c_str(), nullptr, 10);
         n = std::min(std::max(n, 0L), 65536L);
         std::vector<uint8_t> bytes(static_cast<size_t>(n), 0);
-        if (n > 0) randomBytes(bytes.data(), bytes.size());
+        if (n > 0) platform::randomBytes(bytes.data(), bytes.size());
         std::string out = "[";
         for (size_t i = 0; i < bytes.size(); i++) { if (i) out.push_back(','); out += std::to_string(bytes[i]); }
         out.push_back(']');
