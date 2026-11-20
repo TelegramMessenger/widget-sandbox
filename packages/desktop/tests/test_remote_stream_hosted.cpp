@@ -1,4 +1,4 @@
-// A hosting stream's tests (remote_stream.h's hosted kinds, `SandboxRemoteEngineEnd::serveHosting` and `SandboxRemoteHostEnd::startHosting`: the wire, the engine process's end and a hosted widget on it, the host's end with hosted WidgetHosts over real and lying ends, hostile frames, a flood, an unanswered request, renderers kept past their engines over real and lying ends, waits on the glue's thread, an engine process that reads no file, one that keeps only a kept renderer, a host process whose widgets are all hosted, threads the OS refuses to start), in the suite after the byte stream's other tests: `twidget-tests remote_stream_hosted_`.
+// A hosting stream's tests (remote_stream.h's hosted kinds, `SandboxRemoteEngineEnd::serveHosting` and `SandboxRemoteHostEnd::startHosting`: the wire, the engine process's end and a hosted widget on it, the host's end with hosted WidgetHosts over real and lying ends, hostile frames, a flood, an unanswered request, a renderer's answer times and what the stream's end makes of each widget's death, renderers kept past their engines over real and lying ends, waits on the glue's thread, an engine process that reads no file, one that keeps only a kept renderer, a host process whose widgets are all hosted, threads the OS refuses to start), in the suite after the byte stream's other tests: `twidget-tests remote_stream_hosted_`.
 #include "test_support.h"
 #include "test_remote_support.h"
 #include "test_remote_stream_support.h"
@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -26,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 #ifndef _WIN32
@@ -552,6 +554,9 @@ static std::string platformMessageFrame(uint32_t runtime, const std::string& tex
 
 static std::string platformRequestFrame(uint32_t runtime, const std::string& text) { return FrameBytes(runtime, wire::PlatformRequest).str(text).bytes(); }
 
+/// A valid storage commit of the widget's local area from the engine process's side of `runtime`.
+static std::string storageFrame(uint32_t runtime) { return FrameBytes(runtime, wire::Storage).str("{\"local\":{\"k\":\"v\"}}").bytes(); }
+
 static bool died(const WidgetDiagnostics& d) { return d.dead.has_value(); }
 
 /// The details a WidgetHost recorded for diagnostic `kind`.
@@ -795,6 +800,1469 @@ TEST(remote_stream_hosted_platform_tells_its_writer_admission) {
         CHECK(!loopback.platform("closed"));
         CHECK_MSG(sink->events().empty(), joined(sink->events()));
     }
+}
+
+// ───────────── a hosted renderer's answer times and each widget's death ─────────────
+
+/// The tests' reading of hosted platform messages (SandboxHostedAnswers::read) on generic keys, `<what>:<family>[:<sequence>]`: the host's `ask` expects one answer and always counts time (an input event), its `draw` only when sent while visible (a frame request); the renderer's `reply` answers, and `stopped` is its last word. Anything else (a size, a theme, a report) is nothing the stream keeps, and a role sent by the other side counts as none.
+static SandboxHostedAnswers::Reading answerKeys(std::string_view message) {
+    using Role = SandboxHostedAnswers::Role;
+    SandboxHostedAnswers::Reading reading;
+    if (message == "stopped") {
+        reading.role = Role::Last;
+        return reading;
+    }
+    const size_t colon = message.find(':');
+    const std::string_view what = message.substr(0, colon);
+    if (colon == std::string_view::npos || (what != "ask" && what != "draw" && what != "reply")) return reading;
+    const std::string_view key = message.substr(colon + 1);
+    const size_t second = key.find(':');
+    reading.role = what == "reply" ? Role::Answers : Role::Expects;
+    reading.whenVisible = what == "draw";
+    reading.family = uint32_t(std::stoul(std::string(key.substr(0, second))));
+    if (second != std::string_view::npos) reading.sequence = std::stoull(std::string(key.substr(second + 1)));
+    return reading;
+}
+
+/// How a hosting stream with the owner's SandboxHostedAnswers ends when a renderer's answer time ran out.
+static const std::string kUnanswered = "a hosted renderer left a platform message unanswered for more than 3000 ms";
+
+static std::string deathName(SandboxHostedChannel::Death death) {
+    switch (death) {
+    case SandboxHostedChannel::Death::Ordinary: return "ordinary";
+    case SandboxHostedChannel::Death::Stalled: return "stalled";
+    case SandboxHostedChannel::Death::Spared: return "spared";
+    }
+    return "?";
+}
+
+/// A hosted client on `engine`'s hosting stream, `runtime` there (a stream gives its routes their ids in the order they attach), with its delegate (the shared RemoteRecorder, each renderer request's responder kept and never called, so the request waits until its client settles it) set before any of its traffic, its Intl provider noting each request it formats (`intl`), and `startHosted` sent unless `started` is false; `channel` is the one it was given, whose `death()` the test reads as an embedder does.
+struct AnsweringClient {
+    AnsweringClient(ScriptedEngine& engine, uint32_t runtime, bool visible = true, bool started = true) : AnsweringClient(engine.host().hostedChannel(), runtime, visible, started) {}
+    /// The same on `route`, the stream's own channel or one that passes on to it.
+    AnsweringClient(std::shared_ptr<SandboxHostedChannel> route, uint32_t runtime, bool visible = true, bool started = true) : runtime(runtime), channel(std::move(route)) {
+        // Before the client's channel is attached: no request can come first.
+        delegate.holdPlatformRequests = true;
+        SandboxConfig config = testConfig();
+        config.visible = visible;
+        client = SandboxEngine::hostedClient("<p>x</p>", config, channel, intl);
+        client->setDelegate(&delegate);
+        if (started) client->startHosted(SandboxHostedStart{});
+        dispatch = client->thread().sync([] { return std::this_thread::get_id(); });
+    }
+    AnsweringClient(const AnsweringClient&) = delete;
+    AnsweringClient& operator=(const AnsweringClient&) = delete;
+
+    /// What the stream's end was to the widget, once its client reported a death within 5 s ("alive" without one).
+    std::string death() { return eventually([&] { return !delegate.deaths().empty(); }) ? deathName(channel->death()) : "alive"; }
+    /// Every call made so far ran on the client's dispatch thread: what it sent was admitted or refused.
+    void settle() { client->thread().sync([] {}); }
+
+    const uint32_t runtime;
+    const std::shared_ptr<SandboxHostedChannel> channel;
+    RemoteRecorder delegate;
+    const std::shared_ptr<StreamIntl> intl = std::make_shared<StreamIntl>();
+    std::unique_ptr<SandboxEngine> client;
+    /// Its client's dispatch thread, read once at construction, before any test holds that thread: a callback that must run there compares against it on every platform, also while the client goes.
+    std::thread::id dispatch;
+};
+
+/// What owners' withdrawals hear (`SandboxHostedChannel::withdraw`'s `settled`), from whatever thread runs each, in the order they came, under a lock: `<name>:<death>`, what the record's `note` reads as it runs, then " on its dispatch thread" or " off its dispatch thread" for one made for a client (`AnsweringClient::dispatch`, compared by thread identity). Declare it before the clients whose threads call it; `told` returns every record so far, so a case that expects none sees any that came.
+class Withdrawals {
+public:
+    using Settled = std::function<void(SandboxHostedChannel::Death)>;
+
+    /// For a withdrawal of `client`'s widget.
+    Settled hearing(std::string name, const AnsweringClient& client, std::function<std::string()> note = {}) { return make(std::move(name), client.dispatch, std::move(note)); }
+    /// For a channel no client of the test's was given (the embedder's own): every call is recorded all the same.
+    Settled hearing(std::string name) { return make(std::move(name), std::nullopt, {}); }
+    std::vector<std::string> told() {
+        std::lock_guard<std::mutex> l(mutex_);
+        return heard_;
+    }
+
+private:
+    Settled make(std::string name, std::optional<std::thread::id> dispatch, std::function<std::string()> note) {
+        return [this, name = std::move(name), dispatch, note = std::move(note)](SandboxHostedChannel::Death death) {
+            std::string record = name + ":" + deathName(death) + (note ? note() : std::string());
+            if (dispatch) record += std::this_thread::get_id() == *dispatch ? " on its dispatch thread" : " off its dispatch thread";
+            std::lock_guard<std::mutex> l(mutex_);
+            heard_.push_back(std::move(record));
+        };
+    }
+
+    std::mutex mutex_;
+    std::vector<std::string> heard_;
+};
+
+/// Opens each gate it was given as it goes: declared after the clients and streams whose threads may wait on them, so a thread that a failed check left waiting goes on before they join it.
+class OpensAtExit {
+public:
+    OpensAtExit(std::initializer_list<Gate*> gates) : gates_(gates) {}
+    ~OpensAtExit() {
+        for (Gate* gate : gates_) gate->open();
+    }
+    OpensAtExit(const OpensAtExit&) = delete;
+    OpensAtExit& operator=(const OpensAtExit&) = delete;
+
+private:
+    const std::vector<Gate*> gates_;
+};
+
+/// A hosted renderer's answer settles only the oldest message kept for its route with the same key, and a message counts time only when its route was visible as the writer took it. On one stream whose monitor does not run (its report of the routes waits) each route's messages are admitted, the engine's side answers some of them, and 3.2 s later one route's late answer ends the stream on the reader at once, before it is delivered. Stalled: an input behind an unanswered hidden frame, an input answered out of order with a frame, a reply of another family, stale, missing and repeated sequences, a renderer's report or its own `ask`, a frame sent visible and hidden after it, one sent before a visible start, an input whose renderer's answer and last word came before its start (no renderer said them: it is built at the start), the late answer's route, one whose platform request began after its message was due. Spared: a hidden frame, the same input answered in order, an input answered while a hidden frame younger than it waits, sequences answered in order, settings and a `reply` the host sent, a frame shown after it was sent, one sent before a hidden start, one sent after a hidden `Visible` that came before a visible start, a message 3 s younger than the others, an idle route. A renderer that said its last word keeps its ordinary death. The monitor, let go, reports that end once.
+TEST(remote_stream_hosted_answers_settle_the_oldest_matching_message) {
+    // The monitor waits on it: declared before the end that joins the monitor.
+    Gate monitor;
+    ScriptedEngine engine({}, true, {answerKeys});
+    CHECK(engine.ready());
+    struct Route {
+        std::string name;
+        std::string expected;
+        std::unique_ptr<AnsweringClient> client;
+    };
+    std::vector<Route> routes;
+    uint32_t next = 1;
+    const auto add = [&](std::string name, std::string expected, bool visible = true, bool started = true) -> AnsweringClient& {
+        routes.push_back({std::move(name), std::move(expected), std::make_unique<AnsweringClient>(engine, next++, visible, started)});
+        return *routes.back().client;
+    };
+    AnsweringClient& hiddenAhead = add("hidden frame ahead", "stalled", false);
+    AnsweringClient& hiddenAheadInOrder = add("hidden frame ahead, in order", "spared", false);
+    AnsweringClient& hiddenFrame = add("hidden frame", "spared", false);
+    AnsweringClient& inputThenHidden = add("input, then a hidden frame", "spared");
+    AnsweringClient& inputThenFrame = add("input, then a frame", "stalled");
+    AnsweringClient& otherFamily = add("another family", "stalled");
+    AnsweringClient& sequences = add("stale, missing, repeated", "stalled");
+    AnsweringClient& sequencesInOrder = add("sequences in order", "spared");
+    AnsweringClient& settings = add("settings", "spared");
+    AnsweringClient& unsolicited = add("the renderer's own", "stalled");
+    AnsweringClient& shownAfter = add("shown after", "spared", false);
+    AnsweringClient& hiddenAfter = add("hidden after", "stalled");
+    AnsweringClient& beforeShownStart = add("before a visible start", "stalled", true, false);
+    AnsweringClient& beforeHiddenStart = add("before a hidden start", "spared", false, false);
+    AnsweringClient& hiddenBeforeStart = add("hidden before a visible start", "spared", true, false);
+    AnsweringClient& wordsBeforeStart = add("its renderer's words before its start", "stalled", true, false);
+    AnsweringClient& lastWord = add("last word", "ordinary");
+    AnsweringClient& late = add("late answer", "stalled");
+    AnsweringClient& owes = add("owes after its due", "stalled");
+    AnsweringClient& younger = add("younger", "spared");
+    add("idle", "spared");
+    CHECK_MSG(eventually([&] { return engine.events().open() == routes.size(); }), joined(engine.events().all()));
+
+    // The monitor held in its report of one more route, outside every lock of the end, before any time runs.
+    engine.events().holdAt = routes.size() + 1;
+    engine.events().hold = &monitor;
+    auto barrier = std::make_shared<StreamSink>();
+    const std::shared_ptr<SandboxHostedChannel> barrierRoute = engine.host().hostedChannel();
+    barrierRoute->attach(barrier);
+    const uint32_t barrierId = next++;
+    CHECK_MSG(monitor.waitedOn(), joined(engine.events().all()));
+
+    // Before its start: the host's input, then an answer and a last word on its route, all read before the start was admitted; then the start.
+    wordsBeforeStart.client->platform("ask:1");
+    wordsBeforeStart.settle();
+    CHECK(engine.send(platformMessageFrame(wordsBeforeStart.runtime, "reply:1") + platformMessageFrame(wordsBeforeStart.runtime, "stopped") + logFrame(barrierId, "early")));
+    CHECK_MSG(eventually([&] { return barrier->saw("log:log:early"); }), joined(barrier->events()));
+    wordsBeforeStart.client->startHosted(SandboxHostedStart{});
+
+    hiddenAhead.client->platform("draw:1:1");
+    hiddenAhead.client->platform("ask:2");
+    hiddenAheadInOrder.client->platform("draw:1:1");
+    hiddenAheadInOrder.client->platform("ask:2");
+    hiddenFrame.client->platform("draw:1:1");
+    inputThenHidden.client->platform("ask:2");
+    inputThenHidden.client->setVisible(false);
+    inputThenHidden.client->platform("draw:1:1");
+    inputThenFrame.client->platform("ask:2");
+    inputThenFrame.client->platform("draw:1:1");
+    otherFamily.client->platform("ask:2");
+    sequences.client->platform("draw:1:5");
+    sequences.client->platform("draw:1:6");
+    sequencesInOrder.client->platform("draw:1:5");
+    sequencesInOrder.client->platform("draw:1:6");
+    for (const char* message : {"size:300", "theme:dark", "reply:1:1"}) settings.client->platform(message);
+    unsolicited.client->platform("draw:1:1");
+    shownAfter.client->platform("draw:1:1");
+    shownAfter.client->setVisible(true);
+    hiddenAfter.client->platform("draw:1:1");
+    hiddenAfter.client->setVisible(false);
+    beforeShownStart.client->platform("draw:1:1");
+    beforeShownStart.client->startHosted(SandboxHostedStart{});
+    beforeHiddenStart.client->platform("draw:1:1");
+    beforeHiddenStart.client->startHosted(SandboxHostedStart{});
+    hiddenBeforeStart.client->setVisible(false);
+    hiddenBeforeStart.client->startHosted(SandboxHostedStart{});
+    hiddenBeforeStart.client->platform("draw:1:1");
+    for (AnsweringClient* c : {&lastWord, &late, &owes, &younger}) c->client->platform("ask:1");
+    for (Route& route : routes) route.client->settle();
+    const auto admitted = std::chrono::steady_clock::now();
+
+    // The renderers' words, each after the messages it may answer were admitted, then a barrier: every one of them accepted.
+    std::string words;
+    const auto say = [&](const AnsweringClient& c, const std::string& message) { words += platformMessageFrame(c.runtime, message); };
+    say(hiddenAhead, "reply:2");
+    say(hiddenAheadInOrder, "reply:1:1");
+    say(hiddenAheadInOrder, "reply:2");
+    say(inputThenHidden, "reply:2");
+    say(inputThenFrame, "reply:2");
+    say(otherFamily, "reply:3");
+    for (const char* reply : {"reply:1:4", "reply:1", "reply:1:5", "reply:1:5"}) say(sequences, reply);
+    say(sequencesInOrder, "reply:1:5");
+    say(sequencesInOrder, "reply:1:6");
+    say(settings, "state:1");
+    say(settings, "ask:4");
+    say(unsolicited, "state:1:1");
+    say(unsolicited, "ask:1:1");
+    say(lastWord, "stopped");
+    say(younger, "reply:1");
+    CHECK(engine.send(words + logFrame(barrierId, "said")));
+    CHECK_MSG(eventually([&] { return barrier->saw("log:log:said"); }), joined(barrier->events()));
+
+    // 3.2 s after the last admission: a platform request that begins after its route's message was due, a younger message, then a late answer.
+    std::this_thread::sleep_until(admitted + std::chrono::milliseconds(3200));
+    CHECK(engine.send(platformRequestFrame(owes.runtime, "req")));
+    CHECK_MSG(eventually([&] { return has(owes.delegate.events(), "hosted-request:req"); }), joined(owes.delegate.events()));
+    younger.client->platform("ask:2");
+    younger.settle();
+    const auto answered = std::chrono::steady_clock::now();
+    CHECK(engine.send(platformMessageFrame(late.runtime, "reply:1")));
+    const auto allDied = [&] { return std::all_of(routes.begin(), routes.end(), [](const Route& r) { return !r.client->delegate.deaths().empty(); }); };
+    const bool byReader = eventually(allDied, 2);
+    const double ms = msSince(answered);
+    CHECK_MSG(byReader && !engine.events().ended(), "the late answer ended nothing while the monitor was held: " + joined(engine.events().all()));
+    monitor.open();
+    engine.events().hold = nullptr;
+    CHECK_MSG(eventually(allDied) && eventually([&] { return engine.events().ended().has_value(); }), joined(engine.events().all()));
+    CHECK_MSG(endsOnce(engine.events().all(), kUnanswered), joined(engine.events().all()));
+    CHECK_MSG(!has(late.delegate.events(), "hosted-message:reply:1") && has(lastWord.delegate.events(), "hosted-message:stopped"), joined(late.delegate.events()) + " / " + joined(lastWord.delegate.events()));
+    std::string verdicts;
+    for (Route& route : routes) {
+        const std::string death = route.client->death();
+        CHECK_MSG(death == route.expected, route.name + ": " + death + ", " + joined(route.client->delegate.events()));
+        CHECK_MSG(route.client->delegate.deaths() == std::vector<std::string>{kEngineGone}, route.name + ": " + joined(route.client->delegate.deaths()));
+        verdicts += (verdicts.empty() ? "" : ", ") + route.name + " " + death;
+    }
+    printf("    the late answer ended the stream in %.0f ms on the reader: %s\n", ms, verdicts.c_str());
+    fflush(stdout);
+}
+
+/// The host's own time is never a renderer's: from a platform request's arrival until its answer was written to the stream, its route's messages count no time, those sent meanwhile included, while every other route's time goes on. Four streams at once. Y: a message with 1.5 s of its time used, then a request held 3.2 s at its sink: the stream ends 1.5 s after the hold, neither at its end (all 4.7 s counted) nor 3 s after it (a new full time). X: the same with the message answered 1 s after the hold, which settles it, and a message sent 0.5 s into the hold, which then has its whole 3 s from the hold's end. W: a request answered at once while the writer is blocked (the engine's side reads nothing), its answer queued, and the renderer's next request, held 3.2 s, coming before that answer was written: the time stops from the first request until the second's answer was written, not until the first answer was queued or written. Z: while A's request is held, B's message, admitted while the writer is blocked, runs out 3 s after its admission: B is stalled and A, its message 3.5 s old with 1.5 s of its own time, spared.
+TEST(remote_stream_hosted_answers_leave_out_the_hosts_own_time) {
+    using Clock = std::chrono::steady_clock;
+    const auto seconds = [](Clock::time_point from, Clock::time_point to) { return std::chrono::duration<double>(to - from).count(); };
+    Gate xHold, yHold, wHold, wReading, zReading;
+    ScriptedEngine x({}, true, {answerKeys}), y({}, true, {answerKeys}), w({}, true, {answerKeys}), z({}, true, {answerKeys});
+    CHECK(x.ready() && y.ready() && w.ready() && z.ready());
+    auto xSink = std::make_shared<StreamSink>(), ySink = std::make_shared<StreamSink>(), wSink = std::make_shared<StreamSink>();
+    auto wBulk = std::make_shared<StreamSink>(), zBulk = std::make_shared<StreamSink>();
+    xSink->platformGate = &xHold;
+    ySink->platformGate = &yHold;
+    // Chosen before W's route is attached: its first request is answered at once and only its second waits, so no failed check below leaves the test writing the gate while an answer thread may read it.
+    wSink->platformGate = &wHold;
+    wSink->platformGated = "second";
+    const std::shared_ptr<SandboxHostedChannel> xRoute = x.host().hostedChannel(), yRoute = y.host().hostedChannel(), wRoute = w.host().hostedChannel();
+    const std::shared_ptr<SandboxHostedChannel> wBulkRoute = w.host().hostedChannel(), zBulkRoute = z.host().hostedChannel();
+    xRoute->attach(xSink);
+    yRoute->attach(ySink);
+    wRoute->attach(wSink);
+    wBulkRoute->attach(wBulk);
+    // A renderer's words are read only once its route started.
+    for (SandboxHostedChannel* route : {xRoute.get(), yRoute.get(), wRoute.get()}) route->startHosted("<p>x</p>", testConfig(), SandboxHostedStart{});
+    AnsweringClient zA(z, 1), zB(z, 2);
+    zBulkRoute->attach(zBulk);
+    CHECK_MSG(eventually([&] { return x.saw(1, "hosted-start") && y.saw(1, "hosted-start") && w.saw(1, "hosted-start") && w.saw(2, "open") && z.saw(1, "hosted-start") && z.saw(2, "hosted-start") && z.saw(3, "open"); }),
+              joined(x.frames(1)) + " / " + joined(z.frames(1)) + " / " + joined(z.frames(2)));
+
+    // 0 s: the first messages admitted.
+    const Clock::time_point t0 = Clock::now();
+    const auto at = [&](double s) { std::this_thread::sleep_until(t0 + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(s))); };
+    CHECK(xRoute->platform("ask:1") && yRoute->platform("ask:1") && wRoute->platform("ask:1"));
+    zA.client->platform("ask:1");
+    zA.settle();
+    const Clock::time_point first = Clock::now();
+    // W's and Z's engine sides stop reading and a frame larger than the pair blocks each writer.
+    const std::string bulk(size_t(2) << 20, 'b');
+    w.holdReading(&wReading);
+    z.holdReading(&zReading);
+    CHECK(wBulkRoute->platform("x") && zBulkRoute->platform("x") && wBulkRoute->platform(bulk) && zBulkRoute->platform(bulk));
+    CHECK_MSG(eventually([&] { return w.writeWaiting() && z.writeWaiting(); }, 2), "the writers were not blocked");
+    // 0.3 s: W's renderer asks; its sink answers at once, behind the blocked write.
+    at(0.3);
+    CHECK(w.send(platformRequestFrame(1, "first")));
+    const Clock::time_point wAsked = Clock::now();
+    CHECK_MSG(eventually([&] { return wSink->saw("platform-request-done"); }), joined(wSink->events()));
+    // 0.5 s: Z's B sends while Z's writer is blocked.
+    at(0.5);
+    zB.client->platform("ask:1");
+    zB.settle();
+    const Clock::time_point zSent = Clock::now();
+    // 1.5 s: the renderers of X, Y, W (its second request, the first answer not yet written) and Z's A ask; each request waits.
+    at(1.5);
+    CHECK(x.send(platformRequestFrame(1, "held")) && y.send(platformRequestFrame(1, "held")) && w.send(platformRequestFrame(1, "second")) && z.send(platformRequestFrame(1, "held")));
+    const Clock::time_point asked = Clock::now();
+    CHECK_MSG(xHold.waitedOn() && yHold.waitedOn() && wHold.waitedOn() && eventually([&] { return has(zA.delegate.events(), "hosted-request:held"); }), joined(wSink->events()) + " / " + joined(zA.delegate.events()));
+    // 1.8 s: W's engine side reads again: the first answer is written while the second request waits.
+    at(1.8);
+    wReading.open();
+    CHECK_MSG(eventually([&] { return w.saw(1, "platform-answer:ANSWER"); }, 2), joined(w.frames(1)));
+    // 2 s: X sends inside its hold.
+    at(2.0);
+    CHECK(xRoute->platform("ask:2"));
+    // 4.7 s: the holds end; Z ended meanwhile.
+    at(4.7);
+    xHold.open();
+    yHold.open();
+    wHold.open();
+    const Clock::time_point released = Clock::now();
+    const bool zEnded = z.events().ended().has_value();
+    // 5.7 s: X's first message answered, 0.5 s before its time would run out.
+    at(5.7);
+    CHECK(x.send(platformMessageFrame(1, "reply:1")));
+    CHECK_MSG(eventually([&] { return x.events().ended() && y.events().ended() && w.events().ended() && z.events().ended(); }, 5),
+              joined(x.events().all()) + " / " + joined(y.events().all()) + " / " + joined(w.events().all()) + " / " + joined(z.events().all()));
+    zReading.open();
+    for (ScriptedEngine* e : {&x, &y, &w, &z}) CHECK_MSG(endsOnce(e->events().all(), kUnanswered), joined(e->events().all()));
+    const auto ended = [&](ScriptedEngine& e) { return e.events().endedAt().value_or(Clock::now()); };
+    const double held = seconds(asked, released), wHeld = seconds(wAsked, released);
+    // How much later than its message's time ran out (the host's left out) each stream ended; the alternatives are 1 s or more away.
+    const double yLate = seconds(first, ended(y)) - 3 - held, xLate = seconds(released, ended(x)) - 3, wLate = seconds(first, ended(w)) - 3 - wHeld,
+                 zLate = seconds(zSent, ended(z)) - 3;
+    CHECK_MSG(yLate > -0.1 && yLate < 0.6, "Y ended " + std::to_string(seconds(released, ended(y))) + " s after its hold");
+    CHECK_MSG(xLate > -0.1 && xLate < 0.6 && xSink->saw("platform:reply:1"), "X ended " + std::to_string(seconds(released, ended(x))) + " s after its hold");
+    CHECK_MSG(wLate > -0.1 && wLate < 0.6, "W ended " + std::to_string(seconds(released, ended(w))) + " s after its second answer");
+    CHECK_MSG(zEnded && zLate > -0.1 && zLate < 0.6, "Z ended " + std::to_string(seconds(zSent, ended(z))) + " s after B's message");
+    CHECK_MSG(zB.death() == "stalled" && zA.death() == "spared", "B " + zB.death() + ", A " + zA.death() + ": " + joined(zA.delegate.events()));
+    printf("    after its %.2f s hold: Y ended %.2f s on, X %.2f s on, W %.2f s on; Z %.2f s after B's message\n", held, seconds(released, ended(y)), seconds(released, ended(x)),
+           seconds(released, ended(w)), seconds(zSent, ended(z)));
+    fflush(stdout);
+}
+
+/// The stream's first end decides at once, under the connection's lock and before any client hears it, what each hosted widget's death is (`SandboxHostedChannel::death`, read once its client reported it), and nothing changes that afterwards. At the engine process's end of the stream: A's answer, read while A's client is held on its dispatch thread, leaves A spared though A's client had heard neither the answer nor the end when the end was reported; B's young unanswered message and H's hidden frame keep their ordinary deaths; an idle route is spared, a renderer that said its last word keeps its own death, and a widget attached afterwards is spared. With no message unanswered on a route that takes part (the others' settled by the renderer's last word, its engine's `Died`, the host's keep and close) every route keeps its ordinary death. An end from another thread while the reader is held in a delivery (a queue past its bound) is decided at that end: with the unanswered route closed or kept before the reader's fan-out the idle one is still spared, and with none unanswered it is ordinary. A route with `kRemoteQueuedCalls` messages unanswered ends the stream at the next one, which is not sent. The owner's stop decides nothing: every death ordinary, a widget attached afterwards too.
+TEST(remote_stream_hosted_answers_decide_each_death_once_at_the_end) {
+    const std::string closed = "the engine process closed the stream";
+    {
+        // A's dispatch thread waits on it: declared before the client that joins that thread.
+        Gate held;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1), b(engine, 2), hidden(engine, 3, false), idle(engine, 4), last(engine, 5);
+        auto barrier = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> barrierRoute = engine.host().hostedChannel();
+        barrierRoute->attach(barrier);
+        a.client->platform("ask:1");
+        b.client->platform("ask:1");
+        hidden.client->platform("draw:1:1");
+        last.client->platform("ask:1");
+        for (AnsweringClient* c : {&a, &b, &hidden, &last}) c->settle();
+        a.client->thread().async([&held] { held.wait(); });
+        CHECK(held.waitedOn());
+        CHECK(engine.send(platformMessageFrame(1, "reply:1") + platformMessageFrame(5, "stopped") + logFrame(6, "said")));
+        // Every frame of the host's written and every word of the engine's accepted: the reader alone ends the stream.
+        CHECK_MSG(eventually([&] { return barrier->saw("log:log:said") && engine.saw(1, "platform:ask:1") && engine.saw(2, "platform:ask:1") && engine.saw(3, "platform:draw:1:1") && engine.saw(5, "platform:ask:1"); }),
+                  joined(barrier->events()));
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), closed), joined(engine.events().all()));
+        CHECK_MSG(a.delegate.events().empty(), joined(a.delegate.events()));
+        CHECK_MSG(b.death() == "ordinary" && hidden.death() == "ordinary" && idle.death() == "spared" && last.death() == "ordinary",
+                  b.death() + " " + hidden.death() + " " + idle.death() + " " + last.death());
+        held.open();
+        CHECK_MSG(a.death() == "spared", a.death());
+        CHECK_MSG((a.delegate.events() == std::vector<std::string>{"hosted-message:reply:1", "died:" + kEngineGone}), joined(a.delegate.events()));
+        AnsweringClient attached(engine, 0);
+        CHECK_MSG(attached.death() == "spared", attached.death());
+    }
+    {
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient last(engine, 1), idle(engine, 2);
+        auto dead = std::make_shared<StreamSink>(), kept = std::make_shared<StreamSink>(), gone = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> deadRoute = engine.host().hostedChannel(), keptRoute = engine.host().hostedChannel(), goneRoute = engine.host().hostedChannel();
+        deadRoute->attach(dead);
+        keptRoute->attach(kept);
+        goneRoute->attach(gone);
+        last.client->platform("ask:1");
+        last.settle();
+        CHECK(deadRoute->platform("ask:1") && keptRoute->platform("ask:1") && goneRoute->platform("ask:1"));
+        keptRoute->kept();
+        goneRoute->close();
+        CHECK(engine.send(platformMessageFrame(1, "stopped") + FrameBytes(3, wire::Died).str("its engine died").bytes()));
+        CHECK_MSG(eventually([&] { return dead->saw("died:its engine died") && engine.saw(5, "close"); }), joined(dead->events()));
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), closed), joined(engine.events().all()));
+        CHECK_MSG(idle.death() == "ordinary" && last.death() == "ordinary", idle.death() + " " + last.death());
+    }
+    for (const std::string variant : {"closed", "kept", "none"}) {
+        SandboxRemoteHostEnd::Limits bounded;
+        bounded.queuedBytes = size_t(1) << 20;
+        // The reader waits on it: declared before the end that joins the reader.
+        Gate delivering;
+        ScriptedEngine engine(bounded, true, {answerKeys});
+        CHECK(engine.ready());
+        auto busy = std::make_shared<StreamSink>(), waiting = std::make_shared<StreamSink>();
+        busy->logGate = &delivering;
+        const std::shared_ptr<SandboxHostedChannel> busyRoute = engine.host().hostedChannel(), waitingRoute = engine.host().hostedChannel();
+        busyRoute->attach(busy);
+        waitingRoute->attach(waiting);
+        AnsweringClient idle(engine, 3);
+        if (variant != "none") CHECK(waitingRoute->platform("ask:1"));
+        CHECK(engine.send(logFrame(1, "hold")));
+        CHECK_MSG(delivering.waitedOn(), variant + ": " + joined(busy->events()));
+        // The queue past its bound from this thread, then the route that waited closed or kept, all while the reader is in that delivery.
+        CHECK(!busyRoute->platform(std::string(size_t(2) << 20, 'p')));
+        if (variant == "closed") waitingRoute->close();
+        if (variant == "kept") waitingRoute->kept();
+        CHECK_MSG(!engine.events().ended() && idle.delegate.deaths().empty(), variant + ": " + joined(engine.events().all()));
+        delivering.open();
+        const std::string reason = "more than 1048576 bytes queued for the stream";
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), reason), variant + ": " + joined(engine.events().all()));
+        CHECK_MSG(idle.death() == (variant == "none" ? "ordinary" : "spared"), variant + ": " + idle.death());
+        CHECK_MSG(eventually([&] { return busy->saw("disconnected") && (variant == "closed" || waiting->saw("disconnected")); }) && waiting->saw("disconnected") == (variant != "closed"),
+                  variant + ": " + joined(waiting->events()));
+    }
+    {
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        auto sink = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> route = engine.host().hostedChannel();
+        route->attach(sink);
+        AnsweringClient idle(engine, 2);
+        // Hidden frames, which count no time, each written before the next 1024 are sent.
+        route->setVisible(false);
+        size_t admitted = 0;
+        for (size_t i = 0; i < SandboxEngine::kRemoteQueuedCalls; i++) {
+            if (route->platform("draw:1:" + std::to_string(i))) admitted++;
+            if (i % 1024 == 1023) eventually([&] { return engine.frames(1).size() >= i + 3; });
+        }
+        CHECK_MSG(admitted == SandboxEngine::kRemoteQueuedCalls && !engine.events().ended(), std::to_string(admitted) + " admitted: " + joined(engine.events().all()));
+        CHECK(!route->platform("draw:1:16384"));
+        const std::string reason = "more than 16384 platform messages unanswered on runtime 1";
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), reason), joined(engine.events().all()));
+        CHECK_MSG(idle.death() == "spared", idle.death());
+        const std::vector<std::string> sent = engine.frames(1);
+        CHECK_MSG(sent.size() == SandboxEngine::kRemoteQueuedCalls + 2 && sent.back() == "platform:draw:1:16383", std::to_string(sent.size()) + " frames, the last " + (sent.empty() ? std::string("(none)") : sent.back()));
+    }
+    {
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient waiting(engine, 1), idle(engine, 2);
+        waiting.client->platform("ask:1");
+        waiting.settle();
+        engine.host().stop();
+        CHECK_MSG(endsOnce(engine.events().all(), "the host stopped the stream"), joined(engine.events().all()));
+        CHECK_MSG(waiting.death() == "ordinary" && idle.death() == "ordinary", waiting.death() + " " + idle.death());
+        AnsweringClient attached(engine, 0);
+        CHECK_MSG(attached.death() == "ordinary", attached.death());
+    }
+}
+
+/// A hosted channel of an embedder's own, `RefusingChannel`'s shape (remote_stream.cpp): the base holds no state of the death a transport decides, so it keeps the copies and moves it had and reports `Ordinary`.
+class OwnHostedChannel final : public SandboxHostedChannel {
+public:
+    explicit OwnHostedChannel(std::string reason) : reason_(std::move(reason)) {}
+
+    void attach(std::shared_ptr<SandboxRemoteSink> sink) override {
+        if (sink) sink->remoteDied(reason_);
+    }
+    void startHosted(const std::string&, const SandboxConfig&, const SandboxHostedStart&) override {}
+    void hostedTheme(const WidgetTheme&) override {}
+    bool platform(const std::string&) override { return false; }
+    void start(const std::string&, const SandboxConfig&) override {}
+    void event(const std::string&) override {}
+    void activationEvent(const std::string&, int) override {}
+    void frame(double) override {}
+    void viewport(double, double, double) override {}
+    void resize(const std::string&) override {}
+    void theme(const std::string&, const std::map<std::string, std::string>&) override {}
+    void contentSafeArea(const WidgetContentSafeArea&) override {}
+    void setData(const WidgetData&) override {}
+    void setVisible(bool) override {}
+    void pressBegan() override {}
+    void pressEnded() override {}
+    void chargeValidator(double) override {}
+    void stop(const std::string&) override {}
+    void answer(int64_t, const SandboxRemoteOutcome&) override {}
+    std::string probe(const std::string&) override { return "ERROR no runtime"; }
+    void close() override {}
+
+private:
+    std::string reason_;
+};
+static_assert(std::is_copy_constructible_v<OwnHostedChannel> && std::is_move_constructible_v<OwnHostedChannel>, "a channel of the embedder's own keeps its copies and moves");
+
+/// A widget's first death keeps its own kind: a hosted channel's `death()` takes the transport's end's decision only when that end is the widget's first death. T's own death (its owner's stop, `terminate`), queued on T's dispatch thread behind a held job before the engine process's end of the stream, stays ordinary with its own reason once that thread runs, while G, held the same way with nothing queued, is spared: all idle, with B's message unanswered at that end. F's counted stop (`stop`), queued the same way, is decided on F's thread only after that end decided F: it yields to the end (`SandboxHostedChannel::localStop`), and F dies of that end, spared as G is. A hosted WidgetHost whose stream ended before `start()` hears that death once, at its start, in `onDeath`, which reads `death()` spared through a weak reference to the very channel it was given. A hosted client on a channel of the embedder's own, copied and moved first, dies with that channel's reason and reads `Ordinary`.
+TEST(remote_stream_hosted_answers_keep_a_widgets_first_death) {
+    // What the threads joined below use, declared before them: it outlives their joins on every exit, a failed check's too.
+    Gate heldF, heldG, heldT;
+    std::mutex mutex;
+    std::vector<std::string> heard;
+    ScriptedEngine engine({}, true, {answerKeys});
+    CHECK(engine.ready());
+    AnsweringClient b(engine, 1), f(engine, 2), g(engine, 3), t(engine, 4);
+    const std::shared_ptr<SandboxHostedChannel> unstartedRoute = engine.host().hostedChannel();
+    WidgetHost unstarted("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), unstartedRoute);
+    CHECK_MSG(eventually([&] { return engine.saw(5, "open"); }), joined(engine.frames(0)));
+    b.client->platform("ask:1");
+    for (AnsweringClient* c : {&b, &f, &g, &t}) c->settle();
+    f.client->thread().async([&heldF] { heldF.wait(); });
+    g.client->thread().async([&heldG] { heldG.wait(); });
+    t.client->thread().async([&heldT] { heldT.wait(); });
+    CHECK(heldF.waitedOn() && heldG.waitedOn() && heldT.waitedOn() && eventually([&] { return engine.saw(1, "platform:ask:1"); }));
+    f.client->stop("its own limit");
+    t.client->terminate();
+    engine.close();
+    CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), "the engine process closed the stream"), joined(engine.events().all()));
+    // The unstarted host's client took the end's decision with no delegate to tell yet.
+    CHECK_MSG(eventually([&] { return unstartedRoute->death() == SandboxHostedChannel::Death::Spared; }), deathName(unstartedRoute->death()));
+    CHECK_MSG(f.delegate.events().empty() && g.delegate.events().empty() && t.delegate.events().empty(), joined(f.delegate.events()) + " / " + joined(g.delegate.events()) + " / " + joined(t.delegate.events()));
+    heldF.open();
+    heldG.open();
+    heldT.open();
+    CHECK_MSG(t.death() == "ordinary" && t.delegate.deaths() == std::vector<std::string>{"terminated"}, t.death() + ": " + joined(t.delegate.events()));
+    CHECK_MSG(f.death() == "spared" && f.delegate.deaths() == std::vector<std::string>{kEngineGone}, f.death() + ": " + joined(f.delegate.events()));
+    CHECK_MSG(g.death() == "spared" && g.delegate.deaths() == std::vector<std::string>{kEngineGone}, g.death() + ": " + joined(g.delegate.events()));
+    CHECK_MSG(b.death() == "ordinary", b.death());
+    unstarted.onDeath = [&, route = std::weak_ptr<SandboxHostedChannel>(unstartedRoute)](const std::string& reason) {
+        const std::shared_ptr<SandboxHostedChannel> channel = route.lock();
+        std::lock_guard<std::mutex> l(mutex);
+        heard.push_back(reason + ": " + (channel ? deathName(channel->death()) : "gone"));
+    };
+    unstarted.start();
+    const auto told = [&] {
+        std::lock_guard<std::mutex> l(mutex);
+        return heard;
+    };
+    CHECK_MSG(eventually([&] { return !told().empty(); }), "no death at its start");
+    sleepMs(200);
+    CHECK_MSG(told() == std::vector<std::string>{kEngineGone + ": spared"}, joined(told()));
+    CHECK_MSG(unstarted.diagnostics().dead == std::optional<std::string>(kEngineGone), unstarted.diagnostics().dead.value_or("alive"));
+
+    OwnHostedChannel original("its own channel");
+    OwnHostedChannel copied(original);
+    auto own = std::make_shared<OwnHostedChannel>(std::move(copied));
+    RemoteRecorder ownDelegate;
+    std::unique_ptr<SandboxEngine> ownClient = SandboxEngine::hostedClient("<p>x</p>", testConfig(), own);
+    ownClient->setDelegate(&ownDelegate);
+    CHECK_MSG(eventually([&] { return !ownDelegate.deaths().empty(); }) && ownDelegate.deaths() == std::vector<std::string>{"its own channel"}, joined(ownDelegate.events()));
+    CHECK_MSG(own->death() == SandboxHostedChannel::Death::Ordinary && original.death() == SandboxHostedChannel::Death::Ordinary, deathName(own->death()));
+}
+
+/// D1, the late look's rule (`SandboxRemoteHostEnd::lookAtAnswers`), at times the test gives it, as the monitor applies it after each wake (its planned wake spent, the second look kept) and as the reader asks it before a frame settles a message whose time ran out (only whether the stream ends): a message due at 3 s. An ordinary wake judges at once: nothing before the due, the end at it, also 0.9 s late. A first look 1.2 s late concludes nothing and asks for a second look at 5.2 s: the reader before it concludes nothing (an answer in that second is in time), and with the message answered the second look concludes nothing and is spent. With it unanswered, a look before the second one, itself late for an earlier planned wake (a write's), concludes nothing and moves nothing; the second look, itself 1.2 s late, judges the message with all its time and asks for none, and so does the reader at or after the second look's time with the monitor still asleep for it. After a spent second look a later late wake (another sleep) asks again, once.
+TEST(remote_stream_hosted_answers_look_again_once_after_a_late_wake) {
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point origin = Clock::now();
+    const auto at = [&](int ms) { return origin + std::chrono::milliseconds(ms); };
+    const auto shown = [&](const std::optional<Clock::time_point>& t) {
+        return t ? std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(*t - origin).count()) + " ms" : std::string("none");
+    };
+    /// The monitor's state between looks as the stream keeps it (`wake_`, `recheck_`), with the earliest answer time.
+    struct Monitor {
+        std::optional<Clock::time_point> due, wake, recheck;
+    };
+    const auto monitorLooks = [&](Monitor& m, int now) {
+        const SandboxRemoteHostEnd::AnswerLook look = SandboxRemoteHostEnd::lookAtAnswers(m.due, m.wake, m.recheck, at(now));
+        m.wake.reset();
+        m.recheck = look.recheck;
+        return look.expired;
+    };
+    const auto readerLooks = [&](const Monitor& m, int now) { return SandboxRemoteHostEnd::lookAtAnswers(m.due, m.wake, m.recheck, at(now)).expired; };
+    {
+        Monitor m{at(3000), at(3000), std::nullopt};
+        CHECK(!readerLooks(m, 2900) && readerLooks(m, 3000));
+        CHECK(!monitorLooks(m, 2900) && !m.recheck);
+        m.wake = at(3000);
+        CHECK(monitorLooks(m, 3000) && !m.recheck);
+        Monitor slow{at(3000), at(3000), std::nullopt};
+        CHECK_MSG(monitorLooks(slow, 3900) && !slow.recheck, "0.9 s after its wake: " + shown(slow.recheck));
+    }
+    {
+        Monitor m{at(3000), at(3000), std::nullopt};
+        CHECK_MSG(!monitorLooks(m, 4200) && m.recheck == at(5200), shown(m.recheck));
+        m.wake = m.recheck;
+        CHECK(!readerLooks(m, 4800));
+        m.due.reset();
+        CHECK_MSG(!monitorLooks(m, 5200) && !m.recheck, shown(m.recheck));
+    }
+    {
+        Monitor m{at(3000), at(3000), std::nullopt};
+        CHECK(!monitorLooks(m, 4200) && m.recheck == at(5200));
+        m.wake = at(3500);
+        CHECK_MSG(!monitorLooks(m, 5000) && m.recheck == at(5200), "a late look before the second one asked again at " + shown(m.recheck));
+        m.wake = m.recheck;
+        CHECK_MSG(monitorLooks(m, 6400) && !m.recheck, "the late second look asked again at " + shown(m.recheck));
+    }
+    {
+        Monitor m{at(3000), at(3000), std::nullopt};
+        CHECK(!monitorLooks(m, 4200));
+        m.wake = m.recheck;
+        CHECK(!readerLooks(m, 5100) && readerLooks(m, 5200) && readerLooks(m, 6400));
+    }
+    {
+        Monitor m{std::nullopt, at(3000), std::nullopt};
+        CHECK(!monitorLooks(m, 4200));
+        m.wake = m.recheck;
+        CHECK(!monitorLooks(m, 5200) && !m.recheck);
+        m.due = at(8000);
+        m.wake = at(8000);
+        CHECK_MSG(!monitorLooks(m, 9500) && m.recheck == at(10500), shown(m.recheck));
+        m.wake = m.recheck;
+        CHECK(monitorLooks(m, 11000) && !m.recheck);
+    }
+}
+
+/// A stream's hosted channel whose client's sink reaches the stream as a HeldSink (built at the client's attach, on the thread that builds the client, which reads it) that holds the platform request `heldRequest` at `requestGate` on its way to the client and, given `answerGate`, its answer there on its way back to the stream; every call goes on to `inner`, and every sink call to the client. A stream channel's publication of the end's decision is its own (`publishEndedDeath` reaches only the channel the client was given), so this one's `death()` is the base's `Ordinary` and `tookTheEnd` tells whether the client took the end for the widget's first death and asked for it. Its client's claim of a death of the widget's own (`publishOwnDeath`, private to the stream's channel too) reaches `inner` as the host's `localStop`, which takes a route the end has not decided yet as that claim does (an end that came first it leaves as it stands), and `decided`, `withdraw` and `localStop` are `inner`'s.
+class HeldSinkChannel final : public SandboxHostedChannel {
+public:
+    HeldSinkChannel(std::shared_ptr<SandboxHostedChannel> inner, std::string heldRequest, Gate* requestGate, Gate* answerGate = nullptr)
+        : inner_(std::move(inner)), heldRequest_(std::move(heldRequest)), requestGate_(requestGate), answerGate_(answerGate) {}
+
+    /// The held sink's requests (`HeldSink::requests`), none before the client attached.
+    std::vector<std::string> requests() const { return held_ ? held_->requests() : std::vector<std::string>(); }
+    bool tookTheEnd() const { return tookTheEnd_; }
+
+    void attach(std::shared_ptr<SandboxRemoteSink> sink) override {
+        held_ = std::make_shared<HeldSink>(std::move(sink));
+        held_->heldRequest = heldRequest_;
+        held_->requestGate = requestGate_;
+        held_->answerGate = answerGate_;
+        inner_->attach(held_);
+    }
+    void startHosted(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) override { inner_->startHosted(html, config, start); }
+    void hostedTheme(const WidgetTheme& theme) override { inner_->hostedTheme(theme); }
+    bool platform(const std::string& message) override { return inner_->platform(message); }
+    void kept() override { inner_->kept(); }
+    void start(const std::string& html, const SandboxConfig& config) override { inner_->start(html, config); }
+    void event(const std::string& json) override { inner_->event(json); }
+    void activationEvent(const std::string& json, int gesture) override { inner_->activationEvent(json, gesture); }
+    void frame(double time) override { inner_->frame(time); }
+    void viewport(double innerWidth, double innerHeight, double dpr) override { inner_->viewport(innerWidth, innerHeight, dpr); }
+    void resize(const std::string& entriesJson) override { inner_->resize(entriesJson); }
+    void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) override { inner_->theme(colorScheme, themeParams); }
+    void contentSafeArea(const WidgetContentSafeArea& area) override { inner_->contentSafeArea(area); }
+    void setData(const WidgetData& data) override { inner_->setData(data); }
+    void setVisible(bool visible) override { inner_->setVisible(visible); }
+    void pressBegan() override { inner_->pressBegan(); }
+    void pressEnded() override { inner_->pressEnded(); }
+    void chargeValidator(double ms) override { inner_->chargeValidator(ms); }
+    void stop(const std::string& reason) override { inner_->stop(reason); }
+    void answer(int64_t id, const SandboxRemoteOutcome& outcome) override { inner_->answer(id, outcome); }
+    std::string probe(const std::string& code) override { return inner_->probe(code); }
+    void close() override { inner_->close(); }
+    bool decided() const override { return inner_->decided(); }
+    Withdrawal withdraw(std::function<void(Death death)> settled) override { return inner_->withdraw(std::move(settled)); }
+    std::optional<Death> localStop() override { return inner_->localStop(); }
+
+private:
+    void publishEndedDeath() override { tookTheEnd_ = true; }
+    void publishOwnDeath() override { inner_->localStop(); }
+
+    const std::shared_ptr<SandboxHostedChannel> inner_;
+    const std::string heldRequest_;
+    Gate* const requestGate_;
+    Gate* const answerGate_;
+    std::shared_ptr<HeldSink> held_;
+    std::atomic<bool> tookTheEnd_{false};
+};
+
+/// The stream's end reaches a hosted client that holds exactly `kRemoteQueuedCalls` messages as the end, not as a flood: A's dispatch thread is held while the engine process sends A that many platform messages, every one legal, and then ends the stream with only B's message unanswered; let go, A hears every message, then the end, spared, as an idle widget is. With one message more the overflow came first: A dies flooded, its own death, `Ordinary` whatever the end decided. So it does when the message past the bound is a platform request A's `widget.answer` hands to A's client only after the reader's fan-out queued the end for A (held on its way to the client, as a thread that lost the processor), before A's thread ran that end: A dies flooded, the end's decision (spared) never asked for, and the request never reaches A's delegate.
+TEST(remote_stream_hosted_answers_end_reaches_a_full_client) {
+    const std::string flooded = "the widget engine process sent more than the host keeps queued";
+    enum class Leg { Exact, Over, RequestAfterTheEnd };
+    for (const Leg leg : {Leg::Exact, Leg::Over, Leg::RequestAfterTheEnd}) {
+        const std::string variant = leg == Leg::Exact ? "exactly at the bound" : leg == Leg::Over ? "one past the bound" : "a request past the bound after the end";
+        const bool over = leg != Leg::Exact, crossing = leg == Leg::RequestAfterTheEnd;
+        // A's dispatch thread and A's `widget.answer` wait on them: declared before the client and the stream that join those threads.
+        Gate held, requestHeld;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        const std::shared_ptr<HeldSinkChannel> heldRoute = crossing ? std::make_shared<HeldSinkChannel>(engine.host().hostedChannel(), "second", &requestHeld) : nullptr;
+        const std::shared_ptr<SandboxHostedChannel> aRoute = heldRoute ? std::shared_ptr<SandboxHostedChannel>(heldRoute) : engine.host().hostedChannel();
+        AnsweringClient a(aRoute, 1), b(engine, 2);
+        auto barrier = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> barrierRoute = engine.host().hostedChannel();
+        barrierRoute->attach(barrier);
+        b.client->platform("ask:1");
+        b.settle();
+        a.settle();
+        a.client->thread().async([&held] { held.wait(); });
+        CHECK(held.waitedOn());
+        const size_t count = SandboxEngine::kRemoteQueuedCalls + (leg == Leg::Over ? 1 : 0);
+        std::string words;
+        for (size_t i = 0; i < count; i++) words += platformMessageFrame(1, "s");
+        if (crossing) words += platformRequestFrame(1, "second");
+        CHECK(engine.send(words + logFrame(3, "said")));
+        CHECK_MSG(eventually([&] { return barrier->saw("log:log:said"); }), variant + ": " + joined(barrier->events()));
+        CHECK_MSG(a.client->remoteBacklog().calls == SandboxEngine::kRemoteQueuedCalls, variant + ": " + std::to_string(a.client->remoteBacklog().calls) + " held");
+        if (crossing) CHECK_MSG(eventually([&] { return has(heldRoute->requests(), "second"); }), variant + ": " + joined(heldRoute->requests()));
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), "the engine process closed the stream"), variant + ": " + joined(engine.events().all()));
+        if (crossing) {
+            // The reader's fan-out queued the end for A behind its held thread: now A's `widget.answer` hands the request over, past the bound.
+            requestHeld.open();
+            CHECK_MSG(eventually([&] { return has(heldRoute->requests(), "second:returned"); }), variant + ": " + joined(heldRoute->requests()));
+        }
+        CHECK_MSG(b.death() == "ordinary" && a.delegate.events().empty(), variant + ": B " + b.death() + ", A " + joined(a.delegate.events()));
+        held.open();
+        CHECK_MSG(a.death() == (over ? "ordinary" : "spared") && !(heldRoute && heldRoute->tookTheEnd()), variant + ": " + a.death() + (heldRoute && heldRoute->tookTheEnd() ? ", the end's decision asked for" : ""));
+        const size_t heard = a.delegate.eventsWith("hosted-message:").size();
+        CHECK_MSG(heard == SandboxEngine::kRemoteQueuedCalls && a.delegate.deaths() == std::vector<std::string>{over ? flooded : kEngineGone} && a.delegate.eventsWith("hosted-request:").empty(),
+                  variant + ": " + std::to_string(heard) + " messages, " + joined(a.delegate.deaths()) + " " + joined(a.delegate.eventsWith("hosted-request:")));
+        CHECK_MSG(eventually([&] { return a.client->remoteBacklog().calls == 0; }), variant + ": " + std::to_string(a.client->remoteBacklog().calls) + " still held");
+    }
+}
+
+/// A rejection past the bound and the end's choice are one step each (`admit`, `remoteDisconnected`), so a rejection in the middle of its step when the end chooses is that flood, never lost between the two. A's dispatch thread is held with exactly `kRemoteQueuedCalls` legal messages queued; a platform request past the bound reaches A's client on A's `widget.answer`, whose rejection is held in the middle of its step (`SandboxEngine::setRemoteRejectionStep`: rejected, the overflow not yet claimed), with the reader past it at a later runtime's message and then at the engine process's end, which is queued for A behind them all. Let go, A's dispatch thread hands every message over and reaches the end's choice, which reports itself on that thread as it takes the step's lock (the seam's `choosing`, the attempt seen, not guessed from the time): for half a second from that report the choice, which waits for the held step, delivers no death and its job does not finish, where a choice that read the overflow outside the step would have killed A of the end at once. Once the step is let go the overflow is claimed and A dies flooded, its own death, its channel's `death()` `Ordinary` (the end's decision for idle A, spared, never taken), the request never reaches A's delegate, B keeps its ordinary death and every place is given back; neither gate ran out of its own time.
+TEST(remote_stream_hosted_answers_end_and_a_rejection_in_its_step) {
+    const std::string flooded = "the widget engine process sent more than the host keeps queued";
+    // A's dispatch thread and A's rejection wait on them, and their threads report here: declared before the client and the stream that join those threads.
+    Gate held, step;
+    std::atomic<bool> heldOpened{false}, stepOpened{false}, chose{false}, choseOnDispatch{false}, choiceDone{false};
+    ScriptedEngine engine({}, true, {answerKeys});
+    CHECK(engine.ready());
+    AnsweringClient a(engine, 1), b(engine, 2);
+    // Before the engine process sends A anything and before the stream can end: the step for the rejecting thread, the choice's report for A's dispatch thread.
+    SandboxEngine& aClient = *a.client;
+    aClient.setRemoteRejectionStep([&step, &stepOpened] { stepOpened = step.wait(); },
+                                   [&aClient, &chose, &choseOnDispatch] {
+                                       choseOnDispatch = aClient.thread().isCurrent();
+                                       chose = true;
+                                   });
+    auto barrier = std::make_shared<StreamSink>();
+    const std::shared_ptr<SandboxHostedChannel> barrierRoute = engine.host().hostedChannel();
+    barrierRoute->attach(barrier);
+    b.client->platform("ask:1");
+    b.settle();
+    a.settle();
+    a.client->thread().async([&held, &heldOpened] { heldOpened = held.wait(); });
+    CHECK(held.waitedOn());
+    std::string words;
+    for (size_t i = 0; i < SandboxEngine::kRemoteQueuedCalls; i++) words += platformMessageFrame(1, "s");
+    CHECK(engine.send(words + platformRequestFrame(1, "second") + logFrame(3, "said")));
+    // The rejection held before the overflow's claim, the reader past it at the later runtime's message, then at the end.
+    CHECK_MSG(step.waitedOn() && eventually([&] { return barrier->saw("log:log:said"); }), joined(barrier->events()));
+    CHECK_MSG(a.client->remoteBacklog().calls == SandboxEngine::kRemoteQueuedCalls, std::to_string(a.client->remoteBacklog().calls) + " held");
+    engine.close();
+    CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), "the engine process closed the stream"), joined(engine.events().all()));
+    CHECK_MSG(!chose && a.delegate.events().empty(), joined(a.delegate.events()));
+    // The reader's fan-out queued the end for A behind its held thread: let go, the thread hands over every message, then comes to the end's choice.
+    held.open();
+    CHECK_MSG(eventually([&] { return chose.load(); }), "the end's choice never came, " + std::to_string(a.delegate.eventsWith("hosted-message:").size()) + " messages heard");
+    CHECK_MSG(choseOnDispatch && a.delegate.eventsWith("hosted-message:").size() == SandboxEngine::kRemoteQueuedCalls,
+              std::string(choseOnDispatch ? "" : "chosen off the dispatch thread, ") + std::to_string(a.delegate.eventsWith("hosted-message:").size()) + " messages heard");
+    // From the choice's report, its chance to finish: behind it on A's thread, a job that tells it did.
+    a.client->thread().async([&choiceDone] { choiceDone = true; });
+    const bool finished = eventually([&] { return choiceDone.load() || !a.delegate.deaths().empty(); }, 0.5);
+    CHECK_MSG(!finished, "the end chose while the rejection was in its step: " + joined(a.delegate.deaths()) + (choiceDone ? ", its job done" : ""));
+    step.open();
+    CHECK_MSG(eventually([&] { return !a.delegate.deaths().empty(); }), joined(a.delegate.eventsWith("died:")));
+    CHECK_MSG(a.delegate.deaths() == std::vector<std::string>{flooded} && a.channel->death() == SandboxHostedChannel::Death::Ordinary,
+              joined(a.delegate.deaths()) + ", " + deathName(a.channel->death()));
+    CHECK_MSG(a.delegate.eventsWith("hosted-request:").empty() && b.death() == "ordinary", joined(a.delegate.eventsWith("hosted-request:")) + " B " + b.death());
+    CHECK_MSG(eventually([&] { return a.client->remoteBacklog().calls == 0; }), std::to_string(a.client->remoteBacklog().calls) + " still held");
+    CHECK_MSG(eventually([&] { return choiceDone.load(); }) && heldOpened && stepOpened, std::string(heldOpened ? "" : "A's thread's gate ran out, ") + (stepOpened ? "" : "the rejection's gate ran out, ") + (choiceDone ? "" : "the choice's job never finished"));
+}
+
+/// The owner's withdrawal (`SandboxHostedChannel::withdraw`) is one step with the stream's first end. Before the end: A, withdrawn with a timed message unanswered, is out of the stream's decisions, so 3.2 s later nothing ended, a later message of A's is still carried, and at the engine process's end B, idle, keeps its ordinary death (no route with a message unanswered took part), while A's withdrawal hears nothing. After the end: a withdrawal of a route whose death settled reads it at once (A's ordinary, a message unanswered; B's spared; one attached after the end, spared). One whose client's dispatch thread has not run the end yet hears its decision later, once, on that thread, before the delegate hears the death; one whose owner's stop ran on that thread before the end hears the end's decision as the route goes; one whose own flood came before the end hears `Ordinary`. A channel that decides nothing (the embedder's own) has the withdrawal first and calls nothing back.
+TEST(remote_stream_hosted_answers_withdraw_in_one_step_with_the_end) {
+    using Death = SandboxHostedChannel::Death;
+    const std::string closed = "the engine process closed the stream";
+    const std::string flooded = "the widget engine process sent more than the host keeps queued";
+    // What the withdrawals hear, from the clients' threads, declared before them.
+    Withdrawals withdrawals;
+    {
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1), b(engine, 2);
+        a.client->platform("ask:1");
+        a.settle();
+        CHECK_MSG(eventually([&] { return engine.saw(1, "platform:ask:1"); }), joined(engine.frames(1)));
+        const SandboxHostedChannel::Withdrawal withdrawn = a.channel->withdraw(withdrawals.hearing("a", a));
+        CHECK(!withdrawn.ended && !withdrawn.death);
+        sleepMs(3200);
+        CHECK_MSG(!engine.events().ended(), "a withdrawn route's time counted: " + joined(engine.events().all()));
+        a.client->platform("ask:2");
+        a.settle();
+        CHECK_MSG(eventually([&] { return engine.saw(1, "platform:ask:2"); }), joined(engine.frames(1)));
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), closed), joined(engine.events().all()));
+        CHECK_MSG(a.death() == "ordinary" && b.death() == "ordinary", a.death() + " " + b.death());
+        const SandboxHostedChannel::Withdrawal again = a.channel->withdraw(withdrawals.hearing("a again", a));
+        CHECK(!again.ended && !again.death);
+        CHECK_MSG(withdrawals.told().empty(), joined(withdrawals.told()));
+    }
+    {
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1), b(engine, 2);
+        a.client->platform("ask:1");
+        a.settle();
+        CHECK_MSG(eventually([&] { return engine.saw(1, "platform:ask:1"); }), joined(engine.frames(1)));
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }), joined(engine.events().all()));
+        CHECK_MSG(a.death() == "ordinary" && b.death() == "spared", a.death() + " " + b.death());
+        const SandboxHostedChannel::Withdrawal wa = a.channel->withdraw(withdrawals.hearing("a", a)), wb = b.channel->withdraw(withdrawals.hearing("b", b));
+        CHECK(wa.ended && wa.death == std::optional<Death>(Death::Ordinary) && wb.ended && wb.death == std::optional<Death>(Death::Spared));
+        AnsweringClient attached(engine, 0);
+        CHECK_MSG(attached.death() == "spared", attached.death());
+        const SandboxHostedChannel::Withdrawal late = attached.channel->withdraw(withdrawals.hearing("attached", attached));
+        CHECK(late.ended && late.death == std::optional<Death>(Death::Spared));
+        CHECK_MSG(withdrawals.told().empty(), joined(withdrawals.told()));
+    }
+    {
+        // B's, C's and D's dispatch threads wait on them: declared before the clients that join those threads.
+        Gate heldB, heldC, heldD;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1), b(engine, 2), c(engine, 3), d(engine, 4);
+        auto barrier = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> barrierRoute = engine.host().hostedChannel();
+        barrierRoute->attach(barrier);
+        a.client->platform("ask:1");
+        for (AnsweringClient* client : {&a, &b, &c, &d}) client->settle();
+        b.client->thread().async([&heldB] { heldB.wait(); });
+        c.client->thread().async([&heldC] { heldC.wait(); });
+        d.client->thread().async([&heldD] { heldD.wait(); });
+        CHECK(heldB.waitedOn() && heldC.waitedOn() && heldD.waitedOn());
+        // C's owner stops it, queued on C's thread before the end; D floods, its kill queued on D's thread before the end.
+        c.client->terminate();
+        std::string words;
+        for (size_t i = 0; i <= SandboxEngine::kRemoteQueuedCalls; i++) words += platformMessageFrame(4, "s");
+        CHECK(engine.send(words + logFrame(5, "said")));
+        CHECK_MSG(eventually([&] { return barrier->saw("log:log:said") && engine.saw(1, "platform:ask:1"); }), joined(barrier->events()));
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), closed), joined(engine.events().all()));
+        const SandboxHostedChannel::Withdrawal wb = b.channel->withdraw(withdrawals.hearing("b", b, [&b] { return std::string(b.delegate.deaths().empty() ? " before its death" : " after its death"); }));
+        const SandboxHostedChannel::Withdrawal wc = c.channel->withdraw(withdrawals.hearing("c", c));
+        const SandboxHostedChannel::Withdrawal wd = d.channel->withdraw(withdrawals.hearing("d", d));
+        CHECK(wb.ended && !wb.death && wc.ended && !wc.death && wd.ended && !wd.death);
+        CHECK_MSG(withdrawals.told().empty() && a.death() == "ordinary", joined(withdrawals.told()) + " " + a.death());
+        heldB.open();
+        heldC.open();
+        heldD.open();
+        CHECK_MSG(b.death() == "spared" && b.delegate.deaths() == std::vector<std::string>{kEngineGone}, b.death() + ": " + joined(b.delegate.events()));
+        CHECK_MSG(c.death() == "ordinary" && c.delegate.deaths() == std::vector<std::string>{"terminated"}, c.death() + ": " + joined(c.delegate.events()));
+        CHECK_MSG(d.death() == "ordinary" && d.delegate.deaths() == std::vector<std::string>{flooded}, d.death() + ": " + joined(d.delegate.deaths()));
+        CHECK_MSG(eventually([&] { return withdrawals.told().size() == 3; }), joined(withdrawals.told()));
+        sleepMs(100);
+        std::vector<std::string> all = withdrawals.told();
+        std::sort(all.begin(), all.end());
+        CHECK_MSG((all == std::vector<std::string>{"b:spared before its death on its dispatch thread", "c:spared on its dispatch thread", "d:ordinary on its dispatch thread"}), joined(all));
+    }
+    // A recorder of its own, declared before the channel: the withdrawal that comes first calls nothing back.
+    Withdrawals ownHeard;
+    OwnHostedChannel own("its own channel");
+    const SandboxHostedChannel::Withdrawal first = own.withdraw(ownHeard.hearing("own"));
+    CHECK_MSG(!first.ended && !first.death && ownHeard.told().empty(), std::string(first.ended ? "ended " : "first ") + (first.death ? deathName(*first.death) : "none") + ": " + joined(ownHeard.told()));
+}
+
+/// A death of the widget's own that its client reported first stays its death through the stream's end and the route's cleanup, `SandboxHostedChannel::withdraw` agreeing with `death()` on it, and that dead widget alone never ends its siblings' stream. X: A floods with a timed message unanswered (the overflow claimed at the reader, the kill behind A's held dispatch thread, the message sent just before that thread goes on), and its delegate holds that death before its client closes the route: 3.4 s after the message nothing ended, A's withdrawal comes first (no end decided it) and its `death()` is `Ordinary`; let go, A's route closes and idle B's message still goes out. Y: idle A floods the same way, then B sends a timed message, whose time runs out while A's delegate still holds A's death: B is stalled, A's withdrawal reads `Ordinary` at once, as its `death()` does, not the spared an idle route would be. Z: the end (a queue past its bound from this thread while the reader is held in a delivery) comes while A's platform request waits for its delegate and A's flood waits behind A's held dispatch thread; the delegate then answers none, so A's `widget.answer` loses the still open route before the reader's fan-out, a loss its client still hears: A's flood comes first on its thread, and A's withdrawal and `death()` read `Ordinary`, not the end's spared, while B keeps its ordinary death. P: A's renderer's platform request, which A's delegate answers with none (no platform), is A's own death claimed before its diagnostic (`platform-timeout`) reaches that delegate: with A's timed input unanswered, A's delegate holding the diagnostic and A's `widget.answer`, its client's answer given, held before it loses the route, A reads decided, and at the engine process's end idle B, the only route that takes part, keeps its ordinary death (not the spared beside a route with a message unanswered) and A's withdrawal reads `Ordinary` at once; let go, A dies of its platform once.
+TEST(remote_stream_hosted_answers_claim_an_own_death_in_one_step_with_the_end) {
+    using Death = SandboxHostedChannel::Death;
+    using Clock = std::chrono::steady_clock;
+    const std::string flooded = "the widget engine process sent more than the host keeps queued";
+    const auto overflowing = [] {
+        std::string words;
+        for (size_t i = 0; i <= SandboxEngine::kRemoteQueuedCalls; i++) words += platformMessageFrame(1, "s");
+        return words;
+    }();
+    // What the withdrawals hear, from the clients' threads, declared before them.
+    Withdrawals withdrawals;
+    {
+        // A's dispatch thread and A's death wait on them in each stream: declared before the clients that join those threads.
+        Gate xHeld, xDying, yHeld, yDying;
+        ScriptedEngine x({}, true, {answerKeys}), y({}, true, {answerKeys});
+        CHECK(x.ready() && y.ready());
+        AnsweringClient xa(x, 1), xb(x, 2), ya(y, 1), yb(y, 2);
+        auto xBarrier = std::make_shared<StreamSink>(), yBarrier = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> xBarrierRoute = x.host().hostedChannel(), yBarrierRoute = y.host().hostedChannel();
+        xBarrierRoute->attach(xBarrier);
+        yBarrierRoute->attach(yBarrier);
+        for (AnsweringClient* c : {&xa, &xb, &ya, &yb}) c->settle();
+        // Each A's flood waits behind its held dispatch thread, its overflow already claimed at the reader; its delegate's hold on that death is in place before the hold of its thread, so before anything can queue the flood.
+        const auto queueFlood = [&](ScriptedEngine& engine, AnsweringClient& a, StreamSink& barrier, Gate& held, Gate& dying) {
+            a.delegate.duringDeath = [&dying](SandboxEngine&) { dying.wait(); };
+            a.client->thread().async([&held] { held.wait(); });
+            CHECK(held.waitedOn());
+            CHECK(engine.send(overflowing + logFrame(3, "flooded")));
+            CHECK_MSG(eventually([&] { return barrier.saw("log:log:flooded"); }), joined(barrier.events()));
+        };
+        queueFlood(x, xa, *xBarrier, xHeld, xDying);
+        queueFlood(y, ya, *yBarrier, yHeld, yDying);
+        // X's A sends its timed message (on its route, its client's thread held), then each A's client claims its flood and its delegate holds that death before the route closes.
+        const Clock::time_point sent = Clock::now();
+        CHECK(xa.channel->platform("ask:1"));
+        xHeld.open();
+        yHeld.open();
+        CHECK_MSG(xDying.waitedOn() && xa.delegate.deaths() == std::vector<std::string>{flooded}, joined(xa.delegate.eventsWith("died:")));
+        CHECK_MSG(yDying.waitedOn() && ya.delegate.deaths() == std::vector<std::string>{flooded}, joined(ya.delegate.eventsWith("died:")));
+        const double claimed = msSince(sent);
+        CHECK_MSG(claimed < 2500, "the claims took " + std::to_string(claimed) + " ms");
+        // Y's B sends once Y's A is dead; its time runs out while A's delegate still holds that death.
+        yb.client->platform("ask:1");
+        yb.settle();
+        CHECK_MSG(eventually([&] { return y.events().ended().has_value(); }) && endsOnce(y.events().all(), kUnanswered), joined(y.events().all()));
+        std::this_thread::sleep_until(sent + std::chrono::milliseconds(3400));
+        CHECK_MSG(!x.events().ended(), "dead A's message ended its stream: " + joined(x.events().all()));
+        CHECK_MSG(yb.death() == "stalled", yb.death());
+        const SandboxHostedChannel::Withdrawal xw = xa.channel->withdraw(withdrawals.hearing("x", xa)), yw = ya.channel->withdraw(withdrawals.hearing("y", ya));
+        CHECK_MSG(!xw.ended && !xw.death && xa.channel->death() == Death::Ordinary, std::string(xw.ended ? "ended " : "first ") + (xw.death ? deathName(*xw.death) : "none"));
+        CHECK_MSG(yw.ended && yw.death == std::optional<Death>(Death::Ordinary) && ya.channel->death() == Death::Ordinary,
+                  std::string(yw.ended ? "ended " : "first ") + (yw.death ? deathName(*yw.death) : "none") + ", death() " + deathName(ya.channel->death()));
+        xDying.open();
+        yDying.open();
+        CHECK_MSG(eventually([&] { return x.saw(1, "close"); }), joined(x.frames(1)));
+        xb.client->platform("size:1");
+        xb.settle();
+        CHECK_MSG(eventually([&] { return x.saw(2, "platform:size:1"); }) && !x.events().ended() && xb.delegate.deaths().empty(), joined(x.events().all()));
+        const SandboxHostedChannel::Withdrawal again = ya.channel->withdraw(withdrawals.hearing("y again", ya));
+        CHECK(again.ended && again.death == std::optional<Death>(Death::Ordinary));
+        CHECK_MSG(withdrawals.told().empty(), joined(withdrawals.told()));
+    }
+    {
+        SandboxRemoteHostEnd::Limits bounded;
+        bounded.queuedBytes = size_t(1) << 20;
+        // The reader and A's dispatch thread wait on them: declared before the stream and the client that join those threads.
+        Gate delivering, held;
+        ScriptedEngine engine(bounded, true, {answerKeys});
+        CHECK(engine.ready());
+        auto busy = std::make_shared<StreamSink>();
+        busy->logGate = &delivering;
+        const std::shared_ptr<SandboxHostedChannel> busyRoute = engine.host().hostedChannel();
+        busyRoute->attach(busy);
+        AnsweringClient a(engine, 2), b(engine, 3);
+        b.client->platform("ask:1");
+        b.settle();
+        // A's renderer asks; its delegate keeps the responder.
+        CHECK(engine.send(platformRequestFrame(2, "asks")));
+        CHECK_MSG(eventually([&] { return has(a.delegate.events(), "hosted-request:asks"); }), joined(a.delegate.events()));
+        a.client->thread().async([&held] { held.wait(); });
+        CHECK(held.waitedOn());
+        std::string words;
+        for (size_t i = 0; i <= SandboxEngine::kRemoteQueuedCalls; i++) words += platformMessageFrame(2, "s");
+        CHECK(engine.send(words + logFrame(1, "hold")));
+        CHECK_MSG(delivering.waitedOn() && a.client->remoteBacklog().calls == SandboxEngine::kRemoteQueuedCalls, std::to_string(a.client->remoteBacklog().calls) + " held");
+        // The end from this thread, the reader still in that delivery: A, idle, is frozen spared.
+        CHECK(!busyRoute->platform(std::string(size_t(2) << 20, 'p')));
+        // None for A's request: A's `widget.answer` loses the route, still live, which a probe then finds gone.
+        std::optional<HostedRequestResponder> responder = a.delegate.platformResponder(0);
+        CHECK(responder.has_value());
+        if (responder) responder->unanswered();
+        Background<std::string> probing([&] { return a.channel->probe("x"); });
+        CHECK_MSG(probing.within(2) == std::optional<std::string>("ERROR no runtime"), "A's route was not lost");
+        held.open();
+        CHECK_MSG(eventually([&] { return !a.delegate.deaths().empty(); }), joined(a.delegate.eventsWith("died:")));
+        CHECK_MSG(a.delegate.deaths() == std::vector<std::string>{flooded} && a.channel->death() == Death::Ordinary, joined(a.delegate.deaths()) + ", " + deathName(a.channel->death()));
+        const SandboxHostedChannel::Withdrawal wa = a.channel->withdraw(withdrawals.hearing("z", a));
+        CHECK_MSG(wa.ended && wa.death == std::optional<Death>(Death::Ordinary), std::string(wa.ended ? "ended " : "first ") + (wa.death ? deathName(*wa.death) : "none"));
+        delivering.open();
+        const std::string reason = "more than 1048576 bytes queued for the stream";
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), reason), joined(engine.events().all()));
+        CHECK_MSG(b.death() == "ordinary", b.death());
+        probing.finish(15);
+        CHECK_MSG(withdrawals.told().empty(), joined(withdrawals.told()));
+    }
+    {
+        const std::string none = "the host's platform answers no requests of the widget's renderer";
+        // A's `widget.answer`, its client's answer given, and A's diagnostic wait on them: declared before the stream and the clients that join those threads.
+        Gate answering, diagnosing;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        const auto heldRoute = std::make_shared<HeldSinkChannel>(engine.host().hostedChannel(), "none", nullptr, &answering);
+        AnsweringClient a(heldRoute, 1), b(engine, 2);
+        const OpensAtExit opens{&answering, &diagnosing};
+        a.delegate.holdPlatformRequests = false;
+        a.delegate.platformAnswer = std::nullopt;
+        a.delegate.duringDiag = [&diagnosing](SandboxEngine&, const std::string& kind) {
+            if (kind == "platform-timeout") diagnosing.wait();
+        };
+        a.client->platform("ask:1");
+        for (AnsweringClient* c : {&a, &b}) c->settle();
+        CHECK_MSG(eventually([&] { return engine.saw(1, "platform:ask:1"); }), joined(engine.frames(1)));
+        // A's renderer asks and A's delegate has no platform for it: A's delegate holds that diagnostic while A's `widget.answer`, the answer given, has yet to lose A's route.
+        CHECK(engine.send(platformRequestFrame(1, "none")));
+        CHECK_MSG(diagnosing.waitedOn() && answering.waitedOn() && has(heldRoute->requests(), "none:returned"), joined(heldRoute->requests()) + " / " + joined(a.delegate.events()));
+        CHECK_MSG(a.channel->decided() && a.delegate.deaths().empty(), std::string(a.channel->decided() ? "decided: " : "undecided: ") + joined(a.delegate.events()));
+        // The engine process's end with A's input still kept on its open route: A takes no part, so idle B is the only route that does, and keeps its ordinary death.
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), "the engine process closed the stream"), joined(engine.events().all()));
+        CHECK_MSG(b.death() == "ordinary", b.death());
+        const SandboxHostedChannel::Withdrawal wa = a.channel->withdraw(withdrawals.hearing("p", a));
+        CHECK_MSG(wa.ended && wa.death == std::optional<Death>(Death::Ordinary), std::string(wa.ended ? "ended " : "first ") + (wa.death ? deathName(*wa.death) : "none"));
+        diagnosing.open();
+        answering.open();
+        CHECK_MSG(eventually([&] { return !a.delegate.deaths().empty(); }), joined(a.delegate.events()));
+        CHECK_MSG(a.delegate.deaths() == std::vector<std::string>{none} && a.delegate.eventsWith("diag:platform-timeout").size() == 1, joined(a.delegate.events()));
+        CHECK_MSG(withdrawals.told().empty(), joined(withdrawals.told()));
+    }
+}
+
+/// What a local stop found (`SandboxHostedChannel::localStop`) or a withdrawal read, "none" for none.
+static std::string deathOrNone(const std::optional<SandboxHostedChannel::Death>& death) { return death ? deathName(*death) : "none"; }
+
+/// The host's own stop of a widget (`SandboxHostedChannel::localStop`, which a live platform end that refuses the widget's renderer makes from its own thread, here the test's) is one step with the stream's first end. X0, the control: A's frame request admitted while A is visible, its renderer's reply of another sequence (a valid key that answers nothing) heard and no stop: the stream ends 3 s after the admission, A stalled and idle B spared. X: the same, then, A's client held as a stop's notification that stalls, the host stops A within 2.5 s: 3.4 s after the admission nothing ended, B's input sent past A's time is answered on the same stream, A's route still carries and nothing closed it, and a second stop finds the first one's; let go, at the engine process's end with B's input unanswered A keeps its own ordinary death (not the spared of an idle route), which its withdrawal reads too, and a stop still finds the first one's. Y, the end first: A's frame request runs out while A's client is held before it heard that end, A stalled; the stop then finds that decision and changes nothing, twice: the withdrawal registered before it hears stalled once, A's client publishes stalled and dies of the end once, B is spared, and a stop afterwards still finds stalled. Z: idle A stopped before the engine process's end, with B's input unanswered and idle C not stopped: A ordinary, its withdrawal too, C spared, both withdrawals read at once and neither called back, also once the clients and the stream went. A channel that decides nothing (the embedder's own, a refusing one) has the stop first.
+TEST(remote_stream_hosted_answers_stop_a_widget_locally_in_one_step_with_the_end) {
+    using Death = SandboxHostedChannel::Death;
+    using Clock = std::chrono::steady_clock;
+    const std::string closed = "the engine process closed the stream";
+    // What the withdrawals hear, from the clients' threads, declared before them.
+    Withdrawals withdrawals;
+    {
+        // X's and Y's A dispatch threads wait on them: declared before the clients that join those threads.
+        Gate xHeld, yHeld;
+        ScriptedEngine x0({}, true, {answerKeys}), x({}, true, {answerKeys}), y({}, true, {answerKeys});
+        CHECK(x0.ready() && x.ready() && y.ready());
+        AnsweringClient x0a(x0, 1), x0b(x0, 2), xa(x, 1), xb(x, 2), ya(y, 1), yb(y, 2);
+        const OpensAtExit opens{&xHeld, &yHeld};
+        for (AnsweringClient* c : {&x0a, &x0b, &xa, &xb, &ya, &yb}) c->settle();
+        // Each A's frame request admitted while A is visible; X0's and X's renderers reply with another sequence, which their clients hear and which answers nothing.
+        const Clock::time_point sent = Clock::now();
+        CHECK(x0a.channel->platform("draw:7:1") && xa.channel->platform("draw:7:1") && ya.channel->platform("draw:7:1"));
+        CHECK(x0.send(platformMessageFrame(1, "reply:7:2")) && x.send(platformMessageFrame(1, "reply:7:2")));
+        CHECK_MSG(eventually([&] { return has(x0a.delegate.events(), "hosted-message:reply:7:2") && has(xa.delegate.events(), "hosted-message:reply:7:2"); }),
+                  joined(x0a.delegate.events()) + " / " + joined(xa.delegate.events()));
+        // Y's A held before it hears anything more; X's A held as a stop's notification that stalls, then X's host stops A.
+        ya.client->thread().async([&yHeld] { yHeld.wait(); });
+        xa.client->thread().async([&xHeld] { xHeld.wait(); });
+        CHECK(yHeld.waitedOn() && xHeld.waitedOn());
+        const std::optional<Death> stopped = xa.channel->localStop();
+        const double stoppedAfter = msSince(sent);
+        CHECK_MSG(!stopped && stoppedAfter < 2500 && xa.channel->decided() && xa.channel->death() == Death::Ordinary, deathOrNone(stopped) + " after " + std::to_string(stoppedAfter) + " ms");
+        CHECK(xb.channel->platform("ask:1") && x.send(platformMessageFrame(2, "reply:1")));
+        CHECK_MSG(eventually([&] { return has(xb.delegate.events(), "hosted-message:reply:1"); }), joined(xb.delegate.events()));
+        // X0 and Y end at A's time.
+        CHECK_MSG(eventually([&] { return x0.events().ended() && y.events().ended(); }) && endsOnce(x0.events().all(), kUnanswered) && endsOnce(y.events().all(), kUnanswered),
+                  joined(x0.events().all()) + " / " + joined(y.events().all()));
+        const double x0Ended = std::chrono::duration<double, std::milli>(x0.events().endedAt().value_or(sent) - sent).count();
+        CHECK_MSG(x0Ended >= 3000 && x0a.death() == "stalled" && x0b.death() == "spared", "X0 ended " + std::to_string(x0Ended) + " ms after the request: A " + x0a.death() + ", B " + x0b.death());
+        // Y: the end decided A first; the stop changes nothing of that, the withdrawal waiting for it kept.
+        const SandboxHostedChannel::Withdrawal yw = ya.channel->withdraw(withdrawals.hearing("y", ya));
+        const std::optional<Death> yStopped = ya.channel->localStop(), yAgain = ya.channel->localStop();
+        CHECK_MSG(yw.ended && !yw.death && yStopped == std::optional<Death>(Death::Stalled) && yAgain == yStopped && ya.channel->decided(), deathOrNone(yStopped) + ", again " + deathOrNone(yAgain));
+        CHECK_MSG(ya.channel->death() == Death::Ordinary && ya.delegate.deaths().empty() && withdrawals.told().empty(), deathName(ya.channel->death()) + ": " + joined(ya.delegate.events()) + " " + joined(withdrawals.told()));
+        // 3.4 s: X's A owes nothing: no end, B answered past A's time, A's route still carries.
+        std::this_thread::sleep_until(sent + std::chrono::milliseconds(3400));
+        CHECK_MSG(!x.events().ended(), "a stopped widget's frame request ended its stream: " + joined(x.events().all()));
+        CHECK(xb.channel->platform("ask:2") && x.send(platformMessageFrame(2, "reply:2")) && xa.channel->platform("size:1"));
+        CHECK_MSG(eventually([&] { return has(xb.delegate.events(), "hosted-message:reply:2") && x.saw(1, "platform:size:1"); }) && !x.events().ended() && !x.saw(1, "close"),
+                  joined(x.events().all()) + " / " + joined(x.frames(1)));
+        const std::optional<Death> xAgain = xa.channel->localStop();
+        CHECK_MSG(!xAgain && xa.delegate.deaths().empty(), deathOrNone(xAgain) + ": " + joined(xa.delegate.events()));
+        // Y let go: A's client publishes the end's decision and dies of it once, the withdrawal hearing it once.
+        yHeld.open();
+        CHECK_MSG(ya.death() == "stalled" && ya.delegate.deaths() == std::vector<std::string>{kEngineGone} && yb.death() == "spared", ya.death() + ": " + joined(ya.delegate.events()) + ", B " + yb.death());
+        CHECK_MSG(eventually([&] { return !withdrawals.told().empty(); }) && ya.channel->localStop() == std::optional<Death>(Death::Stalled), joined(withdrawals.told()));
+        // X let go, then the engine process's end with B's input unanswered: A's own death stands.
+        xHeld.open();
+        xa.settle();
+        CHECK(xb.channel->platform("ask:3"));
+        CHECK_MSG(eventually([&] { return x.saw(2, "platform:ask:3"); }), joined(x.frames(2)));
+        x.close();
+        CHECK_MSG(eventually([&] { return x.events().ended().has_value(); }) && endsOnce(x.events().all(), closed), joined(x.events().all()));
+        CHECK_MSG(xa.death() == "ordinary" && xa.delegate.deaths() == std::vector<std::string>{kEngineGone} && xb.death() == "ordinary", xa.death() + ": " + joined(xa.delegate.events()) + ", B " + xb.death());
+        const SandboxHostedChannel::Withdrawal xw = xa.channel->withdraw(withdrawals.hearing("x", xa));
+        const std::optional<Death> xLast = xa.channel->localStop();
+        CHECK_MSG(xw.ended && xw.death == std::optional<Death>(Death::Ordinary) && !xLast, std::string(xw.ended ? "ended " : "first ") + deathOrNone(xw.death) + ", then " + deathOrNone(xLast));
+        sleepMs(100);
+        CHECK_MSG(withdrawals.told() == std::vector<std::string>{"y:stalled on its dispatch thread"}, joined(withdrawals.told()));
+    }
+    {
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1), b(engine, 2), c(engine, 3);
+        for (AnsweringClient* client : {&a, &b, &c}) client->settle();
+        const std::optional<Death> stopped = a.channel->localStop();
+        CHECK_MSG(!stopped && a.channel->decided() && !c.channel->decided(), deathOrNone(stopped));
+        CHECK(b.channel->platform("ask:1"));
+        CHECK_MSG(eventually([&] { return engine.saw(2, "platform:ask:1"); }), joined(engine.frames(2)));
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), closed), joined(engine.events().all()));
+        CHECK_MSG(a.death() == "ordinary" && b.death() == "ordinary" && c.death() == "spared", a.death() + " " + b.death() + " " + c.death());
+        const SandboxHostedChannel::Withdrawal wa = a.channel->withdraw(withdrawals.hearing("za", a)), wc = c.channel->withdraw(withdrawals.hearing("zc", c));
+        CHECK_MSG(wa.ended && wa.death == std::optional<Death>(Death::Ordinary) && wc.ended && wc.death == std::optional<Death>(Death::Spared), deathOrNone(wa.death) + " " + deathOrNone(wc.death));
+        CHECK(!a.channel->localStop() && c.channel->localStop() == std::optional<Death>(Death::Spared));
+    }
+    // Each death settled when withdrawn (X's A, Z's A and C) was read at once: none of those callbacks was ever called, then or as the clients, their channels and the streams went.
+    CHECK_MSG(withdrawals.told() == std::vector<std::string>{"y:stalled on its dispatch thread"}, joined(withdrawals.told()));
+    OwnHostedChannel own("its own channel");
+    CHECK(!own.localStop() && !own.decided());
+    CHECK(!SandboxRemoteHostEnd::refusingHosted("refused")->localStop());
+}
+
+/// A hosted client's counted stop (`SandboxEngine::stop`) is the widget's own death in one step with the stream's first end, decided on the client's dispatch thread before its delegate hears it (`SandboxHostedChannel::localStop`), and it yields to an end that decided the widget first. X: A's input admitted and left unanswered, A's client stops it from another thread and its delegate holds that death inside `onDied`, before the route closes: the stop was decided within 2.5 s, 3.4 s after the admission nothing ended, B's input sent past A's time is answered on the same stream, A's withdrawal comes first (no end decided it) and its `death()` is `Ordinary`; let go, A's route takes the stop and closes and B still carries. R, the end first: a storage commit of A's engine's side reaches A's delegate while A lives; then a job ahead of the end on A's dispatch thread waits while A's frame request runs out (A stalled, idle B spared) and the same commit is queued behind that job, then the job stops A inline: no death inside that job and nothing published, the commit queued after the stop reaches no delegate, then A's client publishes stalled and dies of the end once, the withdrawal registered before hears stalled once, on A's dispatch thread, B is spared, and a stop queued after that death changes nothing. Z: idle A stopped inline on its dispatch thread, its delegate holding that death, then the engine process's end with B's input unanswered and idle C not stopped: A's withdrawal reads its own ordinary death (not the spared of an idle route), B is ordinary and C spared; let go, A's client reported its stop alone. T: the owner's `terminate` claims nothing: while its delegate holds that death, with A's input unanswered, A is not decided. O: on a hosting stream opened without the owner's answers the same counted stop of a widget with an input sent decides nothing, before and after the stop ran (`decided()` false, `death()` `Ordinary`), where a stream opened with them decides it (`Ordinary`); the owner's withdrawal comes first on both, no end having decided either.
+TEST(remote_stream_hosted_answers_claim_a_counted_stop_in_one_step_with_the_end) {
+    using Death = SandboxHostedChannel::Death;
+    using Clock = std::chrono::steady_clock;
+    const std::string counted = "a counted stop";
+    const std::string closed = "the engine process closed the stream";
+    // What the withdrawals hear, from the clients' threads, declared before them.
+    Withdrawals withdrawals;
+    {
+        // What R's job saw right after its inline stop, then the gates X's A death and R's A dispatch thread wait on: declared before the clients that join those threads.
+        std::atomic<bool> stoppedInline{false};
+        std::vector<std::string> deathsInline;
+        Death publishedInline = Death::Spared;
+        Gate xDying, rHeld;
+        ScriptedEngine x({}, true, {answerKeys}), r({}, true, {answerKeys});
+        CHECK(x.ready() && r.ready());
+        AnsweringClient xa(x, 1), xb(x, 2), ra(r, 1), rb(r, 2);
+        const OpensAtExit opens{&xDying, &rHeld};
+        for (AnsweringClient* c : {&xa, &xb, &ra, &rb}) c->settle();
+        xa.delegate.duringDeath = [&xDying](SandboxEngine&) { xDying.wait(); };
+        // R's A, live: a storage commit of its engine's side reaches its delegate.
+        CHECK(r.send(storageFrame(1)));
+        CHECK_MSG(eventually([&] { return ra.delegate.eventsWith("storage:").size() == 1; }), joined(ra.delegate.events()));
+        // R's job, ahead of any end on A's dispatch thread: let go, it stops A inline and notes what that did at once.
+        ra.client->thread().async([&] {
+            rHeld.wait();
+            ra.client->stop(counted);
+            deathsInline = ra.delegate.deaths();
+            publishedInline = ra.channel->death();
+            stoppedInline = true;
+        });
+        CHECK(rHeld.waitedOn());
+        // X's input and R's frame request admitted; X's A stopped from this thread.
+        const Clock::time_point sent = Clock::now();
+        CHECK(xa.channel->platform("ask:1") && ra.channel->platform("draw:7:1"));
+        // The same commit for R's A, queued behind that job, so after its stop and before the end's kill: admitted and not yet run.
+        CHECK(r.send(storageFrame(1)));
+        CHECK_MSG(eventually([&] { return ra.client->remoteBacklog().calls == 1; }), std::to_string(ra.client->remoteBacklog().calls) + " held");
+        CHECK_MSG(eventually([&] { return x.saw(1, "platform:ask:1"); }), joined(x.frames(1)));
+        xa.client->stop(counted);
+        CHECK_MSG(xDying.waitedOn() && xa.delegate.deaths() == std::vector<std::string>{counted}, joined(xa.delegate.eventsWith("died:")));
+        const double claimed = msSince(sent);
+        CHECK_MSG(claimed < 2500 && xa.channel->decided() && xa.channel->death() == Death::Ordinary, std::string(xa.channel->decided() ? "decided" : "undecided") + " after " + std::to_string(claimed) + " ms");
+        // R ends at A's time while A's client, held before that end, has its stop still to come.
+        CHECK_MSG(eventually([&] { return r.events().ended().has_value(); }) && endsOnce(r.events().all(), kUnanswered), joined(r.events().all()));
+        CHECK_MSG(ra.delegate.deaths().empty() && ra.channel->decided() && ra.channel->death() == Death::Ordinary, joined(ra.delegate.events()));
+        const SandboxHostedChannel::Withdrawal rw = ra.channel->withdraw(withdrawals.hearing("r", ra));
+        CHECK(rw.ended && !rw.death);
+        rHeld.open();
+        const bool inlineDone = eventually([&] { return stoppedInline.load(); });
+        CHECK_MSG(inlineDone && deathsInline.empty() && publishedInline == Death::Ordinary, inlineDone ? "inside the job: " + joined(deathsInline) + ", " + deathName(publishedInline) : std::string("the job never stopped A"));
+        CHECK_MSG(ra.death() == "stalled" && ra.delegate.deaths() == std::vector<std::string>{kEngineGone} && rb.death() == "spared", ra.death() + ": " + joined(ra.delegate.events()) + ", B " + rb.death());
+        // The commit queued after the stop ran and reached nothing: the live one alone was stored.
+        CHECK_MSG(eventually([&] { return ra.client->remoteBacklog().calls == 0; }) && ra.delegate.eventsWith("storage:") == std::vector<std::string>{"storage:local"},
+                  joined(ra.delegate.events()) + ", " + std::to_string(ra.client->remoteBacklog().calls) + " held");
+        CHECK_MSG(eventually([&] { return withdrawals.told().size() == 1; }) && !r.saw(1, "stop:" + counted), joined(withdrawals.told()) + " / " + joined(r.frames(1)));
+        // Behind the end's kill: a widget dead already.
+        ra.client->stop("later");
+        ra.settle();
+        CHECK_MSG(ra.delegate.deaths() == std::vector<std::string>{kEngineGone} && ra.channel->death() == Death::Stalled && ra.channel->localStop() == std::optional<Death>(Death::Stalled), joined(ra.delegate.events()));
+        // 3.4 s: X's A owes nothing while its delegate holds its death.
+        std::this_thread::sleep_until(sent + std::chrono::milliseconds(3400));
+        CHECK_MSG(!x.events().ended(), "a stopped widget's input ended its stream: " + joined(x.events().all()));
+        CHECK(xb.channel->platform("ask:1") && x.send(platformMessageFrame(2, "reply:1")));
+        CHECK_MSG(eventually([&] { return has(xb.delegate.events(), "hosted-message:reply:1"); }) && !x.events().ended() && !x.saw(1, "close"), joined(x.events().all()) + " / " + joined(x.frames(1)));
+        const SandboxHostedChannel::Withdrawal xw = xa.channel->withdraw(withdrawals.hearing("x", xa));
+        CHECK_MSG(!xw.ended && !xw.death && xa.channel->death() == Death::Ordinary, std::string(xw.ended ? "ended " : "first ") + deathOrNone(xw.death));
+        xDying.open();
+        CHECK_MSG(eventually([&] { return x.saw(1, "stop:" + counted) && x.saw(1, "close"); }), joined(x.frames(1)));
+        xb.client->platform("size:1");
+        xb.settle();
+        CHECK_MSG(eventually([&] { return x.saw(2, "platform:size:1"); }) && !x.events().ended() && xb.delegate.deaths().empty() && xa.delegate.deaths() == std::vector<std::string>{counted},
+                  joined(x.events().all()) + " / " + joined(xa.delegate.deaths()));
+        CHECK_MSG(withdrawals.told() == std::vector<std::string>{"r:stalled on its dispatch thread"}, joined(withdrawals.told()));
+    }
+    {
+        // A's death waits on it: declared before the client that joins A's dispatch thread.
+        Gate dying;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1), b(engine, 2), c(engine, 3);
+        const OpensAtExit opens{&dying};
+        for (AnsweringClient* client : {&a, &b, &c}) client->settle();
+        a.delegate.duringDeath = [&dying](SandboxEngine&) { dying.wait(); };
+        a.client->thread().async([&a, &counted] { a.client->stop(counted); });
+        CHECK_MSG(dying.waitedOn() && a.delegate.deaths() == std::vector<std::string>{counted} && a.channel->decided() && !c.channel->decided(), joined(a.delegate.events()));
+        CHECK(b.channel->platform("ask:1"));
+        CHECK_MSG(eventually([&] { return engine.saw(2, "platform:ask:1"); }), joined(engine.frames(2)));
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), closed), joined(engine.events().all()));
+        const SandboxHostedChannel::Withdrawal wa = a.channel->withdraw(withdrawals.hearing("za", a));
+        CHECK_MSG(wa.ended && wa.death == std::optional<Death>(Death::Ordinary) && a.channel->death() == Death::Ordinary, std::string(wa.ended ? "ended " : "first ") + deathOrNone(wa.death));
+        CHECK_MSG(b.death() == "ordinary" && c.death() == "spared", b.death() + " " + c.death());
+        dying.open();
+        a.settle();
+        CHECK_MSG(a.death() == "ordinary" && a.delegate.deaths() == std::vector<std::string>{counted}, a.death() + ": " + joined(a.delegate.events()));
+    }
+    {
+        // A's death waits on it: declared before the client that joins A's dispatch thread.
+        Gate dying;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1);
+        const OpensAtExit opens{&dying};
+        a.settle();
+        a.delegate.duringDeath = [&dying](SandboxEngine&) { dying.wait(); };
+        CHECK(a.channel->platform("ask:1"));
+        a.client->terminate();
+        CHECK_MSG(dying.waitedOn() && a.delegate.deaths() == std::vector<std::string>{"terminated"} && !a.channel->decided(), joined(a.delegate.events()));
+        dying.open();
+        CHECK_MSG(eventually([&] { return engine.saw(1, "close"); }) && !engine.events().ended() && !a.channel->decided(), joined(engine.frames(1)));
+    }
+    {
+        // O: a hosting stream opened without the owner's answers (`startHosting`'s default) decides nothing, the same counted stop included; one opened with them decides it.
+        ScriptedEngine plain({}, true), opted({}, true, {answerKeys});
+        CHECK(plain.ready() && opted.ready());
+        AnsweringClient p(plain, 1), o(opted, 1);
+        for (AnsweringClient* client : {&p, &o}) {
+            client->client->platform("ask:1");
+            client->settle();
+        }
+        CHECK_MSG(eventually([&] { return plain.saw(1, "platform:ask:1") && opted.saw(1, "platform:ask:1"); }), joined(plain.frames(1)) + " / " + joined(opted.frames(1)));
+        CHECK(!p.channel->decided() && !o.channel->decided() && p.channel->death() == Death::Ordinary && o.channel->death() == Death::Ordinary);
+        p.client->stop(counted);
+        o.client->stop(counted);
+        p.settle();
+        o.settle();
+        CHECK_MSG(p.delegate.deaths() == std::vector<std::string>{counted} && !p.channel->decided() && p.channel->death() == Death::Ordinary,
+                  std::string(p.channel->decided() ? "decided" : "undecided") + ", " + deathName(p.channel->death()) + ": " + joined(p.delegate.deaths()));
+        CHECK_MSG(o.delegate.deaths() == std::vector<std::string>{counted} && o.channel->decided() && o.channel->death() == Death::Ordinary,
+                  std::string(o.channel->decided() ? "decided" : "undecided") + ", " + deathName(o.channel->death()) + ": " + joined(o.delegate.deaths()));
+        const SandboxHostedChannel::Withdrawal pw = p.channel->withdraw(withdrawals.hearing("op", p)), ow = o.channel->withdraw(withdrawals.hearing("oo", o));
+        // Both withdrawals come first, no end having decided either (the opted-in claim was before any end).
+        CHECK_MSG(!pw.ended && !pw.death && !ow.ended && !ow.death && !p.channel->localStop() && !p.channel->decided(),
+                  std::string(pw.ended ? "ended " : "first ") + deathOrNone(pw.death) + ", " + (ow.ended ? "ended " : "first ") + deathOrNone(ow.death));
+        CHECK_MSG(withdrawals.told() == std::vector<std::string>{"r:stalled on its dispatch thread"}, joined(withdrawals.told()));
+    }
+}
+
+/// A counted stop that yielded to the stream's end (`SandboxEngine::stop` after an end that decided the widget first) leaves the widget's death to that end's kill, and until that kill its client is as at the stop's own death. S, the watchdog's end while the reader is held in a delivery of an earlier route's, so the routes stay open and no client hears that end: A's, K's and T's inputs run out (A's renderer's platform request came after its input was due, its responder kept; K's renderer announced itself), idle E's renderer's request is kept too, and each is stopped once that end decided it, nothing dying then. K's owner tries to keep its renderer and T's owner terminates it: the keep fails and nothing dies. Then A's and E's responders decline: each refusal's kill is queued on its client before its route, still open, is lost for the answer it never gets, so each client runs that kill before it hears the loss; with the reader still held A and E die of that loss once, with no `platform-timeout` diagnostic, their channels' `death()` the end's decision (A stalled, E spared). Let go, K and T die of the end once, stalled, K's delegate hearing that death and the one it offered nothing. Q, the engine process's end with B's input unanswered, its fan-out held at an earlier route before it reaches the clients: M's renderer's live message and request reach its delegate and I's live Intl request its provider; then another message and request of M's renderer and another Intl request of I's are admitted behind a job on each one's dispatch thread that, let go once that end decided both, stops it inline. Each queued call then runs on its client's thread, whenever its worker handed it over, while the client is yielded and before the end's kill: none of them reaches the delegate or the provider (the request answers none, with no kill) and nothing dies. Let go, M and I die of the end once, spared, and B is ordinary.
+TEST(remote_stream_hosted_answers_leave_a_yielded_stop_to_the_ends_kill) {
+    using Clock = std::chrono::steady_clock;
+    const std::string counted = "a counted stop";
+    {
+        // The monitor's report and the reader's delivery at Z wait on them, and K's offered delegate must outlive its client: declared before the stream and the clients.
+        Gate monitor, delivering;
+        RemoteRecorder offered;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        // A monitor that does not run until the test lets it look at the answer times, and Z, the route before the clients, whose log delivery holds the reader.
+        engine.events().holdAt = 1;
+        engine.events().hold = &monitor;
+        const std::shared_ptr<SandboxHostedChannel> zRoute = engine.host().hostedChannel();
+        auto z = std::make_shared<StreamSink>();
+        z->logGate = &delivering;
+        zRoute->attach(z);
+        CHECK(monitor.waitedOn());
+        AnsweringClient a(engine, 2), k(engine, 3), t(engine, 4), e(engine, 5);
+        const OpensAtExit opens{&monitor, &delivering};
+        for (AnsweringClient* c : {&a, &k, &t, &e}) c->settle();
+        CHECK(engine.send(bare(3, wire::RendererReady)));
+        CHECK_MSG(eventually([&] { return has(k.delegate.events(), "renderer-ready"); }), joined(k.delegate.events()));
+        // A's, K's and T's inputs admitted; past their time A's and E's renderers ask the host's platform, which keeps both responders; then the reader waits in a delivery of Z's.
+        const Clock::time_point sent = Clock::now();
+        CHECK(a.channel->platform("ask:1") && k.channel->platform("ask:1") && t.channel->platform("ask:1"));
+        std::this_thread::sleep_until(sent + std::chrono::milliseconds(3150));
+        CHECK(engine.send(platformRequestFrame(2, "a asks") + platformRequestFrame(5, "e asks") + logFrame(1, "hold")));
+        CHECK_MSG(eventually([&] { return a.delegate.platformResponder(0) && e.delegate.platformResponder(0); }) && delivering.waitedOn(), joined(a.delegate.events()) + " / " + joined(e.delegate.events()));
+        // The monitor looks: the end decides every route, which stays open while the reader, held, has yet to tell any client of that end.
+        monitor.open();
+        CHECK_MSG(eventually([&] { return a.channel->decided() && k.channel->decided() && t.channel->decided() && e.channel->decided(); }), "a route the end did not decide");
+        for (AnsweringClient* c : {&a, &k, &t, &e}) {
+            c->client->stop(counted);
+            c->settle();
+        }
+        // Each stop yielded; now a keep and a terminate before the end's kill.
+        const bool kept = k.client->keepHosted(offered);
+        t.client->terminate();
+        t.settle();
+        CHECK_MSG(!kept && k.delegate.deaths().empty() && t.delegate.deaths().empty(), std::string(kept ? "kept, " : "") + "K " + joined(k.delegate.events()) + " / T " + joined(t.delegate.events()));
+        // A's and E's responders decline while the reader is still held: each worker queues its refusal's kill, then gives no answer on its route, still open, which loses that route, so the client hears the loss behind the kill.
+        for (AnsweringClient* c : {&a, &e}) {
+            std::optional<HostedRequestResponder> responder = c->delegate.platformResponder(0);
+            if (responder) responder->unanswered();
+        }
+        CHECK_MSG(eventually([&] { return !a.delegate.deaths().empty() && !e.delegate.deaths().empty(); }), "A " + joined(a.delegate.events()) + " / E " + joined(e.delegate.events()));
+        CHECK_MSG(a.death() == "stalled" && a.delegate.deaths() == std::vector<std::string>{kEngineGone} && a.delegate.eventsWith("diag:").empty(), a.death() + ": " + joined(a.delegate.events()));
+        CHECK_MSG(e.death() == "spared" && e.delegate.deaths() == std::vector<std::string>{kEngineGone} && e.delegate.eventsWith("diag:").empty(), e.death() + ": " + joined(e.delegate.events()));
+        for (AnsweringClient* c : {&k, &t}) c->settle();
+        CHECK_MSG(!engine.events().ended() && k.delegate.deaths().empty() && t.delegate.deaths().empty(), joined(engine.events().all()) + " / K " + joined(k.delegate.events()) + " / T " + joined(t.delegate.events()));
+        // Let go: the reader tells K and T of the end.
+        delivering.open();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), kUnanswered), joined(engine.events().all()));
+        CHECK_MSG(k.death() == "stalled" && k.delegate.deaths() == std::vector<std::string>{kEngineGone} && offered.events().empty(), k.death() + ": " + joined(k.delegate.events()) + ", offered " + joined(offered.events()));
+        CHECK_MSG(t.death() == "stalled" && t.delegate.deaths() == std::vector<std::string>{kEngineGone}, t.death() + ": " + joined(t.delegate.events()));
+        for (AnsweringClient* c : {&a, &e}) c->settle();
+        CHECK_MSG(a.delegate.deaths() == std::vector<std::string>{kEngineGone} && e.delegate.deaths() == std::vector<std::string>{kEngineGone} && a.delegate.eventsWith("diag:").empty() && e.delegate.eventsWith("diag:").empty(),
+                  "A " + joined(a.delegate.events()) + " / E " + joined(e.delegate.events()));
+    }
+    {
+        // The reader's fan-out at Z and M's and I's dispatch threads wait on them, and the jobs on those threads report here: declared before the stream and the clients that join those threads.
+        Gate fanout, mHeld, iHeld;
+        std::atomic<bool> mStopped{false}, iStopped{false};
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        // A fan-out that stops at Z, the route before the clients.
+        const std::shared_ptr<SandboxHostedChannel> zRoute = engine.host().hostedChannel();
+        auto z = std::make_shared<StreamSink>();
+        z->lost = &fanout;
+        zRoute->attach(z);
+        AnsweringClient m(engine, 2), i(engine, 3), b(engine, 4);
+        const OpensAtExit opens{&fanout, &mHeld, &iHeld};
+        m.delegate.holdPlatformRequests = false;
+        b.client->platform("ask:1");
+        for (AnsweringClient* c : {&m, &i, &b}) c->settle();
+        CHECK_MSG(eventually([&] { return engine.saw(4, "platform:ask:1"); }), joined(engine.frames(4)));
+        // Live: M's renderer's message and request reach its delegate, which answers the request, and I's Intl request reaches its provider.
+        CHECK(engine.send(platformMessageFrame(2, "live") + platformRequestFrame(2, "live") + intlFrame(3, "{\"live\":1}")));
+        CHECK_MSG(eventually([&] { return engine.saw(2, "platform-answer:platform-answer") && engine.saw(3, "intl-answer:INTL"); }), joined(engine.frames(2)) + " / " + joined(engine.frames(3)));
+        CHECK_MSG(has(m.delegate.events(), "hosted-message:live") && has(m.delegate.events(), "hosted-request:live") && i.intl->threads().size() == 1, joined(m.delegate.events()));
+        // Jobs on M's and I's dispatch threads: let go, each stops its widget inline.
+        m.client->thread().async([&] {
+            mHeld.wait();
+            m.client->stop(counted);
+            mStopped = true;
+        });
+        i.client->thread().async([&] {
+            iHeld.wait();
+            i.client->stop(counted);
+            iStopped = true;
+        });
+        CHECK(mHeld.waitedOn() && iHeld.waitedOn());
+        // Admitted behind those jobs, each handed over to its client's thread whenever its worker gets to it.
+        CHECK(engine.send(platformMessageFrame(2, "queued") + platformRequestFrame(2, "queued") + intlFrame(3, "{\"queued\":1}")));
+        CHECK_MSG(eventually([&] { return m.client->remoteBacklog().calls == 2 && i.client->remoteBacklog().calls == 1; }),
+                  std::to_string(m.client->remoteBacklog().calls) + " and " + std::to_string(i.client->remoteBacklog().calls) + " held");
+        // The engine process's end decides M and I while its fan-out waits at Z, before any client hears it.
+        engine.close();
+        CHECK_MSG(fanout.waitedOn() && m.channel->decided() && i.channel->decided(), joined(engine.events().all()));
+        // Let go, each job's stop yields to that end; what was queued runs while both clients are yielded and before either hears the end: none of it reaches the delegate or the provider (the request answers none, with no kill) and nothing dies.
+        mHeld.open();
+        iHeld.open();
+        CHECK_MSG(eventually([&] { return mStopped && iStopped; }), "a job never stopped its widget");
+        CHECK_MSG(eventually([&] { return m.client->remoteBacklog().calls == 0 && i.client->remoteBacklog().calls == 0; }),
+                  std::to_string(m.client->remoteBacklog().calls) + " and " + std::to_string(i.client->remoteBacklog().calls) + " still held");
+        CHECK_MSG(m.delegate.eventsWith("hosted-") == (std::vector<std::string>{"hosted-message:live", "hosted-request:live"}) && m.delegate.eventsWith("diag:").empty() && m.delegate.deaths().empty()
+                      && i.intl->threads().size() == 1 && i.delegate.deaths().empty() && !engine.events().ended(),
+                  joined(m.delegate.events()) + " / " + std::to_string(i.intl->threads().size()) + " formatted: " + joined(i.delegate.events()));
+        // Let go: the reader tells M, I and B of the end, and each dies of it once.
+        fanout.open();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), "the engine process closed the stream"), joined(engine.events().all()));
+        CHECK_MSG(m.death() == "spared" && i.death() == "spared" && b.death() == "ordinary", m.death() + " " + i.death() + " " + b.death());
+        CHECK_MSG(m.delegate.eventsWith("hosted-") == (std::vector<std::string>{"hosted-message:live", "hosted-request:live"}) && m.delegate.deaths() == std::vector<std::string>{kEngineGone}
+                      && m.delegate.eventsWith("diag:").empty(),
+                  joined(m.delegate.events()));
+        CHECK_MSG(i.intl->threads().size() == 1 && i.delegate.deaths() == std::vector<std::string>{kEngineGone}, std::to_string(i.intl->threads().size()) + " formatted: " + joined(i.delegate.events()));
+    }
+}
+
+/// `SandboxHostedChannel::decided` tells, changing nothing, that the stream already decided a widget's death before its client published or reported it, where `death()` cannot: an `Ordinary` death reads alike before and after its publication. Live routes read false, and so does C once its owner withdrew it. At the engine process's end A (a message unanswered) and idle B, each held on its dispatch thread, read decided while neither client ran the end: no death reported, both `death()` still `Ordinary`; C, withdrawn before that end, still reads false. Let go, A is ordinary and B spared, both still decided. The owner's stop decides nothing: both routes read false after their deaths. D's flood, its kill held behind D's dispatch thread, reads false until D's client claims it, then decided while D's delegate holds that death, with `death()` `Ordinary` and the stream still going. A channel of the embedder's own reads false.
+TEST(remote_stream_hosted_answers_tell_a_decided_death_before_it_is_published) {
+    using Death = SandboxHostedChannel::Death;
+    const std::string flooded = "the widget engine process sent more than the host keeps queued";
+    {
+        // A's and B's dispatch threads wait on them: declared before the clients that join those threads.
+        Gate heldA, heldB;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1), b(engine, 2), c(engine, 3);
+        a.client->platform("ask:1");
+        c.client->platform("ask:1");
+        for (AnsweringClient* client : {&a, &b, &c}) client->settle();
+        CHECK_MSG(eventually([&] { return engine.saw(1, "platform:ask:1") && engine.saw(3, "platform:ask:1"); }), joined(engine.frames(1)) + " / " + joined(engine.frames(3)));
+        CHECK(!a.channel->decided() && !b.channel->decided() && !c.channel->decided());
+        const SandboxHostedChannel::Withdrawal withdrawn = c.channel->withdraw([](Death) {});
+        CHECK(!withdrawn.ended && !withdrawn.death && !c.channel->decided());
+        a.client->thread().async([&heldA] { heldA.wait(); });
+        b.client->thread().async([&heldB] { heldB.wait(); });
+        CHECK(heldA.waitedOn() && heldB.waitedOn());
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), "the engine process closed the stream"), joined(engine.events().all()));
+        CHECK_MSG(a.delegate.deaths().empty() && b.delegate.deaths().empty(), joined(a.delegate.deaths()) + " / " + joined(b.delegate.deaths()));
+        CHECK_MSG(a.channel->decided() && b.channel->decided() && a.channel->death() == Death::Ordinary && b.channel->death() == Death::Ordinary,
+                  std::string(a.channel->decided() ? "A decided " : "A undecided ") + deathName(a.channel->death()) + (b.channel->decided() ? ", B decided " : ", B undecided ") + deathName(b.channel->death()));
+        CHECK(!c.channel->decided());
+        heldA.open();
+        heldB.open();
+        CHECK_MSG(a.death() == "ordinary" && b.death() == "spared", a.death() + " " + b.death());
+        CHECK(a.channel->decided() && b.channel->decided() && !c.channel->decided());
+    }
+    {
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient waiting(engine, 1), idle(engine, 2);
+        waiting.client->platform("ask:1");
+        waiting.settle();
+        engine.host().stop();
+        CHECK_MSG(waiting.death() == "ordinary" && idle.death() == "ordinary", waiting.death() + " " + idle.death());
+        CHECK(!waiting.channel->decided() && !idle.channel->decided());
+    }
+    {
+        // D's dispatch thread and D's death wait on them: declared before the client that joins that thread.
+        Gate held, dying;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient d(engine, 1);
+        auto barrier = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> barrierRoute = engine.host().hostedChannel();
+        barrierRoute->attach(barrier);
+        // D's delegate holds its death from before the hold of its thread, so before anything can queue the flood.
+        d.delegate.duringDeath = [&dying](SandboxEngine&) { dying.wait(); };
+        d.settle();
+        d.client->thread().async([&held] { held.wait(); });
+        CHECK(held.waitedOn());
+        std::string words;
+        for (size_t i = 0; i <= SandboxEngine::kRemoteQueuedCalls; i++) words += platformMessageFrame(1, "s");
+        CHECK(engine.send(words + logFrame(2, "flooded")));
+        CHECK_MSG(eventually([&] { return barrier->saw("log:log:flooded"); }), joined(barrier->events()));
+        CHECK(!d.channel->decided());
+        held.open();
+        CHECK_MSG(dying.waitedOn() && d.delegate.deaths() == std::vector<std::string>{flooded}, joined(d.delegate.eventsWith("died:")));
+        CHECK_MSG(d.channel->decided() && d.channel->death() == Death::Ordinary && !engine.events().ended(), deathName(d.channel->death()) + ": " + joined(engine.events().all()));
+        dying.open();
+    }
+    OwnHostedChannel own("its own channel");
+    CHECK(!own.decided());
+}
+
+/// A platform request its client answers with none loses its accounted route at once, which no answer would ever end: its host time would never stop and no later message of the route would ever be timed. U, a hosted WidgetHost not yet started (no delegate to ask), and a bare started route whose sink answers none, each with a timed message kept: the engine process's request on each closes that route (`Close`), its client hears that the stream is lost, a later message is refused, and the stream and its idle sibling go on; U, started, hears that death once, `Ordinary`. N, whose delegate answers that it has no platform, dies of that first (`platform-timeout`, its own reason, `Ordinary`), and its route closes once.
+TEST(remote_stream_hosted_answers_lose_a_route_left_without_an_answer) {
+    std::mutex mutex;
+    std::vector<std::string> heard;
+    ScriptedEngine engine({}, true, {answerKeys});
+    CHECK(engine.ready());
+    const std::shared_ptr<SandboxHostedChannel> unstartedRoute = engine.host().hostedChannel();
+    WidgetHost unstarted("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), unstartedRoute);
+    auto bare = std::make_shared<StreamSink>();
+    bare->platformAnswer = std::nullopt;
+    const std::shared_ptr<SandboxHostedChannel> bareRoute = engine.host().hostedChannel();
+    bareRoute->attach(bare);
+    bareRoute->startHosted("<p>x</p>", testConfig(), SandboxHostedStart{});
+    AnsweringClient none(engine, 3), sibling(engine, 4);
+    none.delegate.holdPlatformRequests = false;
+    none.delegate.platformAnswer = std::nullopt;
+    CHECK(unstartedRoute->platform("ask:1") && bareRoute->platform("ask:1"));
+    none.client->platform("ask:1");
+    sibling.client->platform("size:1");
+    none.settle();
+    sibling.settle();
+    CHECK_MSG(eventually([&] { return engine.saw(1, "platform:ask:1") && engine.saw(2, "platform:ask:1") && engine.saw(3, "platform:ask:1") && engine.saw(4, "platform:size:1"); }), joined(engine.frames(2)));
+    CHECK(engine.send(platformRequestFrame(1, "early") + platformRequestFrame(2, "none") + platformRequestFrame(3, "none")));
+    CHECK_MSG(eventually([&] { return engine.saw(1, "close") && engine.saw(2, "close") && engine.saw(3, "close"); }), joined(engine.frames(1)) + " / " + joined(engine.frames(2)) + " / " + joined(engine.frames(3)));
+    CHECK_MSG(eventually([&] { return bare->saw("disconnected"); }) && !bareRoute->platform("ask:2"), joined(bare->events()));
+    CHECK_MSG(!unstartedRoute->platform("ask:2") && !engine.events().ended(), joined(engine.events().all()));
+    CHECK_MSG(none.death() == "ordinary" && none.delegate.deaths() == std::vector<std::string>{"the host's platform answers no requests of the widget's renderer"} && has(none.delegate.events(), "diag:platform-timeout"),
+              joined(none.delegate.events()));
+    const auto closes = [&](uint32_t runtime) {
+        const std::vector<std::string> frames = engine.frames(runtime);
+        return std::count(frames.begin(), frames.end(), "close");
+    };
+    sibling.client->platform("size:2");
+    sibling.settle();
+    CHECK_MSG(eventually([&] { return engine.saw(4, "platform:size:2"); }) && sibling.delegate.deaths().empty() && closes(3) == 1, joined(engine.frames(3)));
+    unstarted.onDeath = [&, route = std::weak_ptr<SandboxHostedChannel>(unstartedRoute)](const std::string& reason) {
+        const std::shared_ptr<SandboxHostedChannel> channel = route.lock();
+        std::lock_guard<std::mutex> l(mutex);
+        heard.push_back(reason + ": " + (channel ? deathName(channel->death()) : "gone"));
+    };
+    unstarted.start();
+    const auto told = [&] {
+        std::lock_guard<std::mutex> l(mutex);
+        return heard;
+    };
+    CHECK_MSG(eventually([&] { return !told().empty(); }), "no death at its start");
+    sleepMs(200);
+    CHECK_MSG(told() == std::vector<std::string>{kEngineGone + ": ordinary"}, joined(told()));
 }
 
 /// The bridge call of runtime 1 an engine end writes by hand.

@@ -1623,45 +1623,6 @@ TEST(remote_stream_close_and_end_waits) {
     }
 }
 
-/// What a transport sees of a client's sink: every call goes on to `inner`, a log after waiting at `gate` while one is set; `passed` counts the logs that went on.
-class HeldSink final : public SandboxRemoteSink {
-public:
-    explicit HeldSink(std::shared_ptr<SandboxRemoteSink> inner) : inner_(std::move(inner)) {}
-
-    std::atomic<Gate*> gate{nullptr};
-    std::atomic<int> passed{0};
-
-    void remoteTaskStarted() override { inner_->remoteTaskStarted(); }
-    void remoteTaskCompleted() override { inner_->remoteTaskCompleted(); }
-    void remoteOps(const std::string& json) override { inner_->remoteOps(json); }
-    QueryAnswer remoteQuery(const std::string& json) override { return inner_->remoteQuery(json); }
-    std::string remoteIntl(const std::string& requestJson) override { return inner_->remoteIntl(requestJson); }
-    void remoteListen(const std::string& json) override { inner_->remoteListen(json); }
-    void remotePreventDefault(const std::string& json) override { inner_->remotePreventDefault(json); }
-    void remoteAnim(const std::string& json) override { inner_->remoteAnim(json); }
-    void remoteRequestsFrame() override { inner_->remoteRequestsFrame(); }
-    void remoteLog(const std::string& level, const std::string& text) override {
-        if (Gate* g = gate) g->wait();
-        passed++;
-        inner_->remoteLog(level, text);
-    }
-    void remoteDiag(const std::string& kind, const std::string& detail) override { inner_->remoteDiag(kind, detail); }
-    void remoteBridge(const std::string& method, const std::string& argsJson) override { inner_->remoteBridge(method, argsJson); }
-    void remoteCopyText(const std::string& text) override { inner_->remoteCopyText(text); }
-    void remoteRequest(int64_t id, const std::string& data, bool wallet) override { inner_->remoteRequest(id, data, wallet); }
-    void remoteWallet(int64_t id, const std::string& payload) override { inner_->remoteWallet(id, payload); }
-    void remoteStorage(const std::string& commitJson) override { inner_->remoteStorage(commitJson); }
-    void remoteResizeAnchor(const std::string& edge) override { inner_->remoteResizeAnchor(edge); }
-    void remoteWatchesPublicData(bool on) override { inner_->remoteWatchesPublicData(on); }
-    void remoteLoaded() override { inner_->remoteLoaded(); }
-    void remoteStats(const SandboxStats& stats) override { inner_->remoteStats(stats); }
-    void remoteDied(const std::string& reason) override { inner_->remoteDied(reason); }
-    void remoteDisconnected() override { inner_->remoteDisconnected(); }
-
-private:
-    const std::shared_ptr<SandboxRemoteSink> inner_;
-};
-
 /// The counts a host's end reported, in order.
 static std::vector<size_t> countsOf(const std::vector<std::string>& events) {
     std::vector<size_t> out;

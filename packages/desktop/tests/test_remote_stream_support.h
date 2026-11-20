@@ -1,4 +1,4 @@
-// What test_remote_stream.cpp (the framed transport's tests), test_remote_stream_hosted.cpp (a hosting stream's) and test_hosted.cpp (the hosted mode's, for a probe over a hosting stream) share: the documented wire written by hand, both scripted peers and the real ends over a memory pair, the sinks, delegates and hosts on them, the hostile-frame run, a child case on a socket and, on macOS, the checks of a transport thread the OS refuses to start.
+// What test_remote_stream.cpp (the framed transport's tests), test_remote_stream_hosted.cpp (a hosting stream's) and test_hosted.cpp (the hosted mode's, for a probe over a hosting stream) share: the documented wire and the engine process's scripted end written by hand (test_stream_frames.h), both scripted peers (`ScriptedEngine` that end with the runner's bounds) and the real ends over a memory pair, the sinks, delegates and hosts on them, the hostile-frame run, a child case on a socket and, on macOS, the checks of a transport thread the OS refuses to start.
 #pragma once
 
 #include "test_support.h"
@@ -6,6 +6,7 @@
 #include "test_thread_limit.h"
 
 #include "../harness/stream_peers.h"
+#include "test_stream_frames.h"
 #include "twidget/intl.h"
 #include "twidget/json.h"
 #include "twidget/remote_engine.h"
@@ -46,186 +47,6 @@
 
 extern char** environ;
 #endif
-
-// ───────────── the documented wire, written by hand ─────────────
-
-/// The wire as its table documents it, never through the library's codec: the kind numbers and little-endian integers.
-namespace wire {
-
-enum : uint8_t {
-    Opening = 1, Open = 2, Start = 3, Event = 4, Activation = 5, AnimationFrame = 6, Viewport = 7, Resize = 8, Theme = 9, SafeArea = 10, Data = 11,
-    Visible = 12, PressBegan = 13, PressEnded = 14, ChargeValidator = 15, Stop = 16, Answer = 17, Probe = 18, QueryAnswer = 19, IntlAnswer = 20,
-    Close = 21,
-    Ready = 64, Refused = 65, TaskStarted = 66, TaskCompleted = 67, Ops = 68, Query = 69, Intl = 70, Listen = 71, PreventDefault = 72, Anim = 73,
-    RequestsFrame = 74, Log = 75, Diag = 76, Bridge = 77, CopyText = 78, Request = 79, Wallet = 80, Storage = 81, ResizeAnchor = 82,
-    WatchesPublicData = 83, Loaded = 84, Stats = 85, Died = 86, ProbeAnswer = 87,
-    HostingOpening = 32, HostedStart = 33, HostedTheme = 34, Platform = 35, PlatformAnswer = 36,
-    PlatformMessage = 96, PlatformRequest = 97, ValidatedOps = 98, RendererReady = 99, Rendered = 100, Nodes = 101,
-};
-
-/// `v` as 4 bytes, the lowest first: a frame's size, a runtime id or a string's length (a size alone is a header with no body).
-inline std::string u32(uint32_t v) {
-    std::string out;
-    for (int shift = 0; shift < 32; shift += 8) out.push_back(char(uint8_t(v >> shift)));
-    return out;
-}
-
-inline std::string u64(uint64_t v) {
-    std::string out;
-    for (int shift = 0; shift < 64; shift += 8) out.push_back(char(uint8_t(v >> shift)));
-    return out;
-}
-
-inline uint64_t little(std::string_view bytes) {
-    uint64_t v = 0;
-    for (size_t i = 0; i < bytes.size(); i++) v |= uint64_t(uint8_t(bytes[i])) << (8 * i);
-    return v;
-}
-
-} // namespace wire
-
-/// One frame built field by field as the documented wire lays it out; `raw` and a `boolean` of any byte make a damaged one, and `body` leaves the size out for a test that writes a size of its own.
-class FrameBytes {
-public:
-    FrameBytes(uint32_t runtime, uint8_t kind) : body_(wire::u32(runtime)) { body_.push_back(char(kind)); }
-
-    FrameBytes& str(std::string_view s) {
-        body_ += wire::u32(uint32_t(s.size()));
-        body_.append(s);
-        return *this;
-    }
-    FrameBytes& i64(int64_t v) {
-        body_ += wire::u64(uint64_t(v));
-        return *this;
-    }
-    FrameBytes& f64(double v) {
-        uint64_t bits = 0;
-        std::memcpy(&bits, &v, sizeof(bits));
-        body_ += wire::u64(bits);
-        return *this;
-    }
-    /// 0 or 1 for a bool, any other byte for a damaged one.
-    FrameBytes& boolean(uint8_t byte) {
-        body_.push_back(char(byte));
-        return *this;
-    }
-    FrameBytes& raw(std::string_view bytes) {
-        body_.append(bytes);
-        return *this;
-    }
-
-    /// The size of the body, then the body.
-    std::string bytes() const { return wire::u32(uint32_t(body_.size())) + body_; }
-    const std::string& body() const { return body_; }
-
-private:
-    std::string body_;
-};
-
-/// A frame read back by the documented layout: its runtime, its kind and the bytes of its fields.
-struct ParsedFrame {
-    uint32_t runtime = 0;
-    uint8_t kind = 0;
-    std::string fields;
-};
-
-/// A parsed frame's fields read in order; a read past the end is nullopt.
-class FieldsOf {
-public:
-    explicit FieldsOf(const ParsedFrame& frame) : rest_(frame.fields) {}
-
-    std::optional<std::string> str() {
-        std::optional<uint64_t> length = take(4);
-        if (!length || *length > rest_.size()) return std::nullopt;
-        std::string out(rest_.substr(0, size_t(*length)));
-        rest_.remove_prefix(size_t(*length));
-        return out;
-    }
-    std::optional<int64_t> i64() {
-        std::optional<uint64_t> v = take(8);
-        return v ? std::optional<int64_t>(int64_t(*v)) : std::nullopt;
-    }
-    std::optional<double> f64() {
-        std::optional<uint64_t> v = take(8);
-        if (!v) return std::nullopt;
-        double out = 0;
-        std::memcpy(&out, &*v, sizeof(out));
-        return out;
-    }
-    std::optional<uint8_t> byte() {
-        std::optional<uint64_t> v = take(1);
-        return v ? std::optional<uint8_t>(uint8_t(*v)) : std::nullopt;
-    }
-    bool done() const { return rest_.empty(); }
-
-private:
-    std::optional<uint64_t> take(size_t bytes) {
-        if (rest_.size() < bytes) return std::nullopt;
-        const uint64_t v = wire::little(rest_.substr(0, bytes));
-        rest_.remove_prefix(bytes);
-        return v;
-    }
-
-    std::string_view rest_;
-};
-
-/// The frame whose 4 + `size` bytes begin `bytes`; a size under 5 has no runtime and kind to give.
-inline std::optional<ParsedFrame> frameAt(std::string_view bytes, uint32_t size) {
-    if (size < 5 || bytes.size() < 4 + size_t(size)) return std::nullopt;
-    return ParsedFrame{uint32_t(wire::little(bytes.substr(4, 4))), uint8_t(bytes[8]), std::string(bytes.substr(9, size_t(size) - 5))};
-}
-
-/// The whole frames at the front of `bytes`, by their sizes; what follows the last of them is left in `rest`.
-inline std::vector<ParsedFrame> parseFrames(std::string_view bytes, std::string* rest = nullptr) {
-    std::vector<ParsedFrame> out;
-    while (bytes.size() >= 4) {
-        const uint32_t size = uint32_t(wire::little(bytes.substr(0, 4)));
-        std::optional<ParsedFrame> frame = frameAt(bytes, size);
-        if (!frame) break;
-        out.push_back(std::move(*frame));
-        bytes.remove_prefix(4 + size_t(size));
-    }
-    if (rest) *rest = std::string(bytes);
-    return out;
-}
-
-/// `bytes` in pieces of `piece` bytes, the last one shorter, for a peer that writes a frame in parts.
-inline std::vector<std::string> fragments(std::string_view bytes, size_t piece) {
-    std::vector<std::string> out;
-    for (size_t at = 0; at < bytes.size(); at += piece) out.emplace_back(bytes.substr(at, piece));
-    return out;
-}
-
-/// A test's side of a stream reading whole frames by the documented layout, whatever pieces they come in; a size past `limit` or under 5 ends it unread.
-class FrameStreamReader {
-public:
-    explicit FrameStreamReader(SandboxRemoteStream& stream, size_t limit = size_t(64) << 20) : stream_(stream), limit_(limit) {}
-
-    /// The next whole frame, or nullopt once the stream ended before one.
-    std::optional<ParsedFrame> next() {
-        for (;;) {
-            if (pending_.size() >= 4) {
-                const uint32_t size = uint32_t(wire::little(std::string_view(pending_).substr(0, 4)));
-                if (size < 5 || size > limit_) return std::nullopt;
-                if (std::optional<ParsedFrame> frame = frameAt(pending_, size)) {
-                    pending_.erase(0, 4 + size_t(size));
-                    return frame;
-                }
-            }
-            char buffer[4096];
-            const size_t got = stream_.read(buffer, sizeof(buffer));
-            if (!got) return std::nullopt;
-            pending_.append(buffer, got);
-        }
-    }
-    /// What came after the last whole frame read.
-    const std::string& pending() const { return pending_; }
-
-private:
-    SandboxRemoteStream& stream_;
-    const size_t limit_;
-    std::string pending_;
-};
 
 // ───────────── thread names ─────────────
 
@@ -488,12 +309,20 @@ inline const SandboxResources& smallResources() {
     return res;
 }
 
-/// What a host's end tells its owner, in order with the name of the thread it came on: "runtimes:N" and "ended:reason".
+/// What a host's end tells its owner, in order with the name of the thread it came on and when it came: "runtimes:N" and "ended:reason".
 class EndEvents {
 public:
+    /// Set (`holdAt` first) before the end reports `holdAt` open runtimes: that report waits on `hold`, on `widget.monitor` outside every lock of the end, as a monitor that does not run; the test opens it before the end goes.
+    std::atomic<size_t> holdAt{0};
+    std::atomic<Gate*> hold{nullptr};
+
     /// The end keeps them: this outlives it.
     SandboxRemoteHostEnd::Events events() {
-        return {[this](size_t open) { record("runtimes:" + std::to_string(open)); }, [this](const std::string& why) { record("ended:" + why); }};
+        return {[this](size_t open) {
+                    if (Gate* gate = hold.load(); gate && open == holdAt.load()) gate->wait();
+                    record("runtimes:" + std::to_string(open));
+                },
+                [this](const std::string& why) { record("ended:" + why); }};
     }
     std::vector<std::string> all() {
         std::lock_guard<std::mutex> l(mutex_);
@@ -509,6 +338,13 @@ public:
             if (e.rfind("ended:", 0) == 0) return e.substr(6);
         return std::nullopt;
     }
+    /// When `ended` came, nullopt before it.
+    std::optional<std::chrono::steady_clock::time_point> endedAt() {
+        std::lock_guard<std::mutex> l(mutex_);
+        for (size_t i = 0; i < events_.size(); i++)
+            if (events_[i].rfind("ended:", 0) == 0) return times_[i];
+        return std::nullopt;
+    }
     /// The last count reported, 0 before one.
     size_t open() {
         size_t last = 0;
@@ -522,11 +358,13 @@ private:
         std::lock_guard<std::mutex> l(mutex_);
         events_.push_back(event);
         threads_.push_back(currentThreadName());
+        times_.push_back(std::chrono::steady_clock::now());
     }
 
     std::mutex mutex_;
     std::vector<std::string> events_;
     std::vector<std::string> threads_;
+    std::vector<std::chrono::steady_clock::time_point> times_;
 };
 
 /// Whether `events` end as a stream's must: `ended` with `reason` once and last, right after a count of 0 when any count came.
@@ -536,7 +374,7 @@ inline bool endsOnce(const std::vector<std::string>& events, const std::string& 
     return events.size() == 1 || events[events.size() - 2] == "runtimes:0";
 }
 
-/// A bare sink on a host's channel, where the transport hands over: each call as text in order, with its thread; `remoteQuery` (a 77 px rect) and `remoteIntl` (`intlAnswer`) wait on `gate` while it is set, a hosted runtime's `remotePlatformRequest` (`platformAnswer`) on `platformGate`, and `remoteDisconnected` on `lost`, noted once it returns.
+/// A bare sink on a host's channel, where the transport hands over: each call as text in order, with its thread; `remoteQuery` (a 77 px rect) and `remoteIntl` (`intlAnswer`) wait on `gate` while it is set, a hosted runtime's `remotePlatformRequest` (`platformAnswer`) on `platformGate` (only the request `platformGated` when that is set), a log `hold` on `logGate` (the reader's own delivery), and `remoteDisconnected` on `lost`, noted once it returns.
 class StreamSink final : public SandboxRemoteSink {
 public:
     /// Set before a synchronous call comes; the test opens it before the channel goes.
@@ -546,7 +384,11 @@ public:
     std::string intlAnswer = "INTL";
     /// Set before a platform request comes; the test opens it before the channel goes.
     Gate* platformGate = nullptr;
+    /// Set with it, before the channel is attached: only a request of this text waits on it (empty: every request), so a test that holds a later request never touches the gate while an earlier one may read it.
+    std::string platformGated;
     std::optional<std::string> platformAnswer = "ANSWER";
+    /// Set before the log comes: the delivery of a log whose text is `hold` waits on it on `widget.reader`, outside every lock of the end, as a sink busy in a delivery; the test opens it before the stream goes.
+    Gate* logGate = nullptr;
 
     void remoteTaskStarted() override { record("begin"); }
     void remoteTaskCompleted() override { record("end"); }
@@ -567,7 +409,10 @@ public:
     void remotePreventDefault(const std::string& json) override { record("preventDefault:" + json); }
     void remoteAnim(const std::string& json) override { record("anim:" + json); }
     void remoteRequestsFrame() override { record("frame"); }
-    void remoteLog(const std::string& level, const std::string& text) override { record("log:" + level + ":" + text); }
+    void remoteLog(const std::string& level, const std::string& text) override {
+        if (logGate && text == "hold") logGate->wait();
+        record("log:" + level + ":" + text);
+    }
     void remoteDiag(const std::string& kind, const std::string& detail) override { record("diag:" + kind + ":" + detail); }
     void remoteBridge(const std::string& method, const std::string& argsJson) override { record("bridge:" + method + ":" + argsJson); }
     void remoteCopyText(const std::string& text) override { record("copy:" + text); }
@@ -586,7 +431,7 @@ public:
     void remotePlatformMessage(const std::string& message) override { record("platform:" + message.substr(0, 64)); }
     std::optional<std::string> remotePlatformRequest(const std::string& message) override {
         record("platform-request:" + message.substr(0, 64));
-        if (platformGate) platformGate->wait();
+        if (platformGate && (platformGated.empty() || message == platformGated)) platformGate->wait();
         record("platform-request-done");
         return platformAnswer;
     }
@@ -623,99 +468,107 @@ private:
     std::vector<std::pair<std::thread::id, std::string>> threads_;
 };
 
-/// A host's frame as the tests read it, for the kinds they look at: its kind and its strings, a probe's code after its sequence.
-inline std::string describeHost(const ParsedFrame& f) {
-    FieldsOf in(f);
-    const auto str = [&] { return in.str().value_or("?"); };
-    switch (f.kind) {
-    case wire::Opening: return "opening";
-    case wire::Open: return "open";
-    case wire::Close: return "close";
-    case wire::Start: return "start";
-    case wire::Event: return "event:" + str();
-    case wire::Stop: return "stop:" + str();
-    case wire::Probe: {
-        const int64_t seq = in.i64().value_or(-1);
-        return "probe:" + std::to_string(seq) + ":" + str();
-    }
-    case wire::QueryAnswer: return "query-answer:" + str();
-    case wire::IntlAnswer: return "intl-answer:" + str();
-    case wire::Answer: {
-        const int64_t id = in.i64().value_or(-1);
-        return "answer:" + std::to_string(id) + ":" + str();
-    }
-    case wire::HostingOpening: return "hosting-opening";
-    case wire::HostedStart: return "hosted-start";
-    case wire::HostedTheme: return "hosted-theme";
-    case wire::Platform: return "platform:" + str();
-    case wire::PlatformAnswer: return "platform-answer:" + str();
-    default: return "kind " + std::to_string(int(f.kind));
-    }
-}
+/// What a transport sees of a client's sink: every call goes on to `inner`, a log after waiting at `gate` while one is set (`passed` counts the logs that went on), and a hosted runtime's platform request of the text `heldRequest` after waiting at `requestGate`, as a transport thread that lost the processor before it reached the client, and its answer back after waiting at `answerGate`, as one that lost it after the client answered; `requests()` notes each request's text as it comes and "<text>:returned" once `inner` returned it.
+class HeldSink final : public SandboxRemoteSink {
+public:
+    explicit HeldSink(std::shared_ptr<SandboxRemoteSink> inner) : inner_(std::move(inner)) {}
 
-/// The engine process's side of a stream written by hand from the documented wire, against a real host's end (opened for hosted widgets with `hosting`): a worker of the test's keeps each frame the host writes in order, and the test writes the engine's frames; the destructor stops the end, then joins the worker.
+    std::atomic<Gate*> gate{nullptr};
+    std::atomic<int> passed{0};
+    /// Set before the sink is attached; the test opens the gates before the channel goes: `requestGate` holds `heldRequest` on its way to the client, `answerGate` its answer on its way back to the stream, once the client returned it.
+    std::string heldRequest;
+    Gate* requestGate = nullptr;
+    Gate* answerGate = nullptr;
+
+    void remoteTaskStarted() override { inner_->remoteTaskStarted(); }
+    void remoteTaskCompleted() override { inner_->remoteTaskCompleted(); }
+    void remoteOps(const std::string& json) override { inner_->remoteOps(json); }
+    QueryAnswer remoteQuery(const std::string& json) override { return inner_->remoteQuery(json); }
+    std::string remoteIntl(const std::string& requestJson) override { return inner_->remoteIntl(requestJson); }
+    void remoteListen(const std::string& json) override { inner_->remoteListen(json); }
+    void remotePreventDefault(const std::string& json) override { inner_->remotePreventDefault(json); }
+    void remoteAnim(const std::string& json) override { inner_->remoteAnim(json); }
+    void remoteRequestsFrame() override { inner_->remoteRequestsFrame(); }
+    void remoteLog(const std::string& level, const std::string& text) override {
+        if (Gate* g = gate) g->wait();
+        passed++;
+        inner_->remoteLog(level, text);
+    }
+    void remoteDiag(const std::string& kind, const std::string& detail) override { inner_->remoteDiag(kind, detail); }
+    void remoteBridge(const std::string& method, const std::string& argsJson) override { inner_->remoteBridge(method, argsJson); }
+    void remoteCopyText(const std::string& text) override { inner_->remoteCopyText(text); }
+    void remoteRequest(int64_t id, const std::string& data, bool wallet) override { inner_->remoteRequest(id, data, wallet); }
+    void remoteWallet(int64_t id, const std::string& payload) override { inner_->remoteWallet(id, payload); }
+    void remoteStorage(const std::string& commitJson) override { inner_->remoteStorage(commitJson); }
+    void remoteResizeAnchor(const std::string& edge) override { inner_->remoteResizeAnchor(edge); }
+    void remoteWatchesPublicData(bool on) override { inner_->remoteWatchesPublicData(on); }
+    void remoteLoaded() override { inner_->remoteLoaded(); }
+    void remoteStats(const SandboxStats& stats) override { inner_->remoteStats(stats); }
+    void remoteDied(const std::string& reason) override { inner_->remoteDied(reason); }
+    void remoteDisconnected() override { inner_->remoteDisconnected(); }
+    void remotePlatformMessage(const std::string& message) override { inner_->remotePlatformMessage(message); }
+    std::optional<std::string> remotePlatformRequest(const std::string& message) override {
+        note(message);
+        if (requestGate && message == heldRequest) requestGate->wait();
+        std::optional<std::string> answer = inner_->remotePlatformRequest(message);
+        note(message + ":returned");
+        if (answerGate && message == heldRequest) answerGate->wait();
+        return answer;
+    }
+    void remoteValidatedOps(const std::string& json) override { inner_->remoteValidatedOps(json); }
+    void remoteRendererReady() override { inner_->remoteRendererReady(); }
+    void remoteRendered() override { inner_->remoteRendered(); }
+    void remoteNodes(int64_t nodes) override { inner_->remoteNodes(nodes); }
+
+    std::vector<std::string> requests() {
+        std::lock_guard<std::mutex> l(mutex_);
+        return requests_;
+    }
+
+private:
+    void note(const std::string& request) {
+        std::lock_guard<std::mutex> l(mutex_);
+        requests_.push_back(request);
+    }
+
+    const std::shared_ptr<SandboxRemoteSink> inner_;
+    std::mutex mutex_;
+    std::vector<std::string> requests_;
+};
+
+/// The engine process's side of a stream written by hand from the documented wire, against a real host's end (opened for hosted widgets with `hosting`, with the owner's `answers` when given): the test runner's wrapper of `ScriptedEngineEnd` (test_stream_frames.h), whose worker keeps each frame the host writes in order while the test writes the engine's frames, opened with the tests' resources and build, its end's reports in `EndEvents`, the opening waited for 5 s and a held reading on a `Gate`; the destructor stops the end, then joins the worker within 5 s, past which the run stops (`stopTheRun`), as a `Background` worker's would.
 class ScriptedEngine {
 public:
-    explicit ScriptedEngine(const SandboxRemoteHostEnd::Limits& limits = {}, bool hosting = false)
-        : hosting_(hosting),
-          end_(hosting ? SandboxRemoteHostEnd::startHosting(pair_.host, smallResources(), kBuild, events_.events(), limits)
-                       : SandboxRemoteHostEnd::start(pair_.host, smallResources(), kBuild, events_.events(), limits)),
-          reading_([this] { return read(); }) {}
+    explicit ScriptedEngine(const SandboxRemoteHostEnd::Limits& limits = {}, bool hosting = false, SandboxHostedAnswers answers = {})
+        : end_(smallResources(), kBuild, events_.events(), limits, hosting, std::move(answers)) {}
     ~ScriptedEngine() {
-        end_->stop();
-        reading_.finish(5);
+        if (!end_.finish(std::chrono::seconds(5))) stopTheRun(5, std::source_location::current());
     }
     ScriptedEngine(const ScriptedEngine&) = delete;
     ScriptedEngine& operator=(const ScriptedEngine&) = delete;
 
-    SandboxRemoteHostEnd& host() { return *end_; }
+    SandboxRemoteHostEnd& host() { return end_.host(); }
     EndEvents& events() { return events_; }
     /// `bytes` in one write, after everything written before.
-    bool send(std::string_view bytes) {
-        std::lock_guard<std::mutex> l(writing_);
-        return pair_.engine->write(bytes);
-    }
+    bool send(std::string_view bytes) { return end_.send(bytes); }
     /// Once the opening came, its answer.
-    bool ready() { return eventually([&] { return saw(0, hosting_ ? "hosting-opening" : "opening"); }) && send(FrameBytes(0, wire::Ready).i64(1).bytes()); }
+    bool ready() { return end_.ready(std::chrono::seconds(5)) == ScriptedEngineEnd::Handshake::Answered; }
     /// As an engine process that exits: the host's end reads what was written, then the end of the stream.
-    void close() { pair_.engine->close(); }
+    void close() { end_.close(); }
+    /// As an engine process that stops reading: once the worker has the frame it is reading it reads none until `gate` opens, so the host's writer blocks once the pair is full; the test opens it before this goes.
+    void holdReading(Gate* gate) { end_.holdReading(gate ? std::function<void()>([gate] { gate->wait(); }) : nullptr); }
+    /// Whether the host's writer waits for room on the pair now.
+    bool writeWaiting() { return end_.writeWaiting(); }
 
     /// The frames read so far on `runtime` (0: the connection), as `describeHost` gives them.
-    std::vector<std::string> frames(uint32_t runtime) {
-        std::lock_guard<std::mutex> l(mutex_);
-        std::vector<std::string> out;
-        for (const ParsedFrame& f : frames_)
-            if (f.runtime == runtime) out.push_back(describeHost(f));
-        return out;
-    }
-    bool saw(uint32_t runtime, const std::string& frame) {
-        const std::vector<std::string> all = frames(runtime);
-        return std::find(all.begin(), all.end(), frame) != all.end();
-    }
+    std::vector<std::string> frames(uint32_t runtime) { return end_.frames(runtime); }
+    bool saw(uint32_t runtime, const std::string& frame) { return end_.saw(runtime, frame); }
     /// The first frame the host's end wrote, as the documented layout reads it.
-    std::optional<ParsedFrame> first() {
-        std::lock_guard<std::mutex> l(mutex_);
-        return frames_.empty() ? std::nullopt : std::optional<ParsedFrame>(frames_.front());
-    }
+    std::optional<ParsedFrame> first() { return end_.first(); }
 
 private:
-    bool read() {
-        FrameStreamReader reader(*pair_.engine);
-        while (std::optional<ParsedFrame> frame = reader.next()) {
-            std::lock_guard<std::mutex> l(mutex_);
-            frames_.push_back(std::move(*frame));
-        }
-        return true;
-    }
-
     EndEvents events_;
-    MemoryStreamPair pair_ = memoryStreamPair(size_t(1) << 20);
-    const bool hosting_;
-    std::shared_ptr<SandboxRemoteHostEnd> end_;
-    std::mutex writing_;
-    std::mutex mutex_;
-    std::vector<ParsedFrame> frames_;
-    Background<bool> reading_;
+    ScriptedEngineEnd end_;
 };
 
 /// A stream with the frames that crossed it counted by runtime and kind, by the documented layout, whatever pieces they come in: what was read (the other side's frames) and what was written (this side's); only each frame's size, runtime and kind are kept, its body skipped.

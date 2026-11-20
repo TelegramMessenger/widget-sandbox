@@ -332,10 +332,7 @@ public:
     void terminate();
     /// In process only (a client-mode engine does nothing), never from the engine's own thread, for an engine that died: its runtime goes, the thread ending once what it queued ran and then its Nova context freed; every later input is dropped (a probe answers "ERROR no runtime") and the object stays valid (a hosted widget's served engine, whose glue keeps the renderer, remote_hosted.h).
     void release();
-    /// The host stops the widget (a counted cap of the validator passed under strict, its diagnostic `limit`): the
-    /// runtime dies with `reason` as it does for memory or CPU (`onDied(reason)`). From the engine thread (a delegate
-    /// callback such as `onOps`) at once, and the task that is still on the stack is interrupted; from any other
-    /// thread asynchronously.
+    /// The host stops the widget (a counted cap of the validator passed under strict, its diagnostic `limit`): the runtime dies with `reason` as it does for memory or CPU (`onDied(reason)`). From the engine thread (a delegate callback such as `onOps`) at once, and the task that is still on the stack is interrupted; from any other thread asynchronously. A hosted client whose transport decides (a hosting stream with its owner's SandboxHostedAnswers) makes it the widget's own death in one step with that transport's end, and yields to an end that decided the widget first, which the widget then dies of (`SandboxHostedChannel::localStop`): from that stop on, as after a death, until the end's death does, nothing of the widget's own reaches the delegate (its storage, bridge calls, requests, reports) or its Intl provider, its renderer's platform messages and requests reach the delegate no more (such a request answers none, and neither its late answer nor its refusal kills the widget), `keepHosted` takes nothing, and a later `terminate` or `stop` leaves the widget's death to that end.
     void stop(const std::string& reason);
     /// The validator's CPU time for this widget's messages (TrustedValidator's CPU sink, `ms` of its thread's clock):
     /// recorded against the JS quota on the engine thread as it arrives (`stats.validatorMs`; with the debt rule a late
@@ -373,7 +370,7 @@ public:
     void hostedTheme(const WidgetTheme& theme);
     /// An opaque message of the host's platform for the engine process's renderer, in order, while the route is open (a kept one too).
     void platform(std::string message);
-    /// Hosted only, from any thread but one the dispatch thread waits for: hands the route over to `kept`, which must outlive the engine, in one step on the dispatch thread. False, with nothing changed, when the widget was never started, its renderer never announced itself (`onHostedRendererReady`), the route ended (the transport, a flood, an unanswered platform request, a reported death without `keepAtDeath`, `terminate` / `stop`) or it was kept already. Else a live widget dies "terminated" through the delegate so far and the engine's side hears `stop("terminated")`, then `kept` is the delegate, every grant goes, the channel hears `kept()`, and from then on only the renderer's platform traffic is carried (`platform`, `onHostedMessage`, `onHostedRequest`; every other call of the engine's side has no effect) until the route ends: the engine's side's own death reports change nothing, and an end the host did not ask for reaches `kept` as `onHostedEnded`; the destructor ends it without that call.
+    /// Hosted only, from any thread but one the dispatch thread waits for: hands the route over to `kept`, which must outlive the engine, in one step on the dispatch thread. False, with nothing changed, when the widget was never started, its renderer never announced itself (`onHostedRendererReady`), the route ended (the transport, a flood, an unanswered platform request, a reported death without `keepAtDeath`, `terminate` / `stop`, a counted `stop` that yielded to the transport's end included) or it was kept already. Else a live widget dies "terminated" through the delegate so far and the engine's side hears `stop("terminated")`, then `kept` is the delegate, every grant goes, the channel hears `kept()`, and from then on only the renderer's platform traffic is carried (`platform`, `onHostedMessage`, `onHostedRequest`; every other call of the engine's side has no effect) until the route ends: the engine's side's own death reports change nothing, and an end the host did not ask for reaches `kept` as `onHostedEnded`; the destructor ends it without that call.
     bool keepHosted(SandboxEngineDelegate& kept);
     /// How long a hosted widget's platform request waits for its delegate's `respond`, from its arrival, or from a hold's release or its admission that its client's SandboxHostedWait reported: then the widget dies (`onHostedRequest`).
     static constexpr double kPlatformAnswerSeconds = 3;
@@ -411,6 +408,8 @@ public:
     };
     /// What a client-mode engine holds now against `kRemoteQueuedBytes` and `kRemoteQueuedCalls`, from any thread; nothing in process (tests).
     RemoteBacklog remoteBacklog() const;
+    /// Tests: `step` runs in the middle of a client-mode engine's rejection of a message past `kRemoteQueuedBytes` / `kRemoteQueuedCalls`, on the thread that rejects it, after the rejection and before the overflow's claim, in the one step the transport's end's choice waits for (`SandboxRemoteSink::remoteDisconnected`), so a test holds a rejection there while the end chooses; `choosing` runs on the dispatch thread as that choice takes the step's lock, before it would wait there, so the test sees the choice reach the step it holds instead of guessing it from the time; empty: nothing. `choosing` is handed to the dispatch thread in a job queued now, the only thread that reads it: set both before the engine's side sends what it rejects and before the transport can end. Nothing in process.
+    void setRemoteRejectionStep(std::function<void()> step, std::function<void()> choosing = {});
     /// Kept by work a delegate queues with a client-mode engine's message: the message stays counted against `kRemoteQueuedBytes` and `kRemoteQueuedCalls` until every copy has run or been dropped, and letting go takes no lock. Empty in process.
     using RemoteHold = std::shared_ptr<const void>;
     /// In a delegate call, on the engine's thread or on a thread that call waits for: a hold on the message being delivered; empty in process and outside a delivery.
@@ -587,8 +586,8 @@ private:
     /// `call` with the channel on the dispatch thread after everything queued before it, unless the widget died.
     void forward(std::function<void(SandboxRemoteChannel&)> call);
     void clientStart();
-    /// `stop` (`atOnce`: inline on the dispatch thread) and `terminate`: the widget dies with `reason` and the engine's side is told.
-    void clientKill(const std::string& reason, bool atOnce);
+    /// `stop` (`counted`) and `terminate`, one job on the dispatch thread: the widget dies with `reason` and the engine's side is told. A counted stop runs inline when called there; a hosted client's, while the widget lives, first stops it on its channel in one step with the transport's end (`SandboxHostedChannel::localStop`), so it is the widget's own death, or yields to an end that decided the widget first: nothing dies here, the client is as at the stop's own death until that end's kill (`RemoteClient::yielded`: nothing of the widget's own reaches the delegate, `RemoteClient::live`, and the route carries none of its renderer's platform traffic, `RemoteClient::carries`), and that kill, which its client still queues, publishes the end's decision; a `stop` or `terminate` after the yield does nothing. The owner's `terminate` claims nothing.
+    void clientKill(const std::string& reason, bool counted);
     void clientActivationEvent(const std::string& json, int gesture);
     /// Both client constructors: the sink (`hosted`: a hosted client's, its platform requests due as `wait` says when given), attached to `remote`, or a death at the first task without one.
     void attachClient(std::shared_ptr<SandboxRemoteChannel> remote, bool hosted, std::shared_ptr<SandboxHostedWait> wait = nullptr);
@@ -604,7 +603,7 @@ private:
     bool remoteDeath(const std::string& reason);
     /// On the dispatch thread, once: the route closes (its waiting platform request answers none, every later one at once), the engine's side hears `stop(reason)` when `stop`, the channel closes, and with `ended` a kept route's delegate hears `onHostedEnded(reason)`. In an engine-only client it closes in the same call as the death.
     void closeRoute(const std::string& reason, bool stop, bool ended);
-    /// On the dispatch thread, while the route is open: the host's platform left the renderer's request unanswered (`reason`): the delegate's diagnostic `platform-timeout`, then the death and the close, a live widget's engine's side told to stop.
+    /// On the dispatch thread, while the route carries its renderer's platform traffic (open, and no counted stop yielded on it to the transport's end, which then kills the widget instead): the host's platform left the renderer's request unanswered (`reason`): a live hosted widget's own death claimed on its channel first (in one step with the transport's end, before the delegate can stall), then the delegate's diagnostic `platform-timeout`, then the death and the close, a live widget's engine's side told to stop.
     void platformKill(const std::string& reason);
     /// The waiting platform request answers none, and every later one at once (the route's close and the destructor).
     void clientSettleWaiting();
@@ -612,7 +611,7 @@ private:
     static HostedRequestResponder hostedResponder(std::function<void(std::optional<std::string>)> settle, uint64_t request) {
         return HostedRequestResponder(std::move(settle), request);
     }
-    /// On the dispatch thread: a diagnostic about a message the host refused, unless the widget died or `counter` reached `sdk::MAX_REJECTION_REPORTS`.
+    /// On the dispatch thread: a diagnostic about a message the host refused, unless the widget no longer reaches its delegate (`RemoteClient::live`) or `counter` reached `sdk::MAX_REJECTION_REPORTS`.
     void clientReport(int& counter, const char* kind, const std::string& detail);
     void deliverPendingDeath();
     /// Whether a tap the host delivered on the visible widget is unspent and at most `kRemoteGrantWindowMs` old; the others are dropped here.

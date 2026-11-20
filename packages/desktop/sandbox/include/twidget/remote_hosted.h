@@ -13,9 +13,24 @@
 
 namespace twidget {
 
+namespace detail {
+/// The hosted client's side of `SandboxHostedChannel::death` (sandbox_engine_client.cpp).
+struct HostedDeaths;
+} // namespace detail
+
 /// Host → engine for a hosted client, with `SandboxRemoteChannel`'s rules (its dispatch thread, the host's order, no call but `probe` waits) and four calls of its own: a hosted client makes `attach`, `startHosted`, `hostedTheme`, `platform`, `kept`, `contentSafeArea`, `setData`, `setVisible`, `stop`, `answer`, `probe` and `close`, never `start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`, `pressBegan`, `pressEnded` or `chargeValidator` (the widget's own glue makes those inside the engine process); only inline virtuals are declared (no key function), so no translation unit depends on another for its vtable.
 class SandboxHostedChannel : public SandboxRemoteChannel {
 public:
+    /// What the first death its hosted client reported of the widget was to the transport (`death()`): only a hosting stream with its owner's SandboxHostedAnswers (remote_stream.h) decides one other than `Ordinary`, for the death its end brought, and only when that end was the widget's first death.
+    enum class Death : uint8_t {
+        /// The widget's own death, or an end that decided nothing of it: a death as any other (the widget's engine, a flood, a platform request left unanswered, the host's own stop of the widget before the end, `localStop`, the owner's stop of the stream, any other transport).
+        Ordinary,
+        /// The stream ended because this widget's renderer left a message of the host's unanswered past its answer time: the widget is the one that hung the engine process.
+        Stalled,
+        /// The stream ended for another widget or for no widget's fault while this one had nothing unanswered past its time (at a renderer's stall), nothing unanswered (at another end, when another widget had), or attached to a stream already ending so: not this widget's death.
+        Spared,
+    };
+
     /// The widget, its configuration and its hosted start, once (the client's `startHosted`): the engine process builds the widget's engine, validator and renderer from them.
     virtual void startHosted(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) = 0;
     /// The chat's whole theme changed (WidgetHost's `setTheme`), for the renderer and the widget in the engine process.
@@ -24,6 +39,30 @@ public:
     virtual bool platform(const std::string& message) = 0;
     /// The host kept the widget's renderer (the client's `keepHosted`, once, after the widget died): from now on only the renderer's platform traffic crosses on this route, until `close`; a transport may count the route out of its live runtimes. The default does nothing.
     virtual void kept() {}
+
+    /// What the widget's first death its hosted client reported was to the transport, from any thread: `Ordinary` until then and for every death but the transport's end, whose decision (`Death`) the client publishes (`publishEndedDeath`) on its dispatch thread before it reports that death to its delegate (or keeps it for a delegate set later), and which never changes afterwards. So the embedder reads it in the hosted WidgetHost's `onDeath`, through the very channel it gave that host's constructor (a weak reference: the client owns the channel), and gets the kind of the death it is being told about; a death of the widget's own reported earlier (a flood, a platform request left unanswered, a refused start, its engine's death, a counted stop that came before the end, the owner's keep) keeps `Ordinary` whatever the transport later decides, and so does a later end; a counted stop that comes after an end that decided the widget yields to it (`localStop`), and its client reports that end. The default, for a channel that decides nothing, is always `Ordinary`; a transport that decides (a hosting stream's channel) keeps the published value itself, so this class holds no state and a channel of the embedder's own keeps the copies and moves it had.
+    virtual Death death() const { return Death::Ordinary; }
+    /// Whether the transport already decided the widget's death, from any thread, changing nothing, also before its hosted client publishes that decision (`death()`) or reports the death: true once the transport's end took the widget into its decision (froze or settled its death, `Ordinary` included, which `death()` reads alike before and after its publication), from then on; true too once the client claimed a death of the widget's own first (a flood, a platform request left unanswered, its engine's death) or the host stopped the widget first (`localStop`), unless the owner's withdrawal then came before any end (`withdraw`'s `ended` false). False before either, for a widget the owner withdrew first, and after an end that decided nothing of it (the owner's stop of the stream). So an owner that counts the widget's deaths can hold back another run of the same widget while one's death is decided but not yet reported. A channel that decides nothing (the default, and a hosting stream's opened without its owner's SandboxHostedAnswers, remote_stream.h) reads false whatever stops or claims the widget; the base still holds no state.
+    virtual bool decided() const { return false; }
+
+    /// What the owner's withdrawal found (`withdraw`).
+    struct Withdrawal {
+        /// The transport's end came first and took the widget into its decision, or found the widget's own death (a flood, a platform request left unanswered, the host's local stop) already claimed on its open route: the widget's death is the one it settles.
+        bool ended = false;
+        /// That death, once settled: its hosted client's first death when it was its own one (a flood, a platform request left unanswered, its engine's death: `Ordinary`) or the end, else, as cleanup takes the route from the client (the owner's stop, a keep, a close), the end's decision. None while it is still to settle: `settled` hears it then, once.
+        std::optional<Death> death;
+    };
+    /// The owner takes the widget out of its transport's decisions (a host that retires it), once, from any thread, in one step with the transport's end: when the end has not decided the widget's death yet (`ended` false) it never will, nothing of the widget counts toward the transport's limits or blame from now on, and the route still carries what it carried (a kept renderer's traffic, for one); when the end came first the widget's death is the one it settled (`death`) or will settle, which `settled` then hears once, outside every lock of the transport's, on one of its threads or the client's, before the client reports that death to its delegate when it does. The default, for a channel that decides nothing: the withdrawal came first.
+    virtual Withdrawal withdraw(std::function<void(Death death)> /*settled*/) { return {}; }
+    /// The host stops the widget of its own accord (its live platform end refused the widget's renderer for good, or its hosted client's counted `SandboxEngine::stop` on the client's dispatch thread), from any thread, in one step with the transport's end and before it tells anyone of that stop. None when no end took the widget into its decision before it: the stop is the widget's own death, claimed as a flood's is, so nothing of the widget is kept, timed or blamed from now on and an end that comes later finds it decided (`decided`; `withdraw` reads it `Ordinary`); none too when a death of the widget's own was claimed first or the owner withdrew the widget first, which stays as it was. The end's decision when that end came first, frozen or settled: it stands, unchanged (the hosted client still reports that end, which publishes it for `death`, a counted stop that yielded so delivering nothing more of the widget's own or of its renderer's platform traffic to the delegate until then and leaving that death to no later keep, terminate, stop or platform request, and a withdrawal that waits for it still hears it once). A later call finds the same winner, the end's decision as it then stands. It credits nothing the renderer owes and closes nothing. A channel that decides nothing (the default, and a hosting stream's opened without its owner's SandboxHostedAnswers): none, and nothing of the route changes.
+    virtual std::optional<Death> localStop() { return std::nullopt; }
+
+private:
+    friend struct detail::HostedDeaths;
+    /// The transport's end is the widget's first death (the hosted client, on its dispatch thread, once, before it reports that death): a transport that decides publishes what its end made of this route for `death` and settles it (`withdraw`). The default does nothing.
+    virtual void publishEndedDeath() {}
+    /// A death of the widget's own is its first death (a flood, a platform request left unanswered, its engine's death; the hosted client, on its dispatch thread, once, before it reports that death): a transport that decides keeps that claim in one step with its end, so a death its end already decided settles `Ordinary` (`withdraw`), unlike a later `localStop`, and before its end the widget counts toward its limits and blame no more. The default does nothing.
+    virtual void publishOwnDeath() {}
 };
 
 /// The renderer's side of its traffic with the host's platform, in the engine process (what a `HostedRendererFactory` gets for the renderer it builds): opaque to the framework both ways, each message at most `SandboxEngine::kRemotePlatformLimit` bytes (the host drops a longer message and answers a longer request "").

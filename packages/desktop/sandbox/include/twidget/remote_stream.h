@@ -7,10 +7,12 @@
 #include "twidget/resources.h"
 #include "twidget/sandbox_engine.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -156,7 +158,31 @@ struct SandboxRemoteWire {
     };
 };
 
-/// The host's end of one stream: it opens the stream with the sandbox bundle, hands out a channel per runtime for `SandboxEngine::setRemoteChannelFactory` (or, opened for hosted widgets, per hosted widget) and gives each frame of the engine process to its runtime's sink. A frame it cannot accept ends the whole stream, and every open runtime's client hears `remoteDisconnected` once: on an engine stream any frame of a runtime but a probe's answer while its query or Intl request is in the host's hands, and a hosted runtime's kinds; on a hosting stream a runtime's render frames (`Ops`, `Query`, `Listen`, `PreventDefault`, `Anim`, `RequestsFrame`), a second Intl request or a second platform request while the first is in the host's hands (its other frames are delivered meanwhile, as its engine, glue and renderer send on their own). Its threads: `widget.reader` reads, `widget.writer` alone blocks in writes, `widget.monitor` bounds those writes and reports to the owner, and each channel's `widget.answer` answers its runtime's queries, Intl requests and a hosted renderer's platform requests through the client, one at a time in the order they came. A runtime whose `widget.answer` cannot start is lost alone: its client hears why (the thread's refusal) as its death, then `remoteDisconnected`, its `Close` goes out, and the stream and the other runtimes go on.
+/// How a hosting stream's owner reads its hosted widgets' opaque platform messages (`SandboxRemoteHostEnd::startHosting`), so the stream knows, per hosted route, which of the host's messages its renderer has yet to answer and for how long of the renderer's own time. Without `read` (the default, and every engine stream) the stream keeps nothing of the kind. With it, a host's message (`Platform`) read as `Expects` is kept from the moment its writer admitted it, which is when its time starts, until the renderer's first message (`PlatformMessage`) read as `Answers` with the same key while it is the route's oldest kept message; an answer with another key (another family, a missing, stale or repeated sequence) settles nothing, an answer on another route nothing of this one. A renderer's message read as `Last`, or its route's `Died`, settles every message kept for the route and nothing is kept for it again; so do the host's keep of the renderer alone (`SandboxHostedChannel::kept`), its `close` and the route's loss. A renderer's message is read only once its route's `HostedStart` was admitted (the engine process builds the renderer there): one that comes before it settles and halts nothing, and the host's messages sent before it are kept as any others. A message read `whenVisible` has its time counted only when it was sent while its route was visible: the `HostedStart`'s config, unless a `Visible` was admitted before it, then each `Visible` in the order the writer admitted them with the platform messages; one sent before either is judged by the `HostedStart`'s config; a later change of visibility neither starts nor stops the time of a message sent before it, and a message whose time is not counted is still kept, in its place. The host's own time is never the renderer's: from the arrival of a route's `PlatformRequest` until the writer handed its `PlatformAnswer` whole to the stream, or the renderer's next request showed that it arrived, no message of that route counts time, the ones sent meanwhile included, while every other route's time goes on; a request its client answers with none (`SandboxRemoteSink::remotePlatformRequest`'s nullopt), which no answer will ever end, loses its route if it is still live, as a host's form that does not decode does: its client hears that the stream is lost, after any death of its own it reported first, its `Close` goes out, and the stream and the other routes go on. A route with `SandboxEngine::kRemoteQueuedCalls` messages kept ends the stream at the next message that expects an answer, which is not sent, as a queue past its bounds does. Per message the stream keeps its key and two times, never the message. A timed message whose answer time (`SandboxEngine::kPlatformAnswerSeconds` of its renderer's own time, the host's left out) runs out ends the stream ("a hosted renderer left a platform message unanswered for more than 3000 ms"): `widget.monitor` sleeps until the earliest one, woken only for an earlier one, and a look more than a second after the wake it planned (a machine that slept, which the stream's steady clock counts, or a thread that did not run) concludes nothing and asks for a second look a second later; no look concludes before that one, and that one, late or not, judges each message with all the time it had by then and is spent, never asked for again in its place (`SandboxRemoteHostEnd::lookAtAnswers`, the monitor's and the reader's one rule); a frame that would settle a message whose time ran out (its answer, the renderer's last word, its engine's `Died`) ends the stream first, when a look at that moment would conclude. The stream's first end decides once, before any client hears it, what each open route's death is to its client (`SandboxHostedChannel::Death`, which the embedder reads through `SandboxHostedChannel::death`): at a run-out answer time the routes whose time ran out by then are `Stalled` and the others `Spared`; at any other end but the owner's `stop` (the engine process's end of the stream, a read, write or frame the stream cannot go on with, a write past its bound, a queue past its bounds) the routes with a message kept, timed or not, keep an `Ordinary` death and the others are `Spared`, or every one keeps it when none had one. A route kept, closed or lost alone, whose renderer halted, whose owner withdrew it first (`SandboxHostedChannel::withdraw`) or whose client or host claimed a death of the widget's own first (a flood, a platform request left unanswered, the host's own stop of the widget, `SandboxHostedChannel::localStop`, which its live platform end's refusal and its client's counted stop make: from that claim, in one step with the end, nothing of the route is kept, timed or blamed, and nothing it owed is credited, so that dead widget alone never ends the stream) takes no part and keeps its own death, which an end that finds the claimed route still open, neither kept nor halted, settles `Ordinary`; a local stop after the end leaves the end's decision as it is, and a counted stop then yields to that end; the owner's `stop` decides nothing; a hosted widget that attaches to a stream that ended otherwise is `Spared`. Each death the end decided settles once, as the end decided it when the client's first death is that end or cleanup takes the route from its client (a keep, a close) before it, `Ordinary` when a death of the widget's own came first (a loss alone leaves the choice to its client, which still hears it), and the owner's withdrawal that found it decided hears it then (`SandboxHostedChannel::Withdrawal`).
+struct SandboxHostedAnswers {
+    /// What one platform message is to the stream.
+    enum class Role : uint8_t {
+        /// Nothing the stream keeps an account of (a size, a theme, a report, a request of the renderer's).
+        None,
+        /// A host's message that its renderer answers with exactly one message of the same key, in the order the host sent them.
+        Expects,
+        /// A renderer's message that answers its route's oldest kept message of the same key.
+        Answers,
+        /// A renderer's last word: it answers nothing more (it stopped).
+        Last,
+    };
+    /// One message as its owner reads it: its role and, for `Expects` and `Answers`, its key, a family of the owner's and, for a family that numbers its messages, their sequence; an expected message `whenVisible` counts time only when sent while visible (a frame request), any other one always (an input event).
+    struct Reading {
+        Role role = Role::None;
+        uint32_t family = 0;
+        std::optional<uint64_t> sequence;
+        bool whenVisible = false;
+    };
+    /// Reads one message, a host's or a renderer's (a role of the other direction counts as `None`, as does a reading that throws), never one past `SandboxEngine::kRemotePlatformLimit`: pure and quick, called on the sending thread (a hosted client's `widget.client`) and on `widget.reader`, never under a lock of the stream.
+    std::function<Reading(std::string_view message)> read;
+};
+
+/// The host's end of one stream: it opens the stream with the sandbox bundle, hands out a channel per runtime for `SandboxEngine::setRemoteChannelFactory` (or, opened for hosted widgets, per hosted widget) and gives each frame of the engine process to its runtime's sink. A frame it cannot accept ends the whole stream, and every open runtime's client hears `remoteDisconnected` once: on an engine stream any frame of a runtime but a probe's answer while its query or Intl request is in the host's hands, and a hosted runtime's kinds; on a hosting stream a runtime's render frames (`Ops`, `Query`, `Listen`, `PreventDefault`, `Anim`, `RequestsFrame`), a second Intl request or a second platform request while the first is in the host's hands (its other frames are delivered meanwhile, as its engine, glue and renderer send on their own). Its threads: `widget.reader` reads, `widget.writer` alone blocks in writes, `widget.monitor` bounds those writes and the hosted renderers' answer times (SandboxHostedAnswers) and reports to the owner, and each channel's `widget.answer` answers its runtime's queries, Intl requests and a hosted renderer's platform requests through the client, one at a time in the order they came. A runtime whose `widget.answer` cannot start is lost alone: its client hears why (the thread's refusal) as its death, then `remoteDisconnected`, its `Close` goes out, and the stream and the other runtimes go on.
 class SandboxRemoteHostEnd {
 public:
     /// What the owner hears, from `widget.monitor` and outside every lock of this end; an empty one is skipped. Each returns at once and posts what it does, never stopping, destroying or calling into this end.
@@ -178,8 +204,9 @@ public:
 
     /// Starts this end's threads on `stream` and queues the opening: `resources`' sandbox bundle, and only the stamp lines of its validator and renderer bundles, which stay in the host. `build` is the host's build, which the engine process's end must share. Throws std::system_error when one of its threads cannot start (JSThread): those already started are joined, nothing was written to the stream and `Events` hear nothing.
     static std::shared_ptr<SandboxRemoteHostEnd> start(std::shared_ptr<SandboxRemoteStream> stream, const SandboxResources& resources, std::string build, Events events, Limits limits);
-    /// `start` for hosted widgets (remote_hosted.h), served by `SandboxRemoteEngineEnd::serveHosting`: the opening (`HostingOpening`) carries `resources`' sandbox and validator bundles and only the stamp line of its renderer bundle, every runtime is a hosted widget on `hostedChannel`, and `channel` refuses. Throws as `start` does.
-    static std::shared_ptr<SandboxRemoteHostEnd> startHosting(std::shared_ptr<SandboxRemoteStream> stream, const SandboxResources& resources, std::string build, Events events, Limits limits);
+    /// `start` for hosted widgets (remote_hosted.h), served by `SandboxRemoteEngineEnd::serveHosting`: the opening (`HostingOpening`) carries `resources`' sandbox and validator bundles and only the stamp line of its renderer bundle, every runtime is a hosted widget on `hostedChannel`, and `channel` refuses. With `answers` the stream keeps what each hosted renderer has yet to answer, bounds its answer time and decides at its end what each hosted widget's death is (SandboxHostedAnswers); without them, nothing. Throws as `start` does.
+    static std::shared_ptr<SandboxRemoteHostEnd> startHosting(std::shared_ptr<SandboxRemoteStream> stream, const SandboxResources& resources, std::string build, Events events, Limits limits,
+                                                              SandboxHostedAnswers answers = {});
     /// `stop`, on the owner's thread: the last reference is never dropped on a thread of this end's (inside `Events`).
     ~SandboxRemoteHostEnd();
     SandboxRemoteHostEnd(const SandboxRemoteHostEnd&) = delete;
@@ -196,6 +223,19 @@ public:
     static std::shared_ptr<SandboxRemoteChannel> refusing(std::string reason);
     /// `refusing` for a hosted client: its hosted calls do nothing too.
     static std::shared_ptr<SandboxHostedChannel> refusingHosted(std::string reason);
+
+    /// What one look at the hosted renderers' answer times concludes (`lookAtAnswers`).
+    struct AnswerLook {
+        /// An answer time ran out by the look: the stream ends.
+        bool expired = false;
+        /// The second look asked for after this one: none, the one asked for before (still ahead), or a new one `kLateLook` from the look.
+        std::optional<std::chrono::steady_clock::time_point> recheck;
+    };
+    /// How long after the wake the monitor planned a look at the answer times may come and still conclude (SandboxHostedAnswers).
+    static constexpr std::chrono::seconds kLateLook{1};
+    /// The stream's one rule for a look at the answer times at `now` (SandboxHostedAnswers), pure, so its tests give it their own times: `due` is when the earliest answer time looked at runs out (none: none runs), `wake` the wake the monitor planned (none: it waits until woken, or it is running), `recheck` the second look a late one asked for. A second look asked for decides first: before it nothing is concluded and it stays; at it or after it, however late that look is, `due` is judged with all the time it had (at `now` or before, the stream ends) and the second look is spent. Without one, a look more than `kLateLook` after `wake` concludes nothing and asks for one `kLateLook` from `now`; any other judges `due`. `widget.monitor` takes all of it after each wake, with the earliest answer time of every route; `widget.reader`, before a frame settles a message whose time ran out, only `expired`, with that route's, leaving the second look to the monitor.
+    static AnswerLook lookAtAnswers(std::optional<std::chrono::steady_clock::time_point> due, std::optional<std::chrono::steady_clock::time_point> wake,
+                                    std::optional<std::chrono::steady_clock::time_point> recheck, std::chrono::steady_clock::time_point now);
 
 private:
     struct Connection;

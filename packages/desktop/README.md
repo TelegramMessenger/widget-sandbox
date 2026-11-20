@@ -45,7 +45,8 @@ packages/desktop/
   renderer/                  BlitzRenderer (twidget/blitz_renderer.h): the Renderer over ../renderer-blitz's C ABI; -DTW_BLITZ=ON only
                              LitehtmlRenderer (twidget/litehtml_renderer.h): the same over ../renderer-litehtml's C ABI; -DTW_LITEHTML=ON, macOS only
   harness/                   twidget-run + RecordingHost (fake host with canned layout answers) + png.h
-                             + stream_peers.h (test byte streams and the TW_ENGINE_STREAM switch, not the library's)
+                             + stream_peers.h (test byte streams and the TW_ENGINE_STREAM switch, not the library's;
+                               memory_stream.h its in-memory pair alone)
                              + hosted_peers.h (the TW_ENGINE_HOSTED switch and the canned renderer, not the library's)
                              + host_only.cpp (twidget-host-only, built from the host's side alone)
   tests/                     twidget-tests (XCTest suite ported) + fixtures/
@@ -70,7 +71,7 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_NOVA_ROOT=<a nova-safe checkout> && cmake --build build
-./build/twidget-tests                             # 235 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine, its byte stream and the hosted mode); `./build/twidget-tests remote_` runs the remote engine's 112, `remote_stream_` the byte stream's 49 and `hosted_` the hosted mode's 41 of them
+./build/twidget-tests                             # 249 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine, its byte stream and the hosted mode); `./build/twidget-tests remote_` runs the remote engine's 126, `remote_stream_` the byte stream's 63 and `hosted_` the hosted mode's 55 of them
 ./build/twidget-host-only                         # built from the host's side alone ("The host's side alone" below): prints `host-only: hosted=1 dead=the widget engine process ended kept=0` and exits 0
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
@@ -79,12 +80,12 @@ cd packages/desktop && cmake -S . -B build -G Ninja -DTW_NOVA_ROOT=<a nova-safe 
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # the bot's requests: prints `request …` and `copyText …`; --message private|group|via-bot|no-queries|live-copy|copy|preview, or --copy / --can-query / --background-query / --chat-type; --answer-error TIMEOUT, --set-data JSON
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
 ./build/twidget-run --attacks                     # 133 files: nothing but data:/#fragment may reach the validated ops
-cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build-debug
-TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 235 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
+cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DTW_NOVA_ROOT=<a nova-safe checkout> && cmake --build build-debug
+TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 249 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
 TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-run --attacks   # 133 attacks, 0 leaks, "133 through a client-mode engine"; NDEBUG (the default RelWithDebInfo) compiles the switch out
-TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 235 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
+TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 249 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
 TW_ENGINE_STREAM=1 ./build-debug/twidget-run --attacks     # 133 attacks, 0 leaks, "133 of them over the stream"; a stream that ends before the run's own stop fails the run
-TW_ENGINE_HOSTED=loopback ./build/twidget-tests    # the same 235 with every fixture WidgetHost hosted (below): its engine, validator and glue behind a SandboxHostedLoopbackChannel, its renderer here; any build type; fails unless every fixture widget went hosted
+TW_ENGINE_HOSTED=loopback ./build/twidget-tests    # the same 249 with every fixture WidgetHost hosted (below): its engine, validator and glue behind a SandboxHostedLoopbackChannel, its renderer here; any build type; fails unless every fixture widget went hosted
 TW_ENGINE_HOSTED=stream ./build/twidget-tests      # the same over a hosting stream per widget; also fails when a kind that stays in the engine process crossed one
 TW_ENGINE_HOSTED=stream ./build/twidget-run --attacks      # 133 attacks, 0 leaks in the validated ops the run asked for, "133 hosted over the stream"; =loopback too, and --corpus ../../corpus/compat with either
 ```
@@ -307,6 +308,20 @@ What it is on this platform:
   been dropped, also after the query timed out). The message past either bound
   kills the widget once ("the widget engine process sent more than the host
   keeps queued"), and the sink then takes nothing more and never waits. The
+  transport's end (`remoteDisconnected`) is the transport's word, not the
+  engine's side's: it is queued once, in order after what came before it,
+  without taking a place, so a client that holds exactly `kRemoteQueuedCalls`
+  legal calls still hears the end as the end. A message past the bound came
+  before the end and keeps its own death: the end defers to an overflow claimed
+  by the time it runs on the dispatch thread, so the widget dies flooded also
+  when a route's `widget.answer` claimed it after the reader's fan-out queued
+  the end. The bounds' check, the rejection and the overflow's claim are one
+  step under the backlog's lock, and the end's choice takes that lock too: a
+  message the admission found past the bounds before the end chose is that
+  flood, never a rejection lost between the two (a test holds a rejection in
+  the middle of that step with `SandboxEngine::setRemoteRejectionStep`, whose
+  second callback reports the end's choice on the dispatch thread as it takes
+  that lock, so the test sees the choice wait for the held step). The
   bounds count payload bytes and queued calls up to the moment that work runs,
   not allocator memory (each call's closure and containers come on top) and
   not what the host keeps afterwards. Of that, `WidgetHost` keeps at most
@@ -513,9 +528,17 @@ down may set, and `select` still works there. A receive timeout
 One reader and one writer at a time; the owner destroys the stream only after
 both returned. The host's end holds the stream until `stop` has joined its
 threads, then lets it go. The test peers are in `harness/stream_peers.h`, test
-and harness code, not the library's: an in-memory pair, and on POSIX a socket
-pair whose writes really block, which shuts each direction on its own and
-reads as above (`SocketStream::read`, on every POSIX system).
+and harness code, not the library's: an in-memory pair (`harness/memory_stream.h`,
+which needs nothing but the standard library and this interface), and on POSIX
+a socket pair whose writes really block, which shuts each direction on its own
+and reads as above (`SocketStream::read`, on every POSIX system). The tests
+write and read the frames below by hand and play the engine process's end
+with them against a real host's end (`tests/test_stream_frames.h`, with no
+test runner either: `ScriptedEngineEnd` opens the host's end on a memory pair,
+keeps the frames it writes, answers its opening and closes, each wait under
+its owner's bound, and joins its reader within one), so a host's own check of
+a stream plays the engine process's end with the same peer the tests'
+`ScriptedEngine` wraps.
 
 ### Frames
 
@@ -679,8 +702,11 @@ second `Ready` or `Refused`, a `Refused`, a `Ready` of another version, one of
 a runtime id never given, any frame of a runtime but a probe's answer while
 that runtime's query or Intl request is in the host's hands, a `ProbeAnswer`
 for a sequence never sent. So do the stream's end, a failed write, the write
-deadline, the queue bounds and `stop`. The first reason wins and is the one
-`Events::ended` gets. Every open runtime's client hears `remoteDisconnected`
+deadline, the queue bounds and `stop`, and on a hosting stream opened with its
+owner's `SandboxHostedAnswers` a hosted renderer's answer time and the bound
+of the messages kept for one route ("A renderer that stops answering" in the
+hosted mode below). The first reason wins and is the one `Events::ended`
+gets. Every open runtime's client hears `remoteDisconnected`
 once ("the widget engine process ended"), nothing after it is delivered, and a
 channel attached later is disconnected at once. A well-formed frame of a
 runtime the host already closed is dropped. The engine's end checks the host's
@@ -708,8 +734,8 @@ engine's host kinds (`Start`, `Event`, `Activation`, `AnimationFrame`,
 
 - The host's end: `widget.reader` reads and gives each frame to its runtime's
   sink in order, `widget.writer` alone blocks in writes, whole frames in the
-  order they were queued, and `widget.monitor` keeps the write deadline and
-  alone calls `Events`. A runtime's query or Intl request (and a hosted
+  order they were queued, and `widget.monitor` keeps the write deadline (and
+  a hosting stream's answer times) and alone calls `Events`. A runtime's query or Intl request (and a hosted
   widget's platform request) goes to its own `widget.answer`, made at the
   first one, where the client's sink answers it as before (the delegate, or
   the host's `IntlProvider`, on the client's dispatch thread; a platform
@@ -1169,6 +1195,286 @@ kept.reset(); // release(): Close, and the engine process destroys the renderer
   `kRemotePlatformLimit`, the client's queued bytes and calls (counted until
   the handle's observer returned, or its deliveries' copies went), one waiting
   request and its deadline (its client's record still applies).
+
+### A renderer that stops answering
+
+Every bound above is a count or the host's own deadline: a renderer that stops
+answering the host (a glue thread stuck in the widget's content, an engine
+process stopped) on a stream that still takes writes waits for ever, and the
+stream's end is every widget's death alike. A hosting stream opened with its
+owner's `SandboxHostedAnswers` (`remote_stream.h`) bounds the renderers'
+answer times and says at its end what that end is to each widget. Opt-in:
+without it (the default, every engine stream, the harness) the stream keeps
+and times nothing, and every death is as above.
+
+- The reading: `SandboxRemoteHostEnd::startHosting(stream, resources, build,
+  events, limits, answers)`, where `answers.read(message)` is the owner's
+  reading of one of its opaque platform messages, the host's or the
+  renderer's: a role (`Expects` for a host's message its renderer answers with
+  exactly one, in the order sent; `Answers` for the renderer's answer; `Last`
+  for its last word, after which it answers nothing; `None`), for the first two
+  a key (a `family` of the owner's and, for a family that numbers its messages,
+  their `sequence`), and for an expected message whether its time counts only
+  when it was sent visible (`whenVisible`: a frame request) or always (an input
+  event). It is pure and quick: the stream calls it on the sending thread (a
+  hosted client's `widget.client`) and on `widget.reader`, outside every lock,
+  never for a message past `kRemotePlatformLimit`; a reading that throws and a
+  role of the other side's count as `None`.
+- What the stream keeps, per route: each host's `Platform` read `Expects` from
+  the moment the writer admitted it (a refused one keeps nothing), on a route
+  neither kept nor halted, as its key and two times, never the message. Its time
+  counts unless it is `whenVisible` and its route was hidden when it was sent:
+  hidden or visible as the `HostedStart`'s config says, unless a `Visible` was
+  admitted before it, then as each `Visible` says in the order the writer
+  admitted them with the messages; one sent before either is judged by the
+  `HostedStart`'s config. A later change of visibility neither starts nor stops
+  the time of a message sent before it, and a message whose time does not count
+  is kept in its place all the same. Past `SandboxEngine::kRemoteQueuedCalls`
+  (16384) kept on one route, the next message that expects an answer ends the
+  stream instead ("more than 16384 platform messages unanswered on runtime N")
+  and is not sent.
+- Which answer settles which message: a renderer's `PlatformMessage` read
+  `Answers` settles its route's oldest kept message when their keys are the same
+  (the family, and the sequence or none for both), and nothing else: an answer of
+  another family, a stale, missing or repeated sequence, a report, a role of the
+  wrong side and an answer on another route settle nothing, and nothing restarts
+  the oldest message's time. The renderer's `Last` and its engine's `Died`
+  settle every message of the route and nothing is kept for it again; so do the
+  host's keep (`SandboxHostedChannel::kept`), its `close` and the route's loss.
+  A renderer's message is read only once the writer admitted its route's
+  `HostedStart`, where the engine process builds the renderer: an answer or a
+  last word before it settles and halts nothing (a helper cannot turn the
+  account of a widget off before its delegate could hear it), while the host's
+  messages sent before it are kept as any others and its engine's `Died`
+  still settles them.
+- The host's time is never the renderer's: from the arrival of a route's
+  `PlatformRequest` until the writer handed its `PlatformAnswer` whole to the
+  stream (or the renderer's next request showed that the answer arrived), no
+  message of that route counts time, those sent meanwhile included, while every
+  other route's time goes on; an older answer written after the renderer's next
+  request came ends nothing of that request's wait. A message sent at s has used
+  (t − s) − (H(t) − H(s)) of its time at t, H being the host's time owed to its
+  route, the current wait's elapsed part included. A request its client answers
+  with none (`remotePlatformRequest`'s nullopt: the client stopped the widget,
+  or had no delegate to ask yet) would keep that wait for ever, as the renderer
+  waits for an answer that never comes: it loses its route if the route is
+  still live, as a host's form that does not decode does. Its client hears that
+  the stream is lost after any death of its own it queued first (a platform
+  request left unanswered keeps its reason), its `Close` goes out, and the
+  stream and the other routes go on.
+- The answer time: `SandboxEngine::kPlatformAnswerSeconds` (3 s) of the
+  renderer's own time, not configurable. `widget.monitor` sleeps until the
+  earliest one of any route (or the write deadline, whichever comes first), woken
+  only for an earlier one, so a renderer that answers in time costs about one
+  wake per 3 s, not one per message; no poll, no timer per route. When one ran
+  out the stream ends ("a hosted renderer left a platform message unanswered for
+  more than 3000 ms") as at any other end: every open runtime's client hears
+  `remoteDisconnected`, then `Events::ended` comes, and the owner kills the
+  engine process as it does after any end. A look more than 1 s after the wake
+  the monitor planned (a machine that slept, which `steady_clock` counts on
+  macOS, or a thread that did not run) concludes nothing and asks for a second
+  look 1 s later. No look concludes before that one, and that one, however late
+  it comes itself, judges each message with all the time it had by then and is
+  spent: it is never asked for again in its place, and never a new full 3 s. A
+  frame that would settle a message whose time ran out (its answer, the
+  renderer's last word, its `Died`) ends the stream first, as a look at that
+  moment would have: before the second look it settles the message, at or after
+  it it cannot. The monitor and the reader take this from one pure rule,
+  `SandboxRemoteHostEnd::lookAtAnswers(due, wake, recheck, now)`, the monitor all
+  of it, the reader only whether the stream ends.
+- What the end is to each widget (`SandboxHostedChannel::Death`): the stream's
+  first end decides it once for every open route, under the connection's lock
+  and before any client hears the end; a close or keep before the reader's
+  fan-out changes nothing of it. At a run-out answer time the routes whose time
+  ran out by then are `Stalled` and every other one `Spared`, one with a younger
+  message waiting included. At any other end but the owner's `stop` (the engine
+  process's end of the stream, a read, write or frame the stream cannot go on
+  with, the write deadline, a queue past its bounds) the routes with a message
+  kept, timed or not, keep an `Ordinary` death and the others are `Spared`, or
+  every one keeps it when none had one. A route kept, closed or lost alone, or
+  whose renderer halted, takes no part and keeps its own death; so does one
+  whose client claimed a death of the widget's own first (a flood, a platform
+  request left unanswered, claimed before its `platform-timeout` diagnostic
+  reaches the delegate) or that the host stopped first (`localStop`,
+  below): that claim is one step with the end, and from it nothing of the
+  route is kept, timed or blamed, so that dead widget alone never ends its
+  siblings' stream, and an end that finds the claimed route still open settles
+  its death as that one, `Ordinary`. The owner's `stop` decides nothing; a
+  widget attached to a stream that ended otherwise is `Spared`.
+- How the host stops a widget of its own accord:
+  `SandboxHostedChannel::localStop()`, from any thread (a live platform end
+  that refuses the widget's renderer for good, on its own thread), is one step
+  with the end under the connection's lock, before anything tells anyone of
+  that stop. When no end took the route into its decision yet it returns none:
+  the stop is the widget's own death, claimed as a flood's is, so nothing of
+  the route is kept, timed or blamed from then on, a later end finds it decided
+  (`decided()`) and a withdrawal reads it `Ordinary`; it returns none too when
+  a death of the widget's own or the owner's withdrawal came first, which stays
+  as it was. When the end came first it returns that end's decision, frozen or
+  settled, and changes nothing: the end's snapshot stands, the client still
+  reports that end and publishes it for `death()`, and a withdrawal waiting for
+  it still hears it once. A later call finds the same winner. It credits
+  nothing the renderer owes (a reply of another sequence still answers
+  nothing), and it closes nothing: the host's own cleanup and its client do.
+  A hosted client's counted `SandboxEngine::stop` makes the same call on its
+  dispatch thread before its delegate hears the death (inline when it is
+  called there): none, and the widget dies of its stop, `Ordinary`; a
+  decision, and the stop yields: nothing dies in that call, and the end's job,
+  which the client still runs, kills the widget with that decision ("the widget
+  engine process ended"). From that call until then the client is as at the
+  stop's own death, one state it keeps on its dispatch thread: nothing of the
+  widget's own that it queued (a storage commit, a bridge call, a request, an
+  Intl request, a report) reaches the delegate or its `IntlProvider`, its
+  renderer's platform messages and requests reach the delegate no more (such
+  a request answers none, with no kill), and that death is left to the end's
+  job: a platform request the delegate then leaves unanswered or refuses
+  claims nothing and sends no `platform-timeout`, `keepHosted` returns false,
+  and a later `terminate` or `stop` does nothing. The end's job keeps the
+  flood's precedence and its single publication, and a renderer kept before
+  the stop never yields (its widget is dead), so its traffic goes on as
+  before. Otherwise the owner's `terminate` and keep claim nothing and stay
+  on the owner's path. A channel that decides nothing returns none: the
+  stop comes first; so does a hosting stream opened without the owner's
+  `SandboxHostedAnswers`, whose routes no stop or claim ever decides.
+- How the embedder reads it: `SandboxHostedChannel::death()`, from any thread,
+  is `Ordinary` until the hosted client reported the widget's first death, and
+  only the transport's end publishes its decision there, on the client's
+  dispatch thread before its delegate hears that death (or keeps it for a
+  delegate set later, which hears it once). The end reaches a client at its
+  bounds as the end (it takes no place of the engine's side's traffic, above),
+  and a client past them as its flood, `Ordinary`, however the end's job and
+  the flood's kill were queued.
+  `death()` is a virtual whose default is `Ordinary` and the base class holds
+  no state, so a channel of your own keeps its copies and moves and reports
+  `Ordinary`; the stream's channel keeps the value it publishes. A death the
+  widget had first (its own limit, the host's stop decided before the end, a
+  flood, a platform request left unanswered, a refused start, its engine's
+  `Died`, a keep) keeps `Ordinary`, whatever an end decides later, and so does
+  a later end; a host's stop that comes after an end that decided the widget
+  yields to it (`localStop`, above), and the widget dies of that end. So the
+  embedder reads it in the hosted `WidgetHost`'s `onDeath`, through the very
+  channel it gave that host's constructor, held weakly (the client owns it);
+  the death's reason stays "the widget engine process ended".
+- Whether it is decided yet: `SandboxHostedChannel::decided()`, from any
+  thread, reads under the connection's lock and changes nothing. It is true
+  once the end took the route into its decision (froze or settled its death,
+  `Ordinary` included) and from then on, and once the client claimed a death
+  of the widget's own first or the host stopped it first (`localStop`), unless
+  the owner's withdrawal then came before any end; false before either, for a
+  route the owner withdrew first and at the owner's `stop`. It tells what `death()` cannot before the client ran the
+  end: an `Ordinary` death reads alike before and after its publication, and
+  a `Stalled` or `Spared` one is published only when the client's dispatch
+  thread gets to it. So an owner that counts deaths per widget can hold back
+  another run of the same widget while one reads decided and its death is not
+  reported yet. A virtual whose default is false, the base still with no
+  state, so a channel of your own reads false and keeps its copies and moves;
+  a hosting stream opened without the owner's `SandboxHostedAnswers` reads
+  false too, whatever stops or claims the widget.
+- How the owner leaves it: `SandboxHostedChannel::withdraw(settled)`, once, from
+  any thread (a host that retires the widget, before it resets anything it
+  counts), is one step with the end under the connection's lock. Before the end
+  decided the route's death, the withdrawal comes first (`ended` false): the
+  route takes no part in any end from now on, nothing of it is kept, timed or
+  blamed, and it still carries what it carries (a kept renderer's traffic).
+  After, the widget's death is the one the end settles, once: the end's
+  decision when the client's first death is that end or cleanup takes the
+  route from the client first (the owner's stop, a keep, a close), `Ordinary`
+  when a death of the widget's own came first (a flood, a platform request
+  left unanswered, its engine's `Died`, the host's `localStop`), also one
+  claimed before the end on a route the end found open. A route lost alone
+  (its `widget.answer`, a form that does not encode) settles nothing itself: its client still hears that
+  loss and settles the death by its own first death, an own one it queued
+  before the loss included. The withdrawal reads it at once when it settled
+  (`Withdrawal::death`), else `settled` hears it once, outside every lock, on a
+  thread of the stream's or the client's (the dispatch thread before its
+  delegate hears the death), so a death decided before the owner let the
+  widget go is never lost with its callbacks and the owner's later stop cannot
+  turn it into another. A channel that decides nothing has the withdrawal
+  first.
+
+```cpp
+// The host: the reading of its own messages (pure: their kinds and sequences from their headers).
+twidget::SandboxHostedAnswers answers;
+answers.read = [](std::string_view message) { return readOwnMessage(message); };
+auto end = twidget::SandboxRemoteHostEnd::startHosting(stream, *resources, "build-1", events, {}, std::move(answers));
+std::shared_ptr<twidget::SandboxHostedChannel> channel = end->hostedChannel();
+auto host = std::make_unique<twidget::WidgetHost>(html, theme, width, options, channel, intl);
+host->onDeath = [weak = std::weak_ptr<twidget::SandboxHostedChannel>(channel)](const std::string& reason) {
+    const std::shared_ptr<twidget::SandboxHostedChannel> channel = weak.lock();
+    switch (channel ? channel->death() : twidget::SandboxHostedChannel::Death::Ordinary) {
+    case twidget::SandboxHostedChannel::Death::Stalled: stopForGood("stopped responding"); break; // this widget hung it
+    case twidget::SandboxHostedChannel::Death::Spared: restartUncounted(); break;                 // another one did, or none
+    case twidget::SandboxHostedChannel::Death::Ordinary: countDeath(reason); break;
+    }
+};
+host->start();
+```
+
+The tests, on a scripted engine process with generic keys and real hosted
+clients: `remote_stream_hosted_answers_settle_the_oldest_matching_message`
+(twenty-one routes judged at one end while the monitor is held, one whose
+renderer's answer and last word came before its start among them),
+`remote_stream_hosted_answers_leave_out_the_hosts_own_time` (requests held
+past the answer time, a send inside a hold, an answer queued behind a blocked
+writer, another route's time going on),
+`remote_stream_hosted_answers_decide_each_death_once_at_the_end`,
+`remote_stream_hosted_answers_keep_a_widgets_first_death` (the owner's
+`terminate` queued behind a held dispatch thread before the end stays
+`Ordinary`, a counted stop queued the same way yields to the end and is
+`Spared`; a channel of your own copied and moved too),
+`remote_stream_hosted_answers_end_reaches_a_full_client`
+(exactly `kRemoteQueuedCalls` messages held at the end, one more, and a request
+past the bound taken on `widget.answer` after the end was queued),
+`remote_stream_hosted_answers_end_and_a_rejection_in_its_step` (a request past
+the bound held in the middle of its rejection's step; the end's choice seen as
+it takes the step's lock, then half a second with no death and its job not
+done: flooded once the step goes on),
+`remote_stream_hosted_answers_withdraw_in_one_step_with_the_end` (a withdrawal
+before the end, with a timed message unanswered; after it, settled and still
+to settle; the owner's stop and a flood ahead of the end),
+`remote_stream_hosted_answers_claim_an_own_death_in_one_step_with_the_end` (a
+flood held in its delegate before its route closes: with its own timed
+message 3.4 s old nothing ends, and a sibling's run-out time leaves it
+`Ordinary`; a loss on `widget.answer` after the end and before the reader's
+fan-out, the client's flood queued first: `Ordinary`; a platform request its
+delegate answers with none, the diagnostic held in that delegate and the
+route's loss held on `widget.answer` across the engine process's end: claimed
+first, so the idle sibling stays `Ordinary`),
+`remote_stream_hosted_answers_stop_a_widget_locally_in_one_step_with_the_end`
+(a reply of another sequence answers nothing and the stream ends at 3 s, but
+the host's `localStop` of that widget before its time ran out, its client then
+held, leaves the stream and its sibling's answers going 3.4 s on; the end
+first: its stalled decision stands; an idle widget stopped before the engine
+process's end is `Ordinary`, a channel of your own),
+`remote_stream_hosted_answers_claim_a_counted_stop_in_one_step_with_the_end`
+(a counted `stop` held in its delegate with an input unanswered: nothing ends
+3.4 s on and the sibling answers; the end first, with a job ahead of it that
+stops the widget inline: the end's stalled decision, one death, and a storage
+commit queued behind that job reaches no delegate where the same commit before
+it did; an idle widget stopped inline before the end is `Ordinary`;
+`terminate` claims nothing; a stream opened without the owner's answers
+decides nothing of the same stop, one opened with them does),
+`remote_stream_hosted_answers_leave_a_yielded_stop_to_the_ends_kill` (the
+watchdog's end with the reader held in a delivery before it tells any client,
+each widget stopped after it: a keep and a terminate take nothing; platform
+requests then refused, each refusal's kill queued before its open route is
+lost for the missing answer: no `platform-timeout`, and each dies of the end
+once, stalled or spared as the end decided; at the engine process's end, its
+fan-out held before the clients, a platform message, a platform request and
+an Intl request queued behind a job that stops the widget inline run while
+the client is yielded and reach neither the delegate nor the `IntlProvider`,
+where the same ones before it did, and the request kills nothing),
+`remote_stream_hosted_answers_tell_a_decided_death_before_it_is_published`
+(an end's decision read while both clients are held, an `Ordinary` and a
+`Spared` one, a withdrawal before it, the owner's stop, a flood held in its
+delegate, a channel of your own) and
+`remote_stream_hosted_answers_lose_a_route_left_without_an_answer` (no delegate
+yet, a sink with no answer, a delegate that has no platform). The late look's
+rule takes no clock of the stream's:
+`remote_stream_hosted_answers_look_again_once_after_a_late_wake` gives
+`lookAtAnswers` its times (an ordinary wake, an answer in the second look's
+time, a late look before it, a late second look, the reader after it, a later
+sleep).
 
 ### Threads
 

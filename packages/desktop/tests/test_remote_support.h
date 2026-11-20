@@ -361,6 +361,10 @@ public:
     std::function<void(SandboxEngine&)> duringPlatformRequest;
     /// `onHostedRequest` keeps each responder unanswered instead (`platformResponder`); set it while no platform request is on its way.
     bool holdPlatformRequests = false;
+    /// Runs inside `onDied` after its event, before the client goes on with that death (closes the route); set it while no death is on its way.
+    std::function<void(SandboxEngine&)> duringDeath;
+    /// Runs inside `onDiag` after its event with the diagnostic's kind, before the client goes on (a platform timeout's death, for one); set it while no diagnostic is on its way.
+    std::function<void(SandboxEngine&, const std::string& kind)> duringDiag;
 
     void onOps(SandboxEngine& engine, const std::string&) override {
         record("ops");
@@ -377,10 +381,13 @@ public:
     void onAnim(SandboxEngine&, const std::string&) override { record("anim"); }
     void onRequestFrame(SandboxEngine&) override { record("frame"); }
     void onLog(SandboxEngine&, const std::string& level, const std::string& text) override { record("log:" + level + ":" + std::to_string(text.size())); }
-    void onDiag(SandboxEngine&, const std::string& kind, const std::string& detail) override {
+    void onDiag(SandboxEngine& engine, const std::string& kind, const std::string& detail) override {
         record("diag:" + kind);
-        std::lock_guard<std::mutex> l(mutex_);
-        diags_.emplace_back(kind, detail);
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            diags_.emplace_back(kind, detail);
+        }
+        if (duringDiag) duringDiag(engine, kind);
     }
     void onBridgeAction(SandboxEngine&, const WidgetAction& action) override { record("action:" + action.toJson().dump()); }
     void onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) override { record("bridge:" + method + ":" + argsJson); }
@@ -409,7 +416,10 @@ public:
         std::lock_guard<std::mutex> l(mutex_);
         stats_.push_back(stats);
     }
-    void onDied(SandboxEngine&, const std::string& reason) override { record("died:" + reason); }
+    void onDied(SandboxEngine& engine, const std::string& reason) override {
+        record("died:" + reason);
+        if (duringDeath) duringDeath(engine);
+    }
     void onTaskStarted(SandboxEngine& engine) override {
         record("begin");
         if (atBegin) atBegin(engine);
