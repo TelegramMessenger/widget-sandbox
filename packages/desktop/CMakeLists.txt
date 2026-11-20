@@ -34,11 +34,28 @@ if(TW_RUST_ENGINE_END)
     if(NOT TW_CARGO)
         message(FATAL_ERROR "TW_RUST_ENGINE_END needs cargo (rustup); none found in PATH, /opt/homebrew/opt/rustup/bin or ~/.cargo/bin")
     endif()
+    # The host's target, or a 32-bit Windows build's as tdesktop_rust builds it: the Windows 7 target with its std built here.
+    set(TW_RUST_TARGET "" CACHE STRING "The Rust target of TW_RUST_ENGINE_END; empty: the host's, or i686-win7-windows-msvc in a 32-bit Windows build")
+    set(TW_RUST_TARGET_USED "${TW_RUST_TARGET}")
+    if(NOT TW_RUST_TARGET_USED AND WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(TW_RUST_TARGET_USED i686-win7-windows-msvc)
+    endif()
     set(TW_RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust-target")
-    set(TW_RUST_BUILT "${TW_RUST_TARGET_DIR}/release/${CMAKE_STATIC_LIBRARY_PREFIX}twidget_engine_ffi${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    set(TW_RUST_TARGET_ARGS)
+    set(TW_RUST_ENV)
+    set(TW_RUST_OUT "${TW_RUST_TARGET_DIR}/release")
+    if(TW_RUST_TARGET_USED)
+        set(TW_RUST_TARGET_ARGS --target ${TW_RUST_TARGET_USED})
+        set(TW_RUST_OUT "${TW_RUST_TARGET_DIR}/${TW_RUST_TARGET_USED}/release")
+        if(TW_RUST_TARGET_USED MATCHES "-win7-")
+            set(TW_RUST_ENV RUSTC_BOOTSTRAP=1)
+            list(APPEND TW_RUST_TARGET_ARGS -Z build-std=std,panic_abort)
+        endif()
+    endif()
+    set(TW_RUST_BUILT "${TW_RUST_OUT}/${CMAKE_STATIC_LIBRARY_PREFIX}twidget_engine_ffi${CMAKE_STATIC_LIBRARY_SUFFIX}")
     file(GLOB_RECURSE TW_RUST_SOURCES CONFIGURE_DEPENDS "${TW_RUST_ROOT}/crates/*.rs" "${TW_RUST_NOVA}/nova_embed_ffi/src/*.rs" "${TW_RUST_NOVA}/nova_embed/src/*.rs" "${TW_RUST_NOVA}/nova_vm/src/*.rs")
     add_custom_command(OUTPUT "${TW_RUST_BUILT}"
-        COMMAND "${TW_CARGO}" rustc --release --locked --offline --package twidget_engine_ffi --features nova-c-api --lib --crate-type staticlib --target-dir "${TW_RUST_TARGET_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E env ${TW_RUST_ENV} "${TW_CARGO}" rustc --release --locked --offline --package twidget_engine_ffi --features nova-c-api --lib --crate-type staticlib ${TW_RUST_TARGET_ARGS} --target-dir "${TW_RUST_TARGET_DIR}"
         WORKING_DIRECTORY "${TW_RUST_ROOT}"
         DEPENDS ${TW_RUST_SOURCES} "${TW_RUST_ROOT}/Cargo.toml" "${TW_RUST_ROOT}/Cargo.lock"
         COMMENT "cargo build twidget_engine_ffi (the first build takes a minute or two)"
