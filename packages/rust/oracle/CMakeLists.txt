@@ -18,3 +18,6 @@ endif()
 
 add_executable(json_oracle json_oracle.cpp)
 target_include_directories(json_oracle PRIVATE "${WS_SANDBOX}/include")
+
+add_executable(stream_oracle stream_oracle.cpp)
+target_include_directories(stream_oracle PRIVATE "${WS_SANDBOX}/include" "${WS_SANDBOX}/src")
