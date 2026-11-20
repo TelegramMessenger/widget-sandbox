@@ -183,7 +183,7 @@ public:
 
     explicit ScriptedHost(Answer answer = nullptr, std::function<std::string()> lockdown = nullptr, HostedRendererFactory renderers = nullptr)
         : answer_(std::move(answer)), serving_([this, lockdown, renderers = std::move(renderers)] {
-              return renderers ? SandboxRemoteEngineEnd::serveHosting(*engine_, kBuild, lockdown, renderers) : SandboxRemoteEngineEnd::serve(*engine_, kBuild, lockdown);
+              return renderers ? SandboxRemoteEngineEnd::serveHosting(*engine_, kBuild, lockdown, renderers) : serveEngineEnd(*engine_, kBuild, lockdown);
           }),
           reading_([this] { return read(); }) {}
     /// The pair shut down, the engine's end and the reader joined.
@@ -656,7 +656,7 @@ struct StreamPeers {
                          HostedRendererFactory renderers = nullptr)
         : end(renderers ? SandboxRemoteHostEnd::startHosting(pair.host, resources, kBuild, events.events(), {}) : SandboxRemoteHostEnd::start(pair.host, resources, kBuild, events.events(), {})),
           serving([this, engineBuild, lockdown, renderers] {
-              return renderers ? SandboxRemoteEngineEnd::serveHosting(*counted, engineBuild, lockdown, renderers) : SandboxRemoteEngineEnd::serve(*counted, engineBuild, lockdown);
+              return renderers ? SandboxRemoteEngineEnd::serveHosting(*counted, engineBuild, lockdown, renderers) : serveEngineEnd(*counted, engineBuild, lockdown);
           }) {}
     ~StreamPeers() {
         end->stop();

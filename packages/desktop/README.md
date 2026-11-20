@@ -47,6 +47,7 @@ packages/desktop/
   harness/                   twidget-run + RecordingHost (fake host with canned layout answers) + png.h
                              + stream_peers.h (test byte streams and the TW_ENGINE_STREAM switch, not the library's;
                                memory_stream.h its in-memory pair alone)
+                             + engine_end.h/.cpp (TW_ENGINE_END=rust: the engine process's end in ../rust; -DTW_RUST_ENGINE_END=ON only)
                              + hosted_peers.h (the TW_ENGINE_HOSTED switch and the canned renderer, not the library's)
                              + host_only.cpp (twidget-host-only, built from the host's side alone)
   tests/                     twidget-tests (XCTest suite ported) + fixtures/
@@ -85,6 +86,7 @@ TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 249 with every eng
 TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-run --attacks   # 133 attacks, 0 leaks, "133 through a client-mode engine"; NDEBUG (the default RelWithDebInfo) compiles the switch out
 TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 249 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
 TW_ENGINE_STREAM=1 ./build-debug/twidget-run --attacks     # 133 attacks, 0 leaks, "133 of them over the stream"; a stream that ends before the run's own stop fails the run
+TW_ENGINE_STREAM=1 TW_ENGINE_END=rust ./build-rust/twidget-tests   # the same with every engine stream (the switch's and the stream tests' own) served by the engine end in Rust (../rust, crates/engine_ffi), in a build configured with -DTW_RUST_ENGINE_END=ON (cargo builds it, and Nova comes from it); 2026-11-20 (Windows x64 RelWithDebInfo): 230 tests, 0 failures, 128 of 128 fixture engines over the stream; --attacks and --corpus give the C++ end's rows
 TW_ENGINE_HOSTED=loopback ./build/twidget-tests    # the same 249 with every fixture WidgetHost hosted (below): its engine, validator and glue behind a SandboxHostedLoopbackChannel, its renderer here; any build type; fails unless every fixture widget went hosted
 TW_ENGINE_HOSTED=stream ./build/twidget-tests      # the same over a hosting stream per widget; also fails when a kind that stays in the engine process crossed one
 TW_ENGINE_HOSTED=stream ./build/twidget-run --attacks      # 133 attacks, 0 leaks in the validated ops the run asked for, "133 hosted over the stream"; =loopback too, and --corpus ../../corpus/compat with either

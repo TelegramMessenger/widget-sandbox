@@ -2,6 +2,7 @@
 #pragma once
 
 #include "memory_stream.h"
+#include "engine_end.h"
 #include "twidget/remote_stream.h"
 
 #include <algorithm>
@@ -116,7 +117,7 @@ private:
                 auto session = std::make_unique<Session>();
                 session->resources = resources;
                 session->end = SandboxRemoteHostEnd::start(pair.host, *resources, build, {nullptr, [ends = ends, stream](const std::string& why) { ends->ended(stream, why); }}, {});
-                session->serving = std::thread([engine = pair.engine, build = build, ends = ends, stream] { ends->served(stream, SandboxRemoteEngineEnd::serve(*engine, build)); });
+                session->serving = std::thread([engine = pair.engine, build = build, ends = ends, stream] { ends->served(stream, serveEngineEnd(*engine, build)); });
                 found = sessions.insert(sessions.end(), std::move(session));
             }
             given++;
