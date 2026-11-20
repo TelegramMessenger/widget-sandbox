@@ -25,6 +25,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nova_embed_ffi"
+version = "1.0.0"
+dependencies = [
+ "nova_embed",
+]
+
+[[package]]
 name = "nova_vm"
 version = "1.0.0"
 dependencies = [
@@ -369,6 +376,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "twidget_engine"
+version = "0.1.0"
+dependencies = [
+ "twidget_bundle_stamp",
+ "twidget_cpu_budget",
+ "twidget_js",
+ "twidget_json",
+ "twidget_sdk_policy",
+ "twidget_testkit",
+]
+
+[[package]]
+name = "twidget_engine_ffi"
+version = "0.1.0"
+dependencies = [
+ "nova_embed_ffi",
+ "twidget_js",
+ "twidget_server",
+ "twidget_stream",
+]
+
+[[package]]
 name = "twidget_gesture"
 version = "0.1.0"
 dependencies = [
@@ -397,6 +426,19 @@ version = "0.1.0"
 dependencies = [
  "twidget_bundle_stamp",
  "twidget_json",
+ "twidget_testkit",
+]
+
+[[package]]
+name = "twidget_server"
+version = "0.1.0"
+dependencies = [
+ "twidget_bundle_stamp",
+ "twidget_engine",
+ "twidget_js",
+ "twidget_json",
+ "twidget_sdk_policy",
+ "twidget_stream",
  "twidget_testkit",
 ]
 

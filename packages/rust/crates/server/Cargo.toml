@@ -1,0 +1,21 @@
+[package]
+name = "twidget_server"
+description = "The engine process's end: the remote engine's wire forms, the server of one client-mode engine, the stream's serving loop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+twidget_bundle_stamp = { path = "../bundle_stamp" }
+twidget_engine = { path = "../engine" }
+twidget_js = { path = "../js" }
+twidget_json = { path = "../json" }
+twidget_sdk_policy = { path = "../sdk_policy" }
+twidget_stream = { path = "../stream" }
+
+[dev-dependencies]
+twidget_testkit = { path = "../testkit" }

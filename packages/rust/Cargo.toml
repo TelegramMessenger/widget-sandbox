@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/bundle_stamp", "crates/cpu_budget", "crates/gesture", "crates/js", "crates/json", "crates/sdk_policy", "crates/stream", "crates/testkit"]
+members = ["crates/bundle_stamp", "crates/cpu_budget", "crates/engine", "crates/engine_ffi", "crates/gesture", "crates/js", "crates/json", "crates/sdk_policy", "crates/server", "crates/stream", "crates/testkit"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,6 +19,8 @@ float_cmp = "allow"
 too_many_arguments = "allow"
 needless_range_loop = "allow"
 field_reassign_with_default = "allow"
+# `!(v > 0.0)` is the C++'s test that a NaN fails too.
+neg_cmp_op_on_partial_ord = "allow"
 
 [profile.release]
 codegen-units = 1

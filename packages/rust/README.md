@@ -13,6 +13,9 @@ from `packages/desktop/sandbox` and compared with it at every stage; the plan an
 | `crates/cpu_budget` | `twidget_cpu_budget`: the CPU quota, its deferrals and kill, the layout-query guard (`cpu_budget.h`) |
 | `crates/sdk_policy` | `twidget_sdk_policy`: the SDK v1 checks, the request and haptic gates (`sdk_policy.h`) |
 | `crates/gesture` | `twidget_gesture`: the touch-action claim and the gesture arbiter (`gesture_policy.h`) |
+| `crates/engine` | `twidget_engine`: the sandbox engine in process, the widget's Nova runtime on its own thread with its one capability and limits (`sandbox_engine.h`) |
+| `crates/server` | `twidget_server`: the engine process's end: the wire forms (`remote_coding.cpp`), the server of one client-mode engine (`remote_engine.cpp`) and the stream's serving loop (`remote_stream_engine.cpp`) |
+| `crates/engine_ffi` | `twidget_engine_ffi`, the one crate with `unsafe`: the C ABI the C++ OS glue serves a stream through (`include/twidget_engine.h`), with Nova's C interface in the same library |
 | `crates/bundle_stamp` | `twidget_bundle_stamp`: the bundles' VERSION.json stamp, the versions, the bundles as read (`bundle_stamp.h`) |
 | `crates/stream` | `twidget_stream`: the remote engine's byte stream: kinds, shapes, the bounded codec, the exact frame reader (`src/remote_wire.h`) |
 | `crates/testkit` | `twidget_testkit`, tests only: the C++ suites' seeded generator and mutator, the oracles' client |
@@ -23,5 +26,10 @@ from `packages/desktop/sandbox` and compared with it at every stage; the plan an
 ```sh
 python -I tools/gate.py            # add --release to run the tests optimized too
 ```
+
+The desktop core's own suite runs against the engine end in Rust: configure `packages/desktop` with
+`-DTW_RUST_ENGINE_END=ON` (cargo builds `twidget_engine_ffi`, which also gives the C++ its Nova) and run
+`TW_ENGINE_STREAM=1 TW_ENGINE_END=rust ./twidget-tests` and `twidget-run --attacks`: every fixture engine and every
+attack then runs over a byte stream served by this workspace's `serve`.
 
 Fixtures come from `packages/core/tests/fixtures`, as every other port reads them.

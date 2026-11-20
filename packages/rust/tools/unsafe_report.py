@@ -17,8 +17,8 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# The only crates that may hold `unsafe`: the C ABI between the C++ OS glue and the helper (rust/PLAN.md).
-ALLOWED = {"twidget_helper_ffi"}
+# The only crate that may hold `unsafe`: the C ABI between the C++ OS glue and the engine process (twidget rust/PLAN.md).
+ALLOWED = {"twidget_engine_ffi"}
 
 FORBID = re.compile(r"#!\[\s*forbid\s*\(\s*unsafe_code\s*\)\s*\]")
 WORD = re.compile(r"\bunsafe\b")

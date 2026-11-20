@@ -8,4 +8,4 @@ mod context;
 mod thread;
 
 pub use context::{Deadlines, HostFailure, HostFunction, HostReturn, JsError, JsResult, NovaContext, Platform, now, repaired_utf8};
-pub use thread::{JS_STACK_LIMIT, JsThread, STACK_SIZE, Scheduled};
+pub use thread::{JS_STACK_LIMIT, JsThread, Poster, STACK_SIZE, Scheduled};
