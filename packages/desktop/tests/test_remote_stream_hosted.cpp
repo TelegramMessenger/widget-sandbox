@@ -3474,7 +3474,7 @@ CHILD_CASE(remote_stream_hosted_engine_process) {
     const auto stream = std::make_shared<CountingStream>(std::make_shared<SocketStream>(kChildStreamFd));
     std::atomic<int> lockdowns{0}, built{0}, early{0};
     std::atomic<size_t> readyBefore{0};
-    const std::string served = SandboxRemoteEngineEnd::serveHosting(
+    const std::string served = serveHostingEngineEnd(
         *stream, kBuild,
         [&] {
             lockdowns++;
@@ -3613,7 +3613,7 @@ TEST(remote_stream_hosted_thread_process) {
     CHECK(pair.host && pair.engine);
     if (!pair.host || !pair.engine) return;
     BuiltRenderers built;
-    Background<std::string> serving([&] { return SandboxRemoteEngineEnd::serveHosting(*pair.engine, kBuild, {}, built.factory(tall)); });
+    Background<std::string> serving([&] { return serveHostingEngineEnd(*pair.engine, kBuild, {}, built.factory(tall)); });
     const ChildRun child = runChildOn("remote_stream_hosted_host_process", *pair.host, 60);
     CHECK_MSG(serving.within(5).has_value(), "serveHosting still runs 5 s after the child ended");
     const std::string lines = childLines(child.output);
@@ -3672,7 +3672,7 @@ static std::string threadsThrough(const std::function<void(std::string)>& send, 
 CHILD_CASE(remote_stream_hosted_kept_engine_process) {
     const auto stream = std::make_shared<SocketStream>(kChildStreamFd);
     std::atomic<int> built{0};
-    const std::string served = SandboxRemoteEngineEnd::serveHosting(*stream, kBuild, nullptr,
+    const std::string served = serveHostingEngineEnd(*stream, kBuild, nullptr,
                                                                     [&](std::shared_ptr<SandboxResources>, const std::string&, double, std::shared_ptr<SandboxHostedPlatform> platform) -> std::unique_ptr<Renderer> {
                                                                         built++;
                                                                         auto renderer = std::make_unique<HostedTestRenderer>(std::move(platform));

@@ -508,7 +508,7 @@ private:
             stream->end = SandboxRemoteHostEnd::startHosting(pair.host, *resources, build, {nullptr, [ends = ends, number](const std::string& why) { ends->ended(number, why); }}, {});
             auto counted = std::make_shared<FrameCountingStream>(pair.engine, stream->tally);
             stream->serving = std::thread([counted, build = build, proxies = std::move(proxies), ends = ends, stopping = stream->stopping, number] {
-                const std::string why = SandboxRemoteEngineEnd::serveHosting(*counted, build, {}, proxies);
+                const std::string why = serveHostingEngineEnd(*counted, build, {}, proxies);
                 if (!*stopping) ends->served(number, why);
             });
             return std::make_shared<Channel>(stream->end->hostedChannel(), std::move(session), std::move(stream));
