@@ -8,6 +8,7 @@ from `packages/desktop/sandbox` and compared with it at every stage; the plan an
 
 | Path | What |
 |---|---|
+| `crates/js` | `twidget_js`: the engine thread (`js_thread.h`) and the Nova context on it (`nova_context.h`), over nova-safe's `nova_embed` |
 | `crates/json` | `twidget_json`: `twidget::Json` (`packages/desktop/sandbox/include/twidget/json.h`) |
 | `crates/stream` | `twidget_stream`: the remote engine's byte stream: kinds, shapes, the bounded codec, the exact frame reader (`src/remote_wire.h`) |
 | `crates/testkit` | `twidget_testkit`, tests only: the C++ suites' seeded generator and mutator, the oracles' client |
@@ -18,5 +19,8 @@ from `packages/desktop/sandbox` and compared with it at every stage; the plan an
 ```sh
 python -I tools/gate.py            # add --release to run the tests optimized too
 ```
+
+nova-safe is checked out next to widget-sandbox (`../nova-safe`, as tdesktop has it): the workspace repeats its
+`[patch.crates-io]` and starts from its `Cargo.lock`, so the engine links what nova-safe checked.
 
 Fixtures come from `packages/core/tests/fixtures`, as every other port reads them.
