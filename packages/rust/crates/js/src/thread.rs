@@ -76,6 +76,11 @@ impl<S: 'static> JsThread<S> {
     /// Starts the thread named `name`, makes its state there with `init` and waits until it runs. The
     /// thread's OS refusal comes back as `JSThread <name>: <why>`, and nothing is left behind then.
     pub fn new(name: &str, init: impl FnOnce() -> S + Send + 'static) -> Result<JsThread<S>, String> {
+        JsThread::with_poster(name, move |_| init())
+    }
+
+    /// `new`, the state made with a [`Poster`] of its own thread, through which its tasks queue more work.
+    pub fn with_poster(name: &str, init: impl FnOnce(Poster<S>) -> S + Send + 'static) -> Result<JsThread<S>, String> {
         let shared = Arc::new(Shared {
             queue: Mutex::new(Queue {
                 tasks: VecDeque::new(),
@@ -94,7 +99,8 @@ impl<S: 'static> JsThread<S> {
             .stack_size(STACK_SIZE)
             .spawn(move || {
                 let _ = started_tx.send(());
-                let state = init();
+                let poster = Poster { shared: Arc::clone(&loop_shared), id: std::thread::current().id() };
+                let state = init(poster);
                 run(&loop_shared, &state);
             })
             .map_err(|e| format!("JSThread {name}: {e}"))?;
@@ -103,20 +109,17 @@ impl<S: 'static> JsThread<S> {
         Ok(JsThread { shared, handle: Mutex::new(Some(handle)), id })
     }
 
+    /// A handle that queues work on this thread from anywhere.
+    pub fn poster(&self) -> Poster<S> {
+        Poster { shared: Arc::clone(&self.shared), id: self.id }
+    }
+
     pub fn is_current(&self) -> bool {
         std::thread::current().id() == self.id
     }
 
     fn post(&self, task: Task<S>) -> bool {
-        {
-            let mut q = lock(&self.shared.queue);
-            if q.stopping {
-                return false;
-            }
-            q.tasks.push_back(task);
-        }
-        self.shared.wake.notify_one();
-        true
+        self.shared.post(task)
     }
 
     /// Runs `task` on the thread after everything queued before it; dropped once stopped.
@@ -139,27 +142,7 @@ impl<S: 'static> JsThread<S> {
 
     /// Runs `task` on the thread after `seconds` unless cancelled.
     pub fn after(&self, seconds: f64, task: impl FnOnce(&S) + Send + 'static) -> Arc<Scheduled> {
-        let handle = Arc::new(Scheduled::default());
-        let delay = if seconds < 0.0 || seconds.is_nan() { 0.0 } else { seconds };
-        let at = Instant::now() + Duration::try_from_secs_f64(delay).unwrap_or(Duration::MAX / 2);
-        {
-            let mut q = lock(&self.shared.queue);
-            if q.stopping {
-                handle.cancel();
-                return handle;
-            }
-            // A cancelled timer waits here until its time: once the queue has doubled since the last sweep they
-            // are swept out, so a widget setting and clearing timers in a loop cannot grow it.
-            if q.timers.len() >= q.sweep_at {
-                q.timers.retain(|_, t| !t.handle.cancelled());
-                q.sweep_at = 64.max(q.timers.len() * 2);
-            }
-            let order = q.order;
-            q.order += 1;
-            q.timers.insert((at, order), Timer { handle: Arc::clone(&handle), task: Box::new(task) });
-        }
-        self.shared.wake.notify_one();
-        handle
+        self.shared.after(seconds, Box::new(task))
     }
 
     /// Timers in the queue, cancelled ones not yet swept included.
@@ -183,6 +166,79 @@ impl<S: 'static> JsThread<S> {
         if let Some(handle) = handle {
             let _ = handle.join();
         }
+    }
+}
+
+impl<S> Shared<S> {
+    fn post(&self, task: Task<S>) -> bool {
+        {
+            let mut q = lock(&self.queue);
+            if q.stopping {
+                return false;
+            }
+            q.tasks.push_back(task);
+        }
+        self.wake.notify_one();
+        true
+    }
+
+    fn after(&self, seconds: f64, task: Task<S>) -> Arc<Scheduled> {
+        let handle = Arc::new(Scheduled::default());
+        let delay = if seconds < 0.0 || seconds.is_nan() { 0.0 } else { seconds };
+        let at = Instant::now() + Duration::try_from_secs_f64(delay).unwrap_or(Duration::MAX / 2);
+        {
+            let mut q = lock(&self.queue);
+            if q.stopping {
+                handle.cancel();
+                return handle;
+            }
+            // A cancelled timer waits here until its time: once the queue has doubled since the last sweep they
+            // are swept out, so a widget setting and clearing timers in a loop cannot grow it.
+            if q.timers.len() >= q.sweep_at {
+                q.timers.retain(|_, t| !t.handle.cancelled());
+                q.sweep_at = 64.max(q.timers.len() * 2);
+            }
+            let order = q.order;
+            q.order += 1;
+            q.timers.insert((at, order), Timer { handle: Arc::clone(&handle), task });
+        }
+        self.wake.notify_one();
+        handle
+    }
+}
+
+/// What queues work on a [`JsThread`] without owning it: its state's own handle to its thread (timers set by
+/// the code running there), or a completion's from any thread. Work queued once the thread stopped is dropped.
+pub struct Poster<S: 'static> {
+    shared: Arc<Shared<S>>,
+    id: ThreadId,
+}
+
+impl<S> Clone for Poster<S> {
+    fn clone(&self) -> Self {
+        Poster { shared: Arc::clone(&self.shared), id: self.id }
+    }
+}
+
+impl<S> std::fmt::Debug for Poster<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Poster").field("id", &self.id).finish()
+    }
+}
+
+impl<S: 'static> Poster<S> {
+    /// Runs `task` on the thread after everything queued before it: false (and dropped) once stopped.
+    pub fn post_task(&self, task: impl FnOnce(&S) + Send + 'static) -> bool {
+        self.shared.post(Box::new(task))
+    }
+
+    /// Runs `task` on the thread after `seconds` unless cancelled.
+    pub fn after(&self, seconds: f64, task: impl FnOnce(&S) + Send + 'static) -> Arc<Scheduled> {
+        self.shared.after(seconds, Box::new(task))
+    }
+
+    pub fn is_current(&self) -> bool {
+        std::thread::current().id() == self.id
     }
 }
 
@@ -226,6 +282,10 @@ fn run<S>(shared: &Shared<S>, state: &S) {
                 }
             }
         };
-        task(state);
+        // As an exception that leaves a C++ JSThread task terminates the process: nothing of a broken engine
+        // lingers, and whoever waits on it (a probe, the host's stream) sees the process end.
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| task(state))).is_err() {
+            std::process::abort();
+        }
     }
 }

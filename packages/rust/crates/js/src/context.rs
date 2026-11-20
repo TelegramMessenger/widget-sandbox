@@ -18,6 +18,12 @@ pub trait Platform: Send + Sync {
     fn time_zone_offset(&self, epoch_seconds: i64) -> i32;
     /// `bytes` filled from the system's CSPRNG.
     fn random(&self, bytes: &mut [u8]);
+    /// The steady clock's seconds, `std::chrono::steady_clock` in the C++: the clock the engine's deadlines,
+    /// its tasks' times and the widget's `now` are on, the same in the host's process (the embedder's); by
+    /// default this process's [`now`].
+    fn steady_seconds(&self) -> f64 {
+        now()
+    }
 }
 
 /// Monotonic seconds since the process's first call, the clock deadlines are measured on.
@@ -83,7 +89,7 @@ enum Failure {
 /// The context's state its interrupt and host functions reach while the engine runs, and what the
 /// embedder sets around a call: the deadlines.
 pub struct Deadlines {
-    /// Interrupt deadline in `now()` seconds; +inf disables it.
+    /// Interrupt deadline in the platform's steady seconds; +inf disables it.
     pub deadline: Cell<f64>,
     /// Set by the interrupt when a deadline fired; reset by the caller.
     pub interrupted: Cell<bool>,
@@ -194,7 +200,8 @@ impl Host for NovaHost {
             return true;
         }
         let cpu = shared.cpu_deadline.get();
-        if now() > shared.deadline.get() || (cpu != f64::INFINITY && shared.platform.thread_cpu_seconds() > cpu) {
+        if shared.platform.steady_seconds() > shared.deadline.get() || (cpu != f64::INFINITY && shared.platform.thread_cpu_seconds() > cpu)
+        {
             shared.interrupted.set(true);
             return true;
         }
