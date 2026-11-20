@@ -1,0 +1,13 @@
+[package]
+name = "twidget_stream"
+description = "The desktop core's remote engine over a byte stream: kinds, shapes, the bounded codec and the exact frame reader"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+twidget_testkit = { path = "../testkit" }

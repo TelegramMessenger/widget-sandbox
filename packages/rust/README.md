@@ -9,6 +9,7 @@ from `packages/desktop/sandbox` and compared with it at every stage; the plan an
 | Path | What |
 |---|---|
 | `crates/json` | `twidget_json`: `twidget::Json` (`packages/desktop/sandbox/include/twidget/json.h`) |
+| `crates/stream` | `twidget_stream`: the remote engine's byte stream: kinds, shapes, the bounded codec, the exact frame reader (`src/remote_wire.h`) |
 | `crates/testkit` | `twidget_testkit`, tests only: the C++ suites' seeded generator and mutator, the oracles' client |
 | `oracle/` | the C++ the port is compared with: small programs built from `packages/desktop/sandbox`, cases on stdin |
 | `tools/gate.py` | the gate: oracle build, `cargo test` with the comparison required, clippy, rustfmt, `unsafe` report |
