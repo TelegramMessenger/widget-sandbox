@@ -21,3 +21,11 @@ target_include_directories(json_oracle PRIVATE "${WS_SANDBOX}/include")
 
 add_executable(stream_oracle stream_oracle.cpp)
 target_include_directories(stream_oracle PRIVATE "${WS_SANDBOX}/include" "${WS_SANDBOX}/src")
+
+# Stage S1: the desktop core's pure policies, each program built from its C++ source.
+set(WS_SANDBOX_SRC "${WS_SANDBOX}/src")
+foreach(policy cpu_budget sdk_policy gesture_policy bundle_stamp)
+    add_executable(${policy}_oracle ${policy}_oracle.cpp "${WS_SANDBOX_SRC}/${policy}.cpp")
+    target_include_directories(${policy}_oracle PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${WS_SANDBOX}/include" "${WS_SANDBOX_SRC}")
+endforeach()
+target_sources(bundle_stamp_oracle PRIVATE "${WS_SANDBOX_SRC}/resources.cpp")

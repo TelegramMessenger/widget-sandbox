@@ -1,0 +1,14 @@
+[package]
+name = "twidget_cpu_budget"
+description = "The CPU quota every widget host enforces: a sliding window of JS time, deferrals, the kill and the layout-query guard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+twidget_json = { path = "../json" }
+twidget_testkit = { path = "../testkit" }

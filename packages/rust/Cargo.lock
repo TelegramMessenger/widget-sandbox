@@ -353,6 +353,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
+name = "twidget_bundle_stamp"
+version = "0.1.0"
+dependencies = [
+ "twidget_json",
+ "twidget_testkit",
+]
+
+[[package]]
+name = "twidget_cpu_budget"
+version = "0.1.0"
+dependencies = [
+ "twidget_json",
+ "twidget_testkit",
+]
+
+[[package]]
+name = "twidget_gesture"
+version = "0.1.0"
+dependencies = [
+ "twidget_json",
+ "twidget_testkit",
+]
+
+[[package]]
 name = "twidget_js"
 version = "0.1.0"
 dependencies = [
@@ -364,6 +388,15 @@ dependencies = [
 name = "twidget_json"
 version = "0.1.0"
 dependencies = [
+ "twidget_testkit",
+]
+
+[[package]]
+name = "twidget_sdk_policy"
+version = "0.1.0"
+dependencies = [
+ "twidget_bundle_stamp",
+ "twidget_json",
  "twidget_testkit",
 ]
 
