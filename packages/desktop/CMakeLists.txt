@@ -1,6 +1,6 @@
 # twidget desktop core: the Nova sandbox engine, trusted validator, CPU budget and WidgetHost as a Qt-free C++20 library (for tdesktop or any Qt/C++ host), plus a console harness and tests.
 # The engine is Nova (github.com/TelegramMessenger/nova-safe) behind the C interface of its nova_embed_ffi crate: -DTW_NOVA_ROOT=<a nova-safe checkout> builds it with cargo, or -DTW_NOVA_LIBRARY=<its static library> with -DTW_NOVA_INCLUDE=<the directory of nova_engine.h> links a built one.
-# -DTW_RUST_ENGINE_END=ON links the engine process's end in Rust (../rust, crates/engine_ffi, built by cargo; Nova's C interface comes from the same library, so it takes TW_NOVA_ROOT's place) for the tests' and the harness's TW_ENGINE_END=rust.
+# -DTW_RUST_ENGINE_END=ON links the engine process's end in Rust (../rust, crates/engine_ffi, built by cargo; Nova's C interface comes from the same library, built from the nova-safe beside widget-sandbox that ../rust depends on, so it takes TW_NOVA_ROOT's place: TW_NOVA_ROOT may name that checkout or nothing, TW_NOVA_LIBRARY nothing) for the tests' and the harness's TW_ENGINE_END=rust.
 # -DTW_BLITZ=ON adds the Blitz renderer prototype (the Rust crate in ../../apps/renderer-blitz built by cargo; dev tooling, see docs/blitz-experiment.md).
 # Two libraries: twidget-sandbox-host, the host's side as objects (a hosted WidgetHost with its client and kept renderers, the stream's host end, the coding, the SDK and gesture policies, Intl, resources and threads; no engine, validator, in-process engine, local glue or engine end), and twidget-sandbox, the whole core: the engine and local side plus those objects, which every other program links.
 # twidget-host-only links those objects alone, so its link proves the division.
@@ -29,7 +29,25 @@ add_library(twnova STATIC IMPORTED)
 if(TW_RUST_ENGINE_END)
     # One Rust library: two would each bring their own std into the link.
     set(TW_RUST_ROOT "${TW_ROOT}/rust")
-    set(TW_RUST_NOVA "${TW_ROOT}/../../nova-safe")
+    # ../rust's path dependency on nova-safe: the one Nova of the build, its C interface in the same library, so no other may be named.
+    get_filename_component(TW_RUST_NOVA "${TW_ROOT}/../../nova-safe" ABSOLUTE)
+    if(NOT EXISTS "${TW_RUST_NOVA}/nova_embed_ffi/include/nova_engine.h")
+        message(FATAL_ERROR "TW_RUST_ENGINE_END builds Nova from the nova-safe checkout ../rust depends on, ${TW_RUST_NOVA}, and there is none")
+    endif()
+    if(TW_NOVA_LIBRARY)
+        message(FATAL_ERROR "TW_RUST_ENGINE_END links Nova's C interface from twidget_engine_ffi; TW_NOVA_LIBRARY would link a second Nova beside it: leave it empty")
+    endif()
+    if(TW_NOVA_ROOT)
+        get_filename_component(TW_NOVA_ROOT_REAL "${TW_NOVA_ROOT}" REALPATH)
+        get_filename_component(TW_RUST_NOVA_REAL "${TW_RUST_NOVA}" REALPATH)
+        if(WIN32)
+            string(TOLOWER "${TW_NOVA_ROOT_REAL}" TW_NOVA_ROOT_REAL)
+            string(TOLOWER "${TW_RUST_NOVA_REAL}" TW_RUST_NOVA_REAL)
+        endif()
+        if(NOT TW_NOVA_ROOT_REAL STREQUAL TW_RUST_NOVA_REAL)
+            message(FATAL_ERROR "TW_RUST_ENGINE_END builds Nova from ${TW_RUST_NOVA}, the nova-safe ../rust depends on; TW_NOVA_ROOT names another one, ${TW_NOVA_ROOT}: name that one or leave it empty")
+        endif()
+    endif()
     find_program(TW_CARGO cargo HINTS /opt/homebrew/opt/rustup/bin "$ENV{HOME}/.cargo/bin")
     if(NOT TW_CARGO)
         message(FATAL_ERROR "TW_RUST_ENGINE_END needs cargo (rustup); none found in PATH, /opt/homebrew/opt/rustup/bin or ~/.cargo/bin")

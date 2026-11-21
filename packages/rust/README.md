@@ -29,7 +29,8 @@ python -I tools/gate.py            # add --release to run the tests optimized to
 ```
 
 The desktop core's own suite runs against the engine end in Rust: configure `packages/desktop` with
-`-DTW_RUST_ENGINE_END=ON` (cargo builds `twidget_engine_ffi`, which also gives the C++ its Nova) and run
+`-DTW_RUST_ENGINE_END=ON` (cargo builds `twidget_engine_ffi`, which also gives the C++ its Nova: the build's one
+Nova, from the nova-safe this workspace depends on, which `TW_NOVA_ROOT` may name and no other) and run
 `TW_ENGINE_STREAM=1 TW_ENGINE_END=rust ./twidget-tests` and `twidget-run --attacks`: every fixture engine and every
 attack then runs over a byte stream served by this workspace's `serve`. `TW_ENGINE_HOSTED=stream TW_ENGINE_END=rust`
 does the same for the hosted mode: every fixture widget's engine, validator and glue run in this workspace's
