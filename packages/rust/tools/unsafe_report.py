@@ -4,8 +4,8 @@
 
 Counts the `unsafe` keyword outside comments and literals in each package's .rs files (the workspace's
 own in all its targets, a dependency's without tests/, benches/ and examples/), checks that every
-workspace crate root carries #![forbid(unsafe_code)], and fails when any package but the C ABI crates in
-ALLOWED has `unsafe` or a root lacks the attribute. Run with `python -I tools/unsafe_report.py` from
+workspace crate root carries #![forbid(unsafe_code)], and fails when any package but those in ALLOWED (the
+C ABI crate and nova-safe's audited allocator) has `unsafe` or a root lacks the attribute. Run with `python -I tools/unsafe_report.py` from
 anywhere; --files lists the places.
 """
 
@@ -17,8 +17,10 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# The only crate that may hold `unsafe`: the C ABI between the C++ OS glue and the engine process (twidget rust/PLAN.md).
-ALLOWED = {"twidget_engine_ffi"}
+# The only crates that may hold `unsafe`: the C ABI between the C++ OS glue and the engine process (twidget
+# rust/PLAN.md), and nova-safe's metering allocator, which twidget_js counts each engine's memory on (audited in
+# nova-safe, its one file of `unsafe`).
+ALLOWED = {"twidget_engine_ffi", "nova_meter"}
 
 FORBID = re.compile(r"#!\[\s*forbid\s*\(\s*unsafe_code\s*\)\s*\]")
 WORD = re.compile(r"\bunsafe\b")

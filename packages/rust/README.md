@@ -8,7 +8,7 @@ from `packages/desktop/sandbox` and compared with it at every stage; the plan an
 
 | Path | What |
 |---|---|
-| `crates/js` | `twidget_js`: the engine thread (`js_thread.h`) and the Nova context on it (`nova_context.h`), over nova-safe's `nova_embed` |
+| `crates/js` | `twidget_js`: the engine thread (`js_thread.h`) and the Nova context on it (`nova_context.h`), over nova-safe's `nova_embed`, its memory counted on an account of nova-safe's metering allocator (`nova_meter`) as nova_embed_ffi counts the C++ end's |
 | `crates/json` | `twidget_json`: `twidget::Json` (`packages/desktop/sandbox/include/twidget/json.h`) |
 | `crates/cpu_budget` | `twidget_cpu_budget`: the CPU quota, its deferrals and kill, the layout-query guard (`cpu_budget.h`) |
 | `crates/sdk_policy` | `twidget_sdk_policy`: the SDK v1 checks, the request and haptic gates (`sdk_policy.h`) |

@@ -11,4 +11,5 @@ workspace = true
 
 [dependencies]
 nova_embed = { path = "../../../../../nova-safe/nova_embed" }
+nova_meter = { path = "../../../../../nova-safe/nova_meter" }
 twidget_json = { path = "../json" }

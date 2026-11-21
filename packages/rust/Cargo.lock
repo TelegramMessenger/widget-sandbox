@@ -29,7 +29,12 @@ name = "nova_embed_ffi"
 version = "1.0.0"
 dependencies = [
  "nova_embed",
+ "nova_meter",
 ]
+
+[[package]]
+name = "nova_meter"
+version = "1.0.0"
 
 [[package]]
 name = "nova_vm"
@@ -425,6 +430,7 @@ name = "twidget_js"
 version = "0.1.0"
 dependencies = [
  "nova_embed",
+ "nova_meter",
  "twidget_json",
 ]
 
