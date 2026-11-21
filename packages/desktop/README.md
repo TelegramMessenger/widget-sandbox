@@ -1370,12 +1370,42 @@ and times nothing, and every death is as above.
   state, so a channel of your own reads false and keeps its copies and moves;
   a hosting stream opened without the owner's `SandboxHostedAnswers` reads
   false too, whatever stops or claims the widget.
+- The same, with no lock: `SandboxHostedChannel::decidedView()` is a view of
+  the route's own (`std::shared_ptr<const SandboxHostedDecidedView>`, the same
+  one on every call, so obtain it once) whose `decided()` reads what the
+  channel's `decided()` reads. The stream keeps it in the very step, under the
+  connection's lock, that changes what `decided()` reads, before anyone hears
+  of that change: the client's claim of the widget's own death or the host's
+  `localStop` (true), the end that froze the route or attached it to a stream
+  already ending so (true), the owner's withdrawal (false, also of a claim no
+  end decided); a withdrawal after the end, the settlement of a frozen death
+  and the owner's `stop` change nothing. So the view reads true once the
+  transition is done, though the client's delegate has not heard of it yet.
+  The end freezes its routes one after another and then turns all their views
+  at once, with one flag of the stream's that each of them reads: a reader
+  never sees one route of that end decided and, later, another one it froze
+  still undecided, so two owners that each sample their own route (two
+  messages' paints) see the end in one order. The view owns no channel, route,
+  connection, sink or thread, so an owner reads it from any thread as often as
+  it likes (a paint, say) without a lock of the stream's, without promoting or
+  releasing the channel, and after the channel went. A virtual with a default
+  of none, the base still with no state, for a channel that decides nothing
+  (`decided()` always false); a hosting stream opened without the owner's
+  `SandboxHostedAnswers` gives one that stays false.
 - How the owner leaves it: `SandboxHostedChannel::withdraw(settled)`, once, from
   any thread (a host that retires the widget, before it resets anything it
   counts), is one step with the end under the connection's lock. Before the end
   decided the route's death, the withdrawal comes first (`ended` false): the
   route takes no part in any end from now on, nothing of it is kept, timed or
   blamed, and it still carries what it carries (a kept renderer's traffic).
+  That withdrawal also tells whether a death of the widget's own was claimed
+  on the route before it (`Withdrawal::own`: a flood, a platform request left
+  unanswered, its engine's `Died`, the host's `localStop`), read in the same
+  step under the connection's lock, so an owner whose `decided()` read false
+  just before still learns of a claim its client made meanwhile; only the
+  route's first withdrawal tells it, nothing settles for it and `settled`
+  hears nothing, and a claim that comes after the withdrawal finds the route
+  withdrawn and is no claim.
   After, the widget's death is the one the end settles, once: the end's
   decision when the client's first death is that end or cleanup takes the
   route from the client first (the owner's stop, a keep, a close), `Ordinary`

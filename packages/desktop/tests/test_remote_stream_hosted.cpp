@@ -12,6 +12,7 @@
 #include "twidget/widget_host.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -1576,7 +1577,7 @@ TEST(remote_stream_hosted_answers_withdraw_in_one_step_with_the_end) {
         a.settle();
         CHECK_MSG(eventually([&] { return engine.saw(1, "platform:ask:1"); }), joined(engine.frames(1)));
         const SandboxHostedChannel::Withdrawal withdrawn = a.channel->withdraw(withdrawals.hearing("a", a));
-        CHECK(!withdrawn.ended && !withdrawn.death);
+        CHECK(!withdrawn.ended && !withdrawn.death && !withdrawn.own);
         sleepMs(3200);
         CHECK_MSG(!engine.events().ended(), "a withdrawn route's time counted: " + joined(engine.events().all()));
         a.client->platform("ask:2");
@@ -1586,7 +1587,7 @@ TEST(remote_stream_hosted_answers_withdraw_in_one_step_with_the_end) {
         CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), closed), joined(engine.events().all()));
         CHECK_MSG(a.death() == "ordinary" && b.death() == "ordinary", a.death() + " " + b.death());
         const SandboxHostedChannel::Withdrawal again = a.channel->withdraw(withdrawals.hearing("a again", a));
-        CHECK(!again.ended && !again.death);
+        CHECK(!again.ended && !again.death && !again.own);
         CHECK_MSG(withdrawals.told().empty(), joined(withdrawals.told()));
     }
     {
@@ -1600,11 +1601,11 @@ TEST(remote_stream_hosted_answers_withdraw_in_one_step_with_the_end) {
         CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }), joined(engine.events().all()));
         CHECK_MSG(a.death() == "ordinary" && b.death() == "spared", a.death() + " " + b.death());
         const SandboxHostedChannel::Withdrawal wa = a.channel->withdraw(withdrawals.hearing("a", a)), wb = b.channel->withdraw(withdrawals.hearing("b", b));
-        CHECK(wa.ended && wa.death == std::optional<Death>(Death::Ordinary) && wb.ended && wb.death == std::optional<Death>(Death::Spared));
+        CHECK(wa.ended && wa.death == std::optional<Death>(Death::Ordinary) && !wa.own && wb.ended && wb.death == std::optional<Death>(Death::Spared) && !wb.own);
         AnsweringClient attached(engine, 0);
         CHECK_MSG(attached.death() == "spared", attached.death());
         const SandboxHostedChannel::Withdrawal late = attached.channel->withdraw(withdrawals.hearing("attached", attached));
-        CHECK(late.ended && late.death == std::optional<Death>(Death::Spared));
+        CHECK(late.ended && late.death == std::optional<Death>(Death::Spared) && !late.own);
         CHECK_MSG(withdrawals.told().empty(), joined(withdrawals.told()));
     }
     {
@@ -1633,7 +1634,7 @@ TEST(remote_stream_hosted_answers_withdraw_in_one_step_with_the_end) {
         const SandboxHostedChannel::Withdrawal wb = b.channel->withdraw(withdrawals.hearing("b", b, [&b] { return std::string(b.delegate.deaths().empty() ? " before its death" : " after its death"); }));
         const SandboxHostedChannel::Withdrawal wc = c.channel->withdraw(withdrawals.hearing("c", c));
         const SandboxHostedChannel::Withdrawal wd = d.channel->withdraw(withdrawals.hearing("d", d));
-        CHECK(wb.ended && !wb.death && wc.ended && !wc.death && wd.ended && !wd.death);
+        CHECK(wb.ended && !wb.death && !wb.own && wc.ended && !wc.death && !wc.own && wd.ended && !wd.death && !wd.own);
         CHECK_MSG(withdrawals.told().empty() && a.death() == "ordinary", joined(withdrawals.told()) + " " + a.death());
         heldB.open();
         heldC.open();
@@ -1651,10 +1652,10 @@ TEST(remote_stream_hosted_answers_withdraw_in_one_step_with_the_end) {
     Withdrawals ownHeard;
     OwnHostedChannel own("its own channel");
     const SandboxHostedChannel::Withdrawal first = own.withdraw(ownHeard.hearing("own"));
-    CHECK_MSG(!first.ended && !first.death && ownHeard.told().empty(), std::string(first.ended ? "ended " : "first ") + (first.death ? deathName(*first.death) : "none") + ": " + joined(ownHeard.told()));
+    CHECK_MSG(!first.ended && !first.death && !first.own && ownHeard.told().empty(), std::string(first.ended ? "ended " : "first ") + (first.death ? deathName(*first.death) : "none") + ": " + joined(ownHeard.told()));
 }
 
-/// A death of the widget's own that its client reported first stays its death through the stream's end and the route's cleanup, `SandboxHostedChannel::withdraw` agreeing with `death()` on it, and that dead widget alone never ends its siblings' stream. X: A floods with a timed message unanswered (the overflow claimed at the reader, the kill behind A's held dispatch thread, the message sent just before that thread goes on), and its delegate holds that death before its client closes the route: 3.4 s after the message nothing ended, A's withdrawal comes first (no end decided it) and its `death()` is `Ordinary`; let go, A's route closes and idle B's message still goes out. Y: idle A floods the same way, then B sends a timed message, whose time runs out while A's delegate still holds A's death: B is stalled, A's withdrawal reads `Ordinary` at once, as its `death()` does, not the spared an idle route would be. Z: the end (a queue past its bound from this thread while the reader is held in a delivery) comes while A's platform request waits for its delegate and A's flood waits behind A's held dispatch thread; the delegate then answers none, so A's `widget.answer` loses the still open route before the reader's fan-out, a loss its client still hears: A's flood comes first on its thread, and A's withdrawal and `death()` read `Ordinary`, not the end's spared, while B keeps its ordinary death. P: A's renderer's platform request, which A's delegate answers with none (no platform), is A's own death claimed before its diagnostic (`platform-timeout`) reaches that delegate: with A's timed input unanswered, A's delegate holding the diagnostic and A's `widget.answer`, its client's answer given, held before it loses the route, A reads decided, and at the engine process's end idle B, the only route that takes part, keeps its ordinary death (not the spared beside a route with a message unanswered) and A's withdrawal reads `Ordinary` at once; let go, A dies of its platform once.
+/// A death of the widget's own that its client reported first stays its death through the stream's end and the route's cleanup, `SandboxHostedChannel::withdraw` agreeing with `death()` on it, and that dead widget alone never ends its siblings' stream. X: A floods with a timed message unanswered (the overflow claimed at the reader, the kill behind A's held dispatch thread, the message sent just before that thread goes on), and its delegate holds that death before its client closes the route: 3.4 s after the message nothing ended, A's withdrawal comes first (no end decided it), telling A's claim (`own`), and its `death()` is `Ordinary`; let go, A's route closes and idle B's message still goes out. Y: idle A floods the same way, then B sends a timed message, whose time runs out while A's delegate still holds A's death: B is stalled, A's withdrawal reads `Ordinary` at once (an end, no `own`), as its `death()` does, not the spared an idle route would be. Z: the end (a queue past its bound from this thread while the reader is held in a delivery) comes while A's platform request waits for its delegate and A's flood waits behind A's held dispatch thread; the delegate then answers none, so A's `widget.answer` loses the still open route before the reader's fan-out, a loss its client still hears: A's flood comes first on its thread, and A's withdrawal and `death()` read `Ordinary`, not the end's spared, while B keeps its ordinary death. P: A's renderer's platform request, which A's delegate answers with none (no platform), is A's own death claimed before its diagnostic (`platform-timeout`) reaches that delegate: with A's timed input unanswered, A's delegate holding the diagnostic and A's `widget.answer`, its client's answer given, held before it loses the route, A reads decided, and at the engine process's end idle B, the only route that takes part, keeps its ordinary death (not the spared beside a route with a message unanswered) and A's withdrawal reads `Ordinary` at once; let go, A dies of its platform once.
 TEST(remote_stream_hosted_answers_claim_an_own_death_in_one_step_with_the_end) {
     using Death = SandboxHostedChannel::Death;
     using Clock = std::chrono::steady_clock;
@@ -1704,8 +1705,8 @@ TEST(remote_stream_hosted_answers_claim_an_own_death_in_one_step_with_the_end) {
         CHECK_MSG(!x.events().ended(), "dead A's message ended its stream: " + joined(x.events().all()));
         CHECK_MSG(yb.death() == "stalled", yb.death());
         const SandboxHostedChannel::Withdrawal xw = xa.channel->withdraw(withdrawals.hearing("x", xa)), yw = ya.channel->withdraw(withdrawals.hearing("y", ya));
-        CHECK_MSG(!xw.ended && !xw.death && xa.channel->death() == Death::Ordinary, std::string(xw.ended ? "ended " : "first ") + (xw.death ? deathName(*xw.death) : "none"));
-        CHECK_MSG(yw.ended && yw.death == std::optional<Death>(Death::Ordinary) && ya.channel->death() == Death::Ordinary,
+        CHECK_MSG(!xw.ended && !xw.death && xw.own && xa.channel->death() == Death::Ordinary, std::string(xw.ended ? "ended " : "first ") + (xw.death ? deathName(*xw.death) : "none") + (xw.own ? " own" : ""));
+        CHECK_MSG(yw.ended && yw.death == std::optional<Death>(Death::Ordinary) && !yw.own && ya.channel->death() == Death::Ordinary,
                   std::string(yw.ended ? "ended " : "first ") + (yw.death ? deathName(*yw.death) : "none") + ", death() " + deathName(ya.channel->death()));
         xDying.open();
         yDying.open();
@@ -1797,6 +1798,319 @@ TEST(remote_stream_hosted_answers_claim_an_own_death_in_one_step_with_the_end) {
 
 /// What a local stop found (`SandboxHostedChannel::localStop`) or a withdrawal read, "none" for none.
 static std::string deathOrNone(const std::optional<SandboxHostedChannel::Death>& death) { return death ? deathName(*death) : "none"; }
+
+/// What a withdrawal found: "first" or "ended", its death or none, and " own" when it told a claim of the widget's own.
+static std::string withdrawalText(const SandboxHostedChannel::Withdrawal& withdrawal) {
+    return std::string(withdrawal.ended ? "ended " : "first ") + deathOrNone(withdrawal.death) + (withdrawal.own ? " own" : "");
+}
+
+/// The owner's first withdrawal tells a death of the widget's own claimed on its route before it (`SandboxHostedChannel::Withdrawal::own`), read in the same step that withdraws, as an owner that holds a widget back for a sibling's decision needs it. With no end on the stream, three engines die (`Died`), each behind its client's held dispatch thread, so each client claims its death only once its thread goes on. Before: claimed before the owner's `decided()`, which reads true, and the withdrawal tells it. Between: claimed after a `decided()` that read false, before the withdrawal, which still tells it. After: the withdrawal comes first and tells none, and the later claim finds the route withdrawn: `decided()` stays false. A healthy route tells none; a route the host stopped itself first (`localStop`, the widget's own death too) tells it. Every withdrawal comes first (`ended` false, no death, no callback, also once the stream ends), and the second withdrawal of each tells none. On a stream opened without the owner's SandboxHostedAnswers a claimed death decides nothing and its withdrawal tells none, and a positional initializer of two members leaves `own` false.
+TEST(remote_stream_hosted_answers_withdraw_tells_an_own_death_claimed_first) {
+    const std::string died = "its engine died";
+    // What the withdrawals hear, from the clients' threads, declared before them.
+    Withdrawals withdrawals;
+    {
+        // Each one's dispatch thread waits on its gate: declared before the clients that join those threads.
+        Gate heldBefore, heldBetween, heldAfter;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient before(engine, 1), between(engine, 2), after(engine, 3), healthy(engine, 4), stopped(engine, 5);
+        auto barrier = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> barrierRoute = engine.host().hostedChannel();
+        barrierRoute->attach(barrier);
+        const OpensAtExit opens{&heldBefore, &heldBetween, &heldAfter};
+        for (AnsweringClient* c : {&before, &between, &after, &healthy, &stopped}) c->settle();
+        before.client->thread().async([&heldBefore] { heldBefore.wait(); });
+        between.client->thread().async([&heldBetween] { heldBetween.wait(); });
+        after.client->thread().async([&heldAfter] { heldAfter.wait(); });
+        CHECK(heldBefore.waitedOn() && heldBetween.waitedOn() && heldAfter.waitedOn());
+        // The reader took the three deaths once the barrier's log came after them; each waits on its client's thread.
+        CHECK(engine.send(FrameBytes(1, wire::Died).str(died).bytes() + FrameBytes(2, wire::Died).str(died).bytes() + FrameBytes(3, wire::Died).str(died).bytes() + logFrame(6, "said")));
+        CHECK_MSG(eventually([&] { return barrier->saw("log:log:said"); }), joined(barrier->events()));
+        CHECK_MSG(!before.channel->decided() && !between.channel->decided() && !after.channel->decided() && before.delegate.deaths().empty(), joined(before.delegate.events()));
+        const auto claimed = [&](AnsweringClient& client) {
+            return eventually([&] { return engine.saw(client.runtime, "close"); }) && client.delegate.deaths() == std::vector<std::string>{died};
+        };
+
+        heldBefore.open();
+        CHECK_MSG(claimed(before), joined(before.delegate.events()));
+        CHECK(before.channel->decided());
+        const SandboxHostedChannel::Withdrawal wBefore = before.channel->withdraw(withdrawals.hearing("before", before));
+        CHECK_MSG(!wBefore.ended && !wBefore.death && wBefore.own, withdrawalText(wBefore));
+
+        CHECK(!between.channel->decided());
+        heldBetween.open();
+        CHECK_MSG(claimed(between), joined(between.delegate.events()));
+        const SandboxHostedChannel::Withdrawal wBetween = between.channel->withdraw(withdrawals.hearing("between", between));
+        CHECK_MSG(!wBetween.ended && !wBetween.death && wBetween.own, withdrawalText(wBetween));
+
+        CHECK(!after.channel->decided());
+        const SandboxHostedChannel::Withdrawal wAfter = after.channel->withdraw(withdrawals.hearing("after", after));
+        CHECK_MSG(!wAfter.ended && !wAfter.death && !wAfter.own, withdrawalText(wAfter));
+        heldAfter.open();
+        CHECK_MSG(claimed(after), joined(after.delegate.events()));
+        CHECK(!after.channel->decided());
+
+        const SandboxHostedChannel::Withdrawal wHealthy = healthy.channel->withdraw(withdrawals.hearing("healthy", healthy));
+        CHECK_MSG(!wHealthy.ended && !wHealthy.death && !wHealthy.own, withdrawalText(wHealthy));
+        CHECK(!stopped.channel->localStop() && stopped.channel->decided());
+        const SandboxHostedChannel::Withdrawal wStopped = stopped.channel->withdraw(withdrawals.hearing("stopped", stopped));
+        CHECK_MSG(!wStopped.ended && !wStopped.death && wStopped.own, withdrawalText(wStopped));
+
+        for (AnsweringClient* c : {&before, &between, &after, &healthy, &stopped}) {
+            const SandboxHostedChannel::Withdrawal again = c->channel->withdraw(withdrawals.hearing("again", *c));
+            CHECK_MSG(!again.ended && !again.death && !again.own && !c->channel->decided(), std::to_string(c->runtime) + ": " + withdrawalText(again));
+        }
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), "the engine process closed the stream"), joined(engine.events().all()));
+        CHECK_MSG(healthy.death() == "ordinary" && stopped.death() == "ordinary" && before.death() == "ordinary", healthy.death() + " " + stopped.death() + " " + before.death());
+        sleepMs(100);
+        CHECK_MSG(withdrawals.told().empty(), joined(withdrawals.told()));
+    }
+    {
+        ScriptedEngine engine({}, true);
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1);
+        a.settle();
+        CHECK(engine.send(FrameBytes(1, wire::Died).str(died).bytes()));
+        CHECK_MSG(eventually([&] { return engine.saw(1, "close"); }) && a.delegate.deaths() == std::vector<std::string>{died}, joined(a.delegate.events()));
+        CHECK(!a.channel->decided());
+        const SandboxHostedChannel::Withdrawal w = a.channel->withdraw(withdrawals.hearing("unaccounted", a));
+        CHECK_MSG(!w.ended && !w.death && !w.own, withdrawalText(w));
+        CHECK_MSG(withdrawals.told().empty(), joined(withdrawals.told()));
+    }
+    const SandboxHostedChannel::Withdrawal positional{true, SandboxHostedChannel::Death::Spared};
+    CHECK_MSG(positional.ended && positional.death == std::optional<SandboxHostedChannel::Death>(SandboxHostedChannel::Death::Spared) && !positional.own, withdrawalText(positional));
+}
+
+/// `SandboxHostedChannel::decidedView` holds what `decided()` reads, stored in the step under the connection's lock that changes it, so an owner reads it with no lock, before any delegate hears of that change and after the channel went; each reading below agrees with `decided()` at the same barrier. A publication delayed to the death callback (a control flag each delegate sets in `onDied`, or the hosted WidgetHost in `onDeath`) reads nothing at the barriers before a delivery, where the view already reads the transition: a check of the control there fails. End: at the engine process's end A (an input unanswered) and idle B, each held on its dispatch thread, read true before either client ran that end, both controls false; C, withdrawn before it, reads false throughout. Let go, A is ordinary and B spared, settled and still true, both controls true. A route attached after that end (a bare sink, no client to publish) reads true at once, frozen spared; its withdrawal after the end keeps it, and with its channel gone (the close settles it, heard once) the view it gave still reads true. Own: an unstarted hosted WidgetHost's engine dies: its client claims that death with no delegate to tell, so the view reads true while `onDeath` was not called; the withdrawal then clears it, telling the claim (`own`), and the start reports the death once, the view false. Behind held dispatch threads: a claim read while its delegate holds the death, a withdrawal before a claim the client then makes (stays false, also through a second withdrawal), a local stop, a healthy route, the owner's stop (decides nothing). A stream opened without the owner's answers gives a view that stays false through a claimed death and a local stop; a channel of the embedder's own and a refusing one give none. The views outlive their clients, channels, WidgetHost and streams.
+TEST(remote_stream_hosted_answers_publish_decided_in_the_same_step) {
+    using View = std::shared_ptr<const SandboxHostedDecidedView>;
+    const auto reads = [](const View& view) { return view && view->decided(); };
+    const std::string died = "its engine died";
+    // What the withdrawals hear, from the clients' and the test's threads, declared before them.
+    Withdrawals withdrawals;
+    View keptA, keptLate, keptOwn, keptHealthy;
+    {
+        // A's and B's dispatch threads wait on the gates and their delegates set the controls: declared before the clients that join those threads.
+        Gate heldA, heldB;
+        std::atomic<bool> toldA{false}, toldB{false};
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1), b(engine, 2), c(engine, 3);
+        const OpensAtExit opens{&heldA, &heldB};
+        a.delegate.duringDeath = [&toldA](SandboxEngine&) { toldA = true; };
+        b.delegate.duringDeath = [&toldB](SandboxEngine&) { toldB = true; };
+        const View va = a.channel->decidedView(), vb = b.channel->decidedView(), vc = c.channel->decidedView();
+        CHECK(va && vb && vc && va == a.channel->decidedView() && va != vb);
+        a.client->platform("ask:1");
+        for (AnsweringClient* client : {&a, &b, &c}) client->settle();
+        CHECK_MSG(eventually([&] { return engine.saw(1, "platform:ask:1"); }), joined(engine.frames(1)));
+        CHECK(!reads(va) && !reads(vb) && !reads(vc) && !a.channel->decided() && !b.channel->decided());
+        const SandboxHostedChannel::Withdrawal withdrawn = c.channel->withdraw(withdrawals.hearing("c", c));
+        CHECK_MSG(!withdrawn.ended && !withdrawn.own && !reads(vc) && !c.channel->decided(), withdrawalText(withdrawn));
+        a.client->thread().async([&heldA] { heldA.wait(); });
+        b.client->thread().async([&heldB] { heldB.wait(); });
+        CHECK(heldA.waitedOn() && heldB.waitedOn());
+        engine.close();
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), "the engine process closed the stream"), joined(engine.events().all()));
+        CHECK_MSG(a.delegate.deaths().empty() && b.delegate.deaths().empty(), joined(a.delegate.events()) + " / " + joined(b.delegate.events()));
+        CHECK_MSG(reads(va) && reads(vb) && a.channel->decided() && b.channel->decided(), std::string(reads(va) ? "A read " : "A unread ") + (reads(vb) ? "B read" : "B unread"));
+        CHECK_MSG(!toldA && !toldB, "a publication delayed to the death callback read the end before its delivery");
+        CHECK(!reads(vc) && !c.channel->decided());
+        heldA.open();
+        heldB.open();
+        CHECK_MSG(a.death() == "ordinary" && b.death() == "spared", a.death() + " " + b.death());
+        // Each delegate sets its control after the recorder noted the death: both callbacks ran once their dispatch threads did.
+        a.settle();
+        b.settle();
+        CHECK(toldA && toldB && reads(va) && reads(vb) && a.channel->decided() && b.channel->decided() && !reads(vc) && !c.channel->decided());
+
+        auto lateSink = std::make_shared<StreamSink>();
+        std::shared_ptr<SandboxHostedChannel> late = engine.host().hostedChannel();
+        const View vLate = late->decidedView();
+        CHECK(vLate && !reads(vLate) && !late->decided());
+        late->attach(lateSink);
+        CHECK_MSG(reads(vLate) && late->decided() && lateSink->saw("disconnected"), joined(lateSink->events()));
+        const SandboxHostedChannel::Withdrawal lateWithdrawn = late->withdraw(withdrawals.hearing("late"));
+        CHECK_MSG(lateWithdrawn.ended && !lateWithdrawn.death && !lateWithdrawn.own && reads(vLate) && late->decided(), withdrawalText(lateWithdrawn));
+        late.reset();
+        CHECK_MSG(reads(vLate) && withdrawals.told() == std::vector<std::string>{"late:spared"}, joined(withdrawals.told()));
+        keptA = va;
+        keptLate = vLate;
+    }
+    {
+        // What the WidgetHost's `onDeath` heard, from its host thread: declared before the host that joins it.
+        std::mutex mutex;
+        std::vector<std::string> heard;
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        const std::shared_ptr<SandboxHostedChannel> route = engine.host().hostedChannel();
+        const View view = route->decidedView();
+        WidgetHost unstarted("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), route);
+        CHECK_MSG(eventually([&] { return engine.saw(1, "open"); }), joined(engine.frames(0)));
+        const auto told = [&] {
+            std::lock_guard<std::mutex> l(mutex);
+            return heard;
+        };
+        unstarted.onDeath = [&](const std::string&) {
+            std::lock_guard<std::mutex> l(mutex);
+            heard.push_back(reads(view) ? "decided" : "undecided");
+        };
+        CHECK(!reads(view) && !route->decided());
+        CHECK(engine.send(FrameBytes(1, wire::Died).str(died).bytes()));
+        // Its client claimed that death and closed the route, with no delegate to tell it yet.
+        CHECK_MSG(eventually([&] { return engine.saw(1, "close"); }), joined(engine.frames(1)));
+        CHECK_MSG(reads(view) && route->decided() && told().empty(), joined(told()));
+        const SandboxHostedChannel::Withdrawal w = route->withdraw(withdrawals.hearing("unstarted"));
+        CHECK_MSG(!w.ended && !w.death && w.own && !reads(view) && !route->decided(), withdrawalText(w));
+        unstarted.start();
+        CHECK_MSG(eventually([&] { return !told().empty(); }), "no death at its start");
+        sleepMs(100);
+        CHECK_MSG(told() == std::vector<std::string>{"undecided"} && !reads(view), joined(told()));
+        keptOwn = view;
+    }
+    {
+        // The dispatch threads and the claimed death wait on the gates, the control is set inside that death: declared before the clients that join those threads.
+        Gate heldOwn, heldAfter, dying;
+        std::atomic<bool> toldOwn{false};
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        AnsweringClient own(engine, 1), after(engine, 2), healthy(engine, 3), stopped(engine, 4);
+        auto barrier = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> barrierRoute = engine.host().hostedChannel();
+        barrierRoute->attach(barrier);
+        const OpensAtExit opens{&heldOwn, &heldAfter, &dying};
+        own.delegate.duringDeath = [&toldOwn, &dying](SandboxEngine&) {
+            toldOwn = true;
+            dying.wait();
+        };
+        const View vOwn = own.channel->decidedView(), vAfter = after.channel->decidedView(), vHealthy = healthy.channel->decidedView(), vStopped = stopped.channel->decidedView();
+        for (AnsweringClient* c : {&own, &after, &healthy, &stopped}) c->settle();
+        own.client->thread().async([&heldOwn] { heldOwn.wait(); });
+        after.client->thread().async([&heldAfter] { heldAfter.wait(); });
+        CHECK(heldOwn.waitedOn() && heldAfter.waitedOn());
+        CHECK(engine.send(FrameBytes(1, wire::Died).str(died).bytes() + FrameBytes(2, wire::Died).str(died).bytes() + logFrame(5, "said")));
+        CHECK_MSG(eventually([&] { return barrier->saw("log:log:said"); }), joined(barrier->events()));
+        // Both deaths wait on their clients' threads: nothing is claimed yet.
+        CHECK(!reads(vOwn) && !own.channel->decided() && !reads(vAfter) && !after.channel->decided() && !toldOwn);
+        heldOwn.open();
+        CHECK_MSG(dying.waitedOn() && toldOwn && own.delegate.deaths() == std::vector<std::string>{died}, joined(own.delegate.events()));
+        CHECK(reads(vOwn) && own.channel->decided());
+        const SandboxHostedChannel::Withdrawal wAfter = after.channel->withdraw(withdrawals.hearing("after", after));
+        CHECK_MSG(!wAfter.ended && !wAfter.own && !reads(vAfter), withdrawalText(wAfter));
+        heldAfter.open();
+        CHECK_MSG(eventually([&] { return engine.saw(2, "close"); }) && after.delegate.deaths() == std::vector<std::string>{died}, joined(after.delegate.events()));
+        CHECK(!reads(vAfter) && !after.channel->decided());
+        const SandboxHostedChannel::Withdrawal wAgain = after.channel->withdraw(withdrawals.hearing("after again", after));
+        CHECK_MSG(!wAgain.ended && !wAgain.own && !reads(vAfter), withdrawalText(wAgain));
+        CHECK(!stopped.channel->localStop() && reads(vStopped) && stopped.channel->decided());
+        CHECK(!reads(vHealthy) && !healthy.channel->decided());
+        // The owner's withdrawal clears a claim no end decided, while its delegate still holds that death.
+        const SandboxHostedChannel::Withdrawal wOwn = own.channel->withdraw(withdrawals.hearing("own", own));
+        CHECK_MSG(!wOwn.ended && wOwn.own && !reads(vOwn) && !own.channel->decided(), withdrawalText(wOwn));
+        dying.open();
+        const SandboxHostedChannel::Withdrawal wStopped = stopped.channel->withdraw(withdrawals.hearing("stopped", stopped));
+        CHECK_MSG(!wStopped.ended && wStopped.own && !reads(vStopped) && !stopped.channel->decided(), withdrawalText(wStopped));
+        engine.host().stop();
+        CHECK_MSG(healthy.death() == "ordinary" && own.death() == "ordinary", healthy.death() + " " + own.death());
+        CHECK(!reads(vHealthy) && !healthy.channel->decided() && !reads(vOwn) && !reads(vStopped));
+        keptHealthy = vHealthy;
+    }
+    {
+        ScriptedEngine engine({}, true);
+        CHECK(engine.ready());
+        AnsweringClient a(engine, 1), b(engine, 2);
+        const View va = a.channel->decidedView(), vb = b.channel->decidedView();
+        for (AnsweringClient* c : {&a, &b}) c->settle();
+        CHECK(engine.send(FrameBytes(1, wire::Died).str(died).bytes()));
+        CHECK_MSG(eventually([&] { return engine.saw(1, "close"); }) && a.delegate.deaths() == std::vector<std::string>{died}, joined(a.delegate.events()));
+        CHECK(va && !reads(va) && !a.channel->decided());
+        CHECK(!b.channel->localStop() && vb && !reads(vb) && !b.channel->decided());
+    }
+    CHECK(reads(keptA) && reads(keptLate) && keptOwn && !reads(keptOwn) && keptHealthy && !reads(keptHealthy));
+    OwnHostedChannel ownChannel("its own channel");
+    CHECK(!ownChannel.decidedView() && !ownChannel.decided());
+    CHECK(!SandboxRemoteHostEnd::refusingHosted("refused")->decidedView());
+    sleepMs(100);
+    CHECK_MSG(withdrawals.told() == std::vector<std::string>{"late:spared"}, joined(withdrawals.told()));
+}
+
+/// One end turns the views of every route it froze together (`SandboxHostedChannel::decidedView`): the stream's first end freezes its routes one after another under the connection's lock, in the order of their ids, and only then publishes that decision to all their views at once, so a reader that samples the views in that order while the end runs never reads an earlier route of it decided and then a later one still undecided (as two messages' runs on one helper, each sampled by its own paint, would see one end both before the first paint and after the second). Each of 20 accounting streams carries ten bare routes: eight take part in the engine process's end; one withdrawn before it takes no part and reads false at every sample, and one stopped locally before it reads true at every sample. A thread samples the ten views in id order, without a pause, from before that end until every route of it reads decided (at most 5 s), checking each ordered pair of the eight at every sample; the views then agree with `decided()`. With the views stored one by one inside the end (no common publication) the sampler reads such a pair.
+TEST(remote_stream_hosted_answers_publish_one_end_to_every_view_at_once) {
+    using View = std::shared_ptr<const SandboxHostedDecidedView>;
+    constexpr int kStreams = 20;
+    constexpr size_t kRoutes = 10, kWithdrawn = 3, kStopped = 6;
+    struct Sampled {
+        long sweeps = 0;
+        long crossings = 0;
+        std::string first;
+        bool ended = false;
+        bool controls = true;
+    };
+    long sweeps = 0, crossings = 0;
+    std::string first;
+    for (int trial = 0; trial != kStreams; ++trial) {
+        ScriptedEngine engine({}, true, {answerKeys});
+        CHECK(engine.ready());
+        std::vector<std::shared_ptr<SandboxHostedChannel>> routes;
+        std::vector<std::shared_ptr<StreamSink>> sinks;
+        std::vector<View> views;
+        for (size_t i = 0; i != kRoutes; ++i) {
+            routes.push_back(engine.host().hostedChannel());
+            sinks.push_back(std::make_shared<StreamSink>());
+            routes.back()->attach(sinks.back());
+            views.push_back(routes.back()->decidedView());
+            CHECK(views.back() && !views.back()->decided());
+        }
+        // Every `Open` written before the engine process ends: no write fails at that end.
+        CHECK_MSG(eventually([&] { return engine.saw(uint32_t(kRoutes), "open"); }), joined(engine.frames(uint32_t(kRoutes))));
+        const SandboxHostedChannel::Withdrawal withdrawn = routes[kWithdrawn]->withdraw({});
+        CHECK_MSG(!withdrawn.ended && !withdrawn.own, withdrawalText(withdrawn));
+        CHECK(!routes[kStopped]->localStop() && views[kStopped]->decided() && !views[kWithdrawn]->decided());
+        std::atomic<bool> sampling{false};
+        Background<Sampled> sampler([&] {
+            Sampled s;
+            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            sampling = true;
+            while (!s.ended && ((s.sweeps & 1023) || std::chrono::steady_clock::now() < until)) {
+                std::array<bool, kRoutes> read{};
+                for (size_t i = 0; i != kRoutes; ++i) read[i] = views[i]->decided();
+                ++s.sweeps;
+                s.controls = s.controls && !read[kWithdrawn] && read[kStopped];
+                std::optional<size_t> earlier;
+                s.ended = true;
+                for (size_t i = 0; i != kRoutes; ++i) {
+                    if (i == kWithdrawn || i == kStopped) continue;
+                    if (read[i]) {
+                        if (!earlier) earlier = i;
+                        continue;
+                    }
+                    s.ended = false;
+                    if (!earlier) continue;
+                    if (s.first.empty()) s.first = "route " + std::to_string(*earlier + 1) + " read decided, then route " + std::to_string(i + 1) + " undecided";
+                    ++s.crossings;
+                    break;
+                }
+            }
+            return s;
+        });
+        while (!sampling) std::this_thread::yield();
+        engine.close();
+        const Sampled s = sampler.finish(10);
+        CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }) && endsOnce(engine.events().all(), "the engine process closed the stream"), joined(engine.events().all()));
+        CHECK_MSG(s.ended && s.controls, std::to_string(s.sweeps) + " sweeps, the end read " + (s.ended ? "whole" : "in part") + (s.controls ? "" : ", a control changed"));
+        sweeps += s.sweeps;
+        crossings += s.crossings;
+        if (first.empty()) first = s.first;
+        for (size_t i = 0; i != kRoutes; ++i) {
+            const bool takesPart = i != kWithdrawn;
+            CHECK_MSG(views[i]->decided() == takesPart && routes[i]->decided() == takesPart, "route " + std::to_string(i + 1));
+            CHECK_MSG(eventually([&] { return sinks[i]->saw("disconnected"); }), joined(sinks[i]->events()));
+        }
+    }
+    CHECK_MSG(crossings == 0, std::to_string(crossings) + " of " + std::to_string(sweeps) + " samples crossed one end: " + first);
+}
 
 /// The host's own stop of a widget (`SandboxHostedChannel::localStop`, which a live platform end that refuses the widget's renderer makes from its own thread, here the test's) is one step with the stream's first end. X0, the control: A's frame request admitted while A is visible, its renderer's reply of another sequence (a valid key that answers nothing) heard and no stop: the stream ends 3 s after the admission, A stalled and idle B spared. X: the same, then, A's client held as a stop's notification that stalls, the host stops A within 2.5 s: 3.4 s after the admission nothing ended, B's input sent past A's time is answered on the same stream, A's route still carries and nothing closed it, and a second stop finds the first one's; let go, at the engine process's end with B's input unanswered A keeps its own ordinary death (not the spared of an idle route), which its withdrawal reads too, and a stop still finds the first one's. Y, the end first: A's frame request runs out while A's client is held before it heard that end, A stalled; the stop then finds that decision and changes nothing, twice: the withdrawal registered before it hears stalled once, A's client publishes stalled and dies of the end once, B is spared, and a stop afterwards still finds stalled. Z: idle A stopped before the engine process's end, with B's input unanswered and idle C not stopped: A ordinary, its withdrawal too, C spared, both withdrawals read at once and neither called back, also once the clients and the stream went. A channel that decides nothing (the embedder's own, a refusing one) has the stop first.
 TEST(remote_stream_hosted_answers_stop_a_widget_locally_in_one_step_with_the_end) {

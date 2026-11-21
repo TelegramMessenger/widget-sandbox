@@ -53,7 +53,11 @@ that still took writes waited for ever, and the stream's end was every widget's 
 - `SandboxHostedChannel::withdraw(settled)` and `Withdrawal` (`remote_hosted.h`): the owner that retires a widget takes
   it out of the stream's decisions in one step with the end, under the connection's lock. Before the end decided the
   route's death the withdrawal comes first: nothing of the route is kept, timed or blamed again, and it still carries a
-  kept renderer's traffic. After it, the death the end decided settles once (the end's decision when the client's first
+  kept renderer's traffic; the route's first such withdrawal also tells whether a death of the widget's own was claimed
+  on it before (`Withdrawal::own`, read in the same step, so a claim the client made after the owner's last `decided()`
+  is not lost), settling nothing for it, and the member, appended with a `false` default, leaves every existing
+  initializer and a channel of the embedder's own as they were.
+  After it, the death the end decided settles once (the end's decision when the client's first
   death is that end or cleanup takes the route from the client first: the owner's stop, a keep, a close; `Ordinary` when
   a death of the widget's own came first: a flood, a platform request left unanswered, its engine's `Died`, the host's
   `localStop`, one claimed before the end on a route the end found open included; a route lost alone settles nothing
@@ -69,6 +73,16 @@ that still took writes waited for ever, and the stream's end was every widget's 
   withdrawn first and at the owner's `stop`; always false on a stream opened without `SandboxHostedAnswers`, whatever
   stops or claims the widget. An owner that counts deaths per widget holds back another run of the same widget while one
   reads decided. A virtual with a `false` default; the base still holds no state.
+- `SandboxHostedChannel::decidedView()` and `SandboxHostedDecidedView` (`remote_hosted.h`): what `decided()` reads, as a
+  view of the route's own (`std::shared_ptr<const SandboxHostedDecidedView>`, the same on every call) that the stream
+  keeps in the same step under the connection's lock that changes it, before anyone hears of it (a claim of the
+  widget's own or `localStop`, the end's freeze or a late attach to a stream ending so: true; the owner's withdrawal:
+  false), so an owner reads it from any thread at any rate (a paint) with no lock of the stream's, without the channel
+  and after it went. The end freezes its routes one by one and then turns all their views at once (one flag of the
+  stream's that each frozen route's view reads), so no reader sees one route of that end decided and, later, another
+  one it froze undecided. It owns no channel, route, connection or thread; the view class declares only inline
+  virtuals. A virtual with a default of none for a channel that decides nothing; a stream opened without
+  `SandboxHostedAnswers` gives one that stays false.
 - `SandboxHostedChannel::localStop()` (`remote_hosted.h`): the host stops a widget of its own accord (a live platform
   end that refuses the widget's renderer for good, from its own thread) in one step with the end, under the
   connection's lock, before anything tells anyone of that stop. None when no end took the widget into its decision
@@ -159,7 +173,14 @@ that still took writes waited for ever, and the stream's end was every widget's 
   over 250 ms after its admission),
   `remote_stream_hosted_answers_tell_a_decided_death_before_it_is_published` (an end's `Ordinary` and `Spared` decisions
   read while both clients are held, a withdrawal before that end, the owner's stop, a flood held in its delegate, a
-  channel of the embedder's own) and `remote_stream_hosted_answers_lose_a_route_left_without_an_answer` (no delegate
+  channel of the embedder's own), `remote_stream_hosted_answers_publish_decided_in_the_same_step` (`decidedView` against
+  `decided()` at the same barriers: an end read while both clients are held, a late attach, an unstarted WidgetHost's
+  claimed death before any callback, withdrawals before and after a claim, a local stop, the owner's stop, a stream
+  without the answers; a control flag set in each death callback reads nothing at the barriers before a delivery),
+  `remote_stream_hosted_answers_publish_one_end_to_every_view_at_once` (a thread samples ten routes' views in the order
+  the end freezes them while 20 ends run: no route of an end read decided before a later one read undecided, a withdrawn
+  route and a locally stopped one unchanged throughout) and
+  `remote_stream_hosted_answers_lose_a_route_left_without_an_answer` (no delegate
   yet, a sink with no answer, a delegate with no platform). `remote_stream_hosted_` runs 33, `remote_stream_` 63,
   `remote_` 126, `hosted_` 55 and the suite 249 on macOS (2026-11-20, Debug, on the Nova engine: 249 tests,
   20312 checks, 0 failures in one run); the fourteen add about 31 s to a run. The tests

@@ -198,8 +198,30 @@ struct Sent {
     bool start = false;
 };
 
+/// A route's view of what `decided` reads (SandboxHostedChannel::decidedView), owned apart from the route and its connection: `HostRoute::become` stores what its part reads, in the same step that changes it, and a part the stream's first end froze reads that end's publication, one flag of its connection's that every route it froze shares (`Connection::blameLocked` raises it once it froze them all), so no reader sees one of those routes decided and, later, another one still undecided.
+class RouteDecidedView final : public SandboxHostedDecidedView {
+public:
+    /// What the part reads: `No` while Undecided or Withdrawn, `Yes` while Own or Settled, `AtEnd` while Frozen (the end's publication).
+    enum class Reading : uint8_t { No, Yes, AtEnd };
+
+    explicit RouteDecidedView(std::shared_ptr<const std::atomic<bool>> published) : published_(std::move(published)) {}
+
+    bool decided() const override {
+        const Reading reading = reading_.load();
+        return reading == Reading::Yes || (reading == Reading::AtEnd && published_->load());
+    }
+    void store(Reading reading) { reading_.store(reading); }
+
+private:
+    const std::shared_ptr<const std::atomic<bool>> published_;
+    std::atomic<Reading> reading_{Reading::No};
+};
+
 /// One runtime on the host's side, made with its channel: the connection's mutex guards every field but the answer thread's three, which `answering` guards.
 struct HostRoute {
+    /// `published`: its connection's flag of the first end's decision (`RouteDecidedView`).
+    explicit HostRoute(std::shared_ptr<const std::atomic<bool>> published) : decidedView(std::make_shared<RouteDecidedView>(std::move(published))) {}
+
     /// New until `attach`, Live while its id is registered, Leaving while its client hears that the stream is lost, then Gone.
     enum class State : uint8_t { New, Live, Leaving, Gone };
 
@@ -217,6 +239,8 @@ struct HostRoute {
     /// Whether the stream's first end took part in its client's death (`SandboxHostedChannel::withdraw`; `decided` while Own, Frozen or Settled): Undecided until the end froze it, the owner withdrew the route first or its client or host claimed a death of the widget's own first (Own: nothing of the route is kept, timed or blamed again, and an end that finds it still open and neither kept nor halted settles it as that death); a frozen death settles once, at its client's first death or as cleanup takes the route from its client.
     enum class Part : uint8_t { Undecided, Withdrawn, Own, Frozen, Settled };
     Part part = Part::Undecided;
+    /// What `decided` reads of `part` (SandboxHostedChannel::decidedView), stored in the same step that changes it (`become`) and owned apart from the route, so its channel's owner reads it with no lock and after the route went.
+    const std::shared_ptr<RouteDecidedView> decidedView;
     /// A death of the widget's own was claimed before any end decided the route's (Own): Settled then holds that claim, not an end's decision (`Connection::localStop`).
     bool claimed = false;
     /// What the stream's first end made of its client's death (`SandboxHostedChannel::death`), decided before any client hears the end, never after: `Ordinary` for a route the end decided nothing of; once settled, the death it settled as.
@@ -235,6 +259,15 @@ struct HostRoute {
     /// Made at the runtime's first synchronous call; the channel's destructor takes and joins it, after which nothing is posted.
     std::unique_ptr<JSThread> answerer;
     bool retired = false;
+
+    /// Whether `part` decides its client's death (`SandboxHostedChannel::decided`).
+    static bool decides(Part part) { return part == Part::Own || part == Part::Frozen || part == Part::Settled; }
+    /// `part` becomes `next`, under the connection's mutex, and `decidedView` tells it in the same step: Frozen, which only an end makes, as that end's publication.
+    void become(Part next) {
+        using Reading = RouteDecidedView::Reading;
+        part = next;
+        decidedView->store(next == Part::Frozen ? Reading::AtEnd : decides(next) ? Reading::Yes : Reading::No);
+    }
 };
 
 /// `SandboxRemoteHostEnd::refusing`'s and `refusingHosted`'s channel: its client dies with the reason at `attach`, and no call reaches an engine.
@@ -285,6 +318,8 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
     bool hosting() const { return hosting_; }
     /// Keeps what each route's renderer has yet to answer: a hosting stream given the owner's SandboxHostedAnswers.
     bool accounting() const { return bool(answers_.read); }
+    /// What every route's view reads while its part is Frozen (`RouteDecidedView`): the first end's decision, published once it froze every route it took (`blameLocked`).
+    std::shared_ptr<const std::atomic<bool>> published() const { return published_; }
 
     /// The owner's reading of a platform message (SandboxHostedAnswers::read), outside every lock: `None` without one, for a message past `kRemotePlatformLimit` (its client drops one from the engine's side) and for a reading that throws.
     SandboxHostedAnswers::Reading readOf(std::string_view message) const {
@@ -424,7 +459,7 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
             route->state = HostRoute::State::Gone;
             if (ending_ && !stopped_ && accounting() && route->part == HostRoute::Part::Undecided) {
                 route->death = SandboxHostedChannel::Death::Spared;
-                route->part = HostRoute::Part::Frozen;
+                route->become(HostRoute::Part::Frozen);
             }
         }
         sink->remoteDisconnected();
@@ -488,15 +523,18 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
         return ended ? std::optional<SandboxHostedChannel::Death>(route.death) : std::nullopt;
     }
 
-    /// The channel's `withdraw` (SandboxHostedChannel::withdraw): before the end decided the route's death (an own death claimed first included) the route takes no part in it from now on, nothing of it kept, timed or blamed; after, its death as settled, or none with `settled` kept to hear it.
+    /// The channel's `withdraw` (SandboxHostedChannel::withdraw): before the end decided the route's death (an own death claimed first included, which the withdrawal tells as `own` from the part it replaces) the route takes no part in it from now on, nothing of it kept, timed or blamed; after, its death as settled, or none with `settled` kept to hear it.
     SandboxHostedChannel::Withdrawal withdraw(HostRoute& route, std::function<void(SandboxHostedChannel::Death)> settled) {
         std::lock_guard<std::mutex> l(mutex_);
         switch (route.part) {
         case HostRoute::Part::Undecided:
-        case HostRoute::Part::Own:
-            route.part = HostRoute::Part::Withdrawn;
+        case HostRoute::Part::Own: {
+            SandboxHostedChannel::Withdrawal result;
+            result.own = route.part == HostRoute::Part::Own;
+            route.become(HostRoute::Part::Withdrawn);
             if (route.account) route.account->clear();
-            return {};
+            return result;
+        }
         case HostRoute::Part::Withdrawn: return {};
         case HostRoute::Part::Frozen:
             route.hears = std::move(settled);
@@ -509,7 +547,7 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
     /// The channel's `decided` (SandboxHostedChannel::decided), changing nothing: the end froze or settled the route's death, or its client or host claimed a death of the widget's own first and no withdrawal came first on it.
     bool decided(const HostRoute& route) {
         std::lock_guard<std::mutex> l(mutex_);
-        return route.part == HostRoute::Part::Own || route.part == HostRoute::Part::Frozen || route.part == HostRoute::Part::Settled;
+        return HostRoute::decides(route.part);
     }
 
     /// The channel's `kept`: a live route counts no more among the open runtimes, and the monitor reports the new count; nothing its renderer has yet to answer is awaited any more; a death the end froze settles.
@@ -853,23 +891,24 @@ private:
         endLocked("a hosted renderer left a platform message unanswered for more than " + Json::number(SandboxEngine::kPlatformAnswerSeconds * 1000) + " ms", End::Unanswered, at);
     }
 
-    /// The first end's decision of the open routes' deaths, each route's only one (`HostRoute::death`; `finish` only hands it out, whatever closes or keeps a route meanwhile). Only an active route takes part, one neither kept, halted (its renderer's last word, its engine's `Died`), withdrawn by its owner (`withdraw`) nor dead of its own (`claim`, `localStop`): the others keep their own death (`Ordinary`), and one whose client claimed a death of its own while neither kept nor halted settles as that death, which the end finds already decided; each one that takes part is frozen, to settle once (`settleLocked`). With `unanswered`, the active routes whose answer time ran out by `at` stalled and every other active one spared, the ones with younger messages unanswered among them; at any other end, the active routes with a message unanswered (timed or not) keep an ordinary death and the others are spared, unless none had one, when every active route keeps it.
+    /// The first end's decision of the open routes' deaths, each route's only one (`HostRoute::death`; `finish` only hands it out, whatever closes or keeps a route meanwhile). Only an active route takes part, one neither kept, halted (its renderer's last word, its engine's `Died`), withdrawn by its owner (`withdraw`) nor dead of its own (`claim`, `localStop`): the others keep their own death (`Ordinary`), and one whose client claimed a death of its own while neither kept nor halted settles as that death, which the end finds already decided; each one that takes part is frozen, to settle once (`settleLocked`). With `unanswered`, the active routes whose answer time ran out by `at` stalled and every other active one spared, the ones with younger messages unanswered among them; at any other end, the active routes with a message unanswered (timed or not) keep an ordinary death and the others are spared, unless none had one, when every active route keeps it. The frozen routes' views turn together, at the publication after the last of them froze.
     void blameLocked(bool unanswered, Clock::time_point at) {
         const auto active = [](const HostRoute& route) { return route.account && !route.kept && !route.account->halted && route.part == HostRoute::Part::Undecided; };
         const bool awaited = std::any_of(routes_.begin(), routes_.end(), [&](const auto& entry) { return active(*entry.second) && !entry.second->account->awaited.empty(); });
         for (const auto& [id, route] : routes_) {
-            if (route->part == HostRoute::Part::Own && !route->kept && !(route->account && route->account->halted)) route->part = HostRoute::Part::Settled;
+            if (route->part == HostRoute::Part::Own && !route->kept && !(route->account && route->account->halted)) route->become(HostRoute::Part::Settled);
             if (!active(*route)) continue;
-            route->part = HostRoute::Part::Frozen;
+            route->become(HostRoute::Part::Frozen);
             if (unanswered) route->death = overdueLocked(*route, at) ? SandboxHostedChannel::Death::Stalled : SandboxHostedChannel::Death::Spared;
             else if (awaited && route->account->awaited.empty()) route->death = SandboxHostedChannel::Death::Spared;
         }
+        published_->store(true);
     }
 
     /// `route`'s frozen death settles, once, as frozen or `as`: what tells the owner's withdrawal that waits for it, to call once the lock is released (empty: nothing to tell).
     static std::function<void()> settleLocked(HostRoute& route, std::optional<SandboxHostedChannel::Death> as = std::nullopt) {
         if (route.part != HostRoute::Part::Frozen) return {};
-        route.part = HostRoute::Part::Settled;
+        route.become(HostRoute::Part::Settled);
         if (as) route.death = *as;
         if (!route.hears) return {};
         return [hears = std::exchange(route.hears, nullptr), death = route.death] { hears(death); };
@@ -878,7 +917,7 @@ private:
     /// A death of the widget's own claimed while the end has not decided `route`'s (`claim`, `localStop`): it takes no part in the end's decision from now on (Own) and nothing its renderer owes is kept any more, none of it credited; any other route stays as it is, and so does every route of a stream without the owner's SandboxHostedAnswers (no account), whose end decides nothing.
     static void claimLocked(HostRoute& route) {
         if (!route.account || route.part != HostRoute::Part::Undecided) return;
-        route.part = HostRoute::Part::Own;
+        route.become(HostRoute::Part::Own);
         route.claimed = true;
         route.account->clear();
     }
@@ -998,6 +1037,8 @@ private:
     /// The owner's reading of the hosted widgets' platform messages (none on an engine stream), and how long a renderer may leave a timed one unanswered.
     const SandboxHostedAnswers answers_;
     const Clock::duration answerWait_ = durationOf(SandboxEngine::kPlatformAnswerSeconds * 1000);
+    /// The first end's decision is published to the views of the routes it froze (`blameLocked`, once): shared with each route's view, owned apart from the connection.
+    const std::shared_ptr<std::atomic<bool>> published_ = std::make_shared<std::atomic<bool>>(false);
 
     std::mutex mutex_;
     /// The writer waits on it for frames, the monitor for the rest.
@@ -1102,6 +1143,8 @@ public:
     Death death() const override { return death_.load(); }
     Withdrawal withdraw(std::function<void(Death death)> settled) override { return connection_->withdraw(*route_, std::move(settled)); }
     bool decided() const override { return connection_->decided(*route_); }
+    /// The route's own view of what `decided` reads (`HostRoute::become` keeps it), shared with the owner past the route.
+    std::shared_ptr<const SandboxHostedDecidedView> decidedView() const override { return route_->decidedView; }
     /// The host's own stop in one step with the end (`Connection::localStop`): the widget's own death claimed, or the decision of an end that came first, left as it is.
     std::optional<Death> localStop() override { return connection_->localStop(*route_); }
 
@@ -1122,7 +1165,7 @@ private:
     }
 
     const std::shared_ptr<Connection> connection_;
-    const std::shared_ptr<HostRoute> route_ = std::make_shared<HostRoute>();
+    const std::shared_ptr<HostRoute> route_ = std::make_shared<HostRoute>(connection_->published());
     /// What `death` reads: `Ordinary` until the client published its first death's decision.
     std::atomic<Death> death_{Death::Ordinary};
 };
