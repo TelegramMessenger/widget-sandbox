@@ -34,6 +34,9 @@ Nova, from the nova-safe this workspace depends on, which `TW_NOVA_ROOT` may nam
 `TW_ENGINE_STREAM=1 TW_ENGINE_END=rust ./twidget-tests` and `twidget-run --attacks`: every fixture engine and every
 attack then runs over a byte stream served by this workspace's `serve`. `TW_ENGINE_HOSTED=stream TW_ENGINE_END=rust`
 does the same for the hosted mode: every fixture widget's engine, validator and glue run in this workspace's
-`serve_hosting`, the fixture's C++ renderer behind the C renderer factory.
+`serve_hosting`, the fixture's C++ renderer behind the C renderer factory. With widget-sandbox at cac5a6c and
+nova-safe 906ebcf (Windows x64 RelWithDebInfo, 2026-11-21) both modes, in process and `TW_ENGINE_HOSTED=loopback`
+each give 244 tests and 0 failures on either end, each test's result the C++ end's; the desktop core's README has
+the rest.
 
 Fixtures come from `packages/core/tests/fixtures`, as every other port reads them.
