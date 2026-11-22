@@ -33,6 +33,8 @@ const KIDS_EXPOSED = Symbol('tw.kidsExposed');
 export const domHooks = {
   observing: (): boolean => false,
   markDirty: (_node: any): void => {},
+  /** An element written to with no change of its own to sync: it only keeps its place among the dirty nodes (capture.ts). */
+  holdPlace: (_node: any): void => {},
   /** Moves when an element is inserted or removed or an `id` is written (capture.ts): what an id lookup found holds until then. */
   treeGeneration: (): number => 0,
 };
@@ -334,11 +336,12 @@ export function installAttributeFastPaths(): void {
     ...d,
     set(this: any, v: any) {
       'use strict';
-      if (attrFast && typeof v === 'string' && SINGLE_TOKEN.test(v) && !domHooks.observing() && !this.attributeChangedCallback) {
+      // The class the element already has, one token or many or none: nothing changes, so nothing is synced. The
+      // element keeps its place among the dirty nodes, as the write would have given it.
+      if (attrFast && typeof v === 'string' && v.length <= 256 && !domHooks.observing() && !this.attributeChangedCallback) {
         const a = getNode.call(this, 'class');
         if (a && a.value === v) {
-          domHooks.markDirty(this);
-          domHooks.markDirty(a);
+          domHooks.holdPlace(this);
           return;
         }
       }

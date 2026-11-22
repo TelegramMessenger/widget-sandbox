@@ -246,6 +246,8 @@ export class Validator {
   private complexText = 0;
   private totalText = 0;
   private cssRules = 0;
+  /** A node went into a parent since the depth was last measured (checkTotals). */
+  private inserted = true;
   private cssKeyframes = 0;
   /** Each canvas's bitmap size (width, height), and their pixels together: the strict cap is on the sum. */
   private canvasSizes = new Map<NodeId, [number, number]>();
@@ -343,7 +345,10 @@ export class Validator {
     if (this.limits.maxNodes && this.nodes.size - 1 > this.limits.maxNodes) {
       return this.stop(`Node limit exceeded: ${this.nodes.size - 1} nodes in the document (max ${this.limits.maxNodes})`);
     }
-    if (this.limits.maxDepth) {
+    // The tree gets deeper only by an insert: a batch without one (text, attributes, styles, a frame of an animation)
+    // leaves the depth the last walk found.
+    if (this.limits.maxDepth && this.inserted) {
+      this.inserted = false;
       const depth = this.deepestNode();
       if (depth > this.limits.maxDepth) {
         return this.stop(`Nesting depth limit exceeded: ${depth} levels (max ${this.limits.maxDepth})`);
@@ -709,6 +714,7 @@ export class Validator {
     // Update the model.
     this.unlink(node);
     node.parent = p.id;
+    this.inserted = true;
     if (ref) p.children.splice(p.children.indexOf(ref.id), 0, id);
     else p.children.push(id);
     if (p.isStyle) this.dirtyStyles.add(p.id);

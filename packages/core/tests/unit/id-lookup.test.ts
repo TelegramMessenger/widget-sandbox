@@ -95,3 +95,22 @@ describe('shim: a textContent that changes nothing', () => {
     assert.equal(data(changed), 5);
   });
 });
+
+describe('shim: a className that changes nothing', () => {
+  it('sends no op for one token, many or none, and still sends a change', async () => {
+    const quiet = await runWidget(`<p id="a" class="x">a</p><p id="b" class="x y">b</p><p id="c" class="">c</p><script>
+      var a = document.getElementById('a'), b = document.getElementById('b'), c = document.getElementById('c'), n = 0;
+      function again() { a.className = 'x'; b.className = 'x y'; c.className = ''; if (++n < 5) setTimeout(again, 1); }
+      setTimeout(again, 1);</script>`, { timerRounds: 8, probes: ['n', "[a.className, b.className, c.className, b.classList.length, b.classList.contains('y')].join('|')"] });
+    assert.deepEqual(quiet.probes, ['5', 'x|x y||2|true']);
+    assert.deepEqual(quiet.ops.slice(1).flat(), [], 'nothing goes to the host for the same class');
+    const changed = await runWidget(`<p id="a" class="x">a</p><script>
+      var a = document.getElementById('a'), n = 0;
+      function again() { a.className = 'x'; a.className = n & 1 ? 'x' : 'x z'; if (++n < 4) setTimeout(again, 1); }
+      setTimeout(again, 1);</script>`, { timerRounds: 8, probes: ['n', 'a.className', 'document.getElementsByClassName("z").length'] });
+    assert.deepEqual(changed.probes, ['4', 'x', '0']);
+    const values = changed.ops.flat().filter((o: any) => o.op === 'attr' && o.name === 'class').map((o: any) => o.value);
+    assert.deepEqual(values.slice(-4), ['x z', 'x', 'x z', 'x']);
+  });
+});
+

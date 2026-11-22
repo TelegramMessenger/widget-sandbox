@@ -53,20 +53,27 @@ export const domGeneration = (): number => generation;
 let treeGeneration = 0;
 domHooks.treeGeneration = () => treeGeneration;
 /**
- * Elements whose only reason to be dirty is a string written over their own text node in place (the setter below):
- * the node carries the change, so the flush passes over the element. It keeps its place in `dirty` all the same: a
- * later change of the element is then synced where the write stood, as when the node is replaced.
+ * Elements a script wrote to with nothing of their own to sync: a string over their own text node, which carries the
+ * change itself (the setter below), or the class they already have (dom.ts). The flush passes over them. They keep
+ * their place in `dirty` all the same: a later change of the element is then synced where the write stood, so the ops
+ * and their order are those of the write that goes the long way.
  */
-const textOnly = new Set<any>();
-/** The nodes to sync at the next flush, in the order they were first touched. Any other mark makes a `textOnly` element an ordinary dirty one. */
+const held = new Set<any>();
+/** The nodes to sync at the next flush, in the order they were first touched. Any other mark makes a held element an ordinary dirty one. */
 class DirtyNodes extends Set<any> {
   add(node: any): this {
-    if (textOnly.size) textOnly.delete(node);
+    if (held.size) held.delete(node);
     return super.add(node);
   }
 }
-const markTextOnly = Set.prototype.add;
+const addHeld = Set.prototype.add;
 const dirty: Set<any> = new DirtyNodes();
+const holdPlace = (node: any): void => {
+  if (dirty.has(node)) return;
+  addHeld.call(dirty, node);
+  held.add(node);
+};
+domHooks.holdPlace = holdPlace;
 let ops: any[] | OpWriter = [];
 /**
  * Ops after which a long flush hands what it has to the glue between two nodes: a document built in one task (2000
@@ -620,7 +627,7 @@ function flushNow(full: boolean): void {
     const batch = [...dirty];
     dirty.clear();
     for (const node of batch) {
-      if (!node || textOnly.delete(node)) continue;
+      if (!node || held.delete(node)) continue;
       syncNode(node);
       sendIfLarge();
     }
@@ -630,7 +637,7 @@ function flushNow(full: boolean): void {
     walkAll(document);
     counters.missed += partialSent + ops.length - before;
     dirty.clear();
-    textOnly.clear();
+    held.clear();
   }
   for (const o of postOps) {
     if (o.node) {
@@ -810,13 +817,10 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
           set: function (this: any, v: any) {
             if (name === 'textContent' && typeof v === 'string' && v !== '' && this.nodeType === 1) {
               // A string over an element's own text node: the node takes it and carries the change, and the element
-              // is only held in its place among the dirty nodes. The text the node already has is no change.
+              // only keeps its place among the dirty nodes. The text the node already has is no change.
               const node = inPlaceTextTarget(this);
               if (node) {
-                if (!dirty.has(this)) {
-                  markTextOnly.call(dirty, this);
-                  textOnly.add(this);
-                }
+                holdPlace(this);
                 if (node.data !== v) node.data = v;
                 return;
               }

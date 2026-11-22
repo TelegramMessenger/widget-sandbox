@@ -324,6 +324,21 @@ describe('strict limits: nesting depth (the web renders through a shadow root, n
     assert.equal(v.stopped, null);
   });
 
+  it('the depth is measured again after any insert, in whichever batch it comes, and not for a batch without one', () => {
+    const v = validator();
+    v.processOps(chain(1022, 100));
+    // Batches that insert nothing leave the depth as it was measured.
+    for (let i = 0; i < 3; i++) v.processOps([{ op: 'attr', id: 100, name: 'title', value: 't' + i }, { op: 'style', id: 101, name: 'transform', value: `translateX(${i}px)` }]);
+    assert.equal(v.stopped, null);
+    // A chain built detached is no depth yet; attached under the deepest node in a batch of its own, it is.
+    v.processOps([{ op: 'el', id: 6000, tag: 'div' }, { op: 'el', id: 6001, tag: 'div' }, { op: 'ins', parent: 6000, id: 6001, before: null }]);
+    assert.equal(v.stopped, null);
+    v.processOps([{ op: 'attr', id: 100, name: 'title', value: 'again' }]);
+    assert.equal(v.stopped, null);
+    v.processOps([{ op: 'ins', parent: 1121, id: 6000, before: null }]);
+    assert.equal(v.stopped, 'Nesting depth limit exceeded: 1026 levels (max 1024)');
+  });
+
   it('a detached deep subtree does not count: depth is the tree reachable from the document root', () => {
     const v = validator();
     // 1100 divs deep (1102 > 1024), then the whole chain detached from <body> in the same batch (rm its top, id 100):
