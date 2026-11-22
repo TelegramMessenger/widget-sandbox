@@ -104,6 +104,23 @@ that still took writes waited for ever, and the stream's end was every widget's 
   nothing and sends no `platform-timeout`, `keepHosted` returns false, and a later `terminate` or `stop` does nothing.
   The end's job keeps the flood's precedence and its single publication; a renderer kept before the stop never yields,
   its traffic going on as before. Otherwise `terminate` and `keepHosted` claim nothing.
+- `SandboxRemoteHostEnd::stop()` (`remote_stream.h`) returns the `std::chrono::steady_clock` instant of the stream's
+  first end, the one `ended` reports, when that end was no stop: the engine process's end of it (a refusal before
+  `Ready` among them) or any end of the stream's own. The stream takes that instant once, under its lock in the same
+  step as the end (for an answer time that ran out, the instant a look judged it run out, at which the end decided the
+  hosted widgets' deaths too), so a stop tells it also while `ended` has yet to report that end (the monitor reports it
+  only after the reader told every open widget), and a second stop tells the same one. None when the call's own stop
+  ended the stream, which decides nothing of the hosted widgets' deaths, or an earlier stop did. An owner that counts
+  its engine process's early ends reads from its own stop whether that process's end came first and when, which its
+  `ended` report may not have told yet, and ages the end from the process's launch in the same clock. It returned
+  nothing before, so a caller that ignores the value, the destructor's own call included, compiles and behaves as it
+  did. Tests: `remote_stream_hosted_stop_tells_the_instant_of_an_end_before_it` (`test_remote_stream_hosted_stop.cpp`:
+  one after a refusal before `Ready`, a widget attached afterwards `Spared`; one after the engine process's close while
+  the reader's fan-out is held in a widget's loss, before `ended`; each instant after the end was made possible and
+  before the stop, each second stop the same; one after an answer time that ran out on the monitor's look, at or after
+  the first message's admission plus its answer time, before `ended`, and on the side of a younger message's answer time
+  that its widget's decision tells) and `remote_stream_hosted_answers_decide_each_death_once_at_the_end` (the owner's
+  stop and a second one tell none).
 - Default, every client-mode engine: a rejection past `kRemoteQueuedBytes` / `kRemoteQueuedCalls` and the overflow's
   claim are one step under the backlog's lock, which the end's choice takes too, so a rejection in the middle of its
   step when the end chooses is the widget's flood, never lost between the two; the kill is still queued outside it.

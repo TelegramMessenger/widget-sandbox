@@ -1138,7 +1138,7 @@ TEST(remote_stream_hosted_answers_leave_out_the_hosts_own_time) {
     fflush(stdout);
 }
 
-/// The stream's first end decides at once, under the connection's lock and before any client hears it, what each hosted widget's death is (`SandboxHostedChannel::death`, read once its client reported it), and nothing changes that afterwards. At the engine process's end of the stream: A's answer, read while A's client is held on its dispatch thread, leaves A spared though A's client had heard neither the answer nor the end when the end was reported; B's young unanswered message and H's hidden frame keep their ordinary deaths; an idle route is spared, a renderer that said its last word keeps its own death, and a widget attached afterwards is spared. With no message unanswered on a route that takes part (the others' settled by the renderer's last word, its engine's `Died`, the host's keep and close) every route keeps its ordinary death. An end from another thread while the reader is held in a delivery (a queue past its bound) is decided at that end: with the unanswered route closed or kept before the reader's fan-out the idle one is still spared, and with none unanswered it is ordinary. A route with `kRemoteQueuedCalls` messages unanswered ends the stream at the next one, which is not sent. The owner's stop decides nothing: every death ordinary, a widget attached afterwards too.
+/// The stream's first end decides at once, under the connection's lock and before any client hears it, what each hosted widget's death is (`SandboxHostedChannel::death`, read once its client reported it), and nothing changes that afterwards. At the engine process's end of the stream: A's answer, read while A's client is held on its dispatch thread, leaves A spared though A's client had heard neither the answer nor the end when the end was reported; B's young unanswered message and H's hidden frame keep their ordinary deaths; an idle route is spared, a renderer that said its last word keeps its own death, and a widget attached afterwards is spared. With no message unanswered on a route that takes part (the others' settled by the renderer's last word, its engine's `Died`, the host's keep and close) every route keeps its ordinary death. An end from another thread while the reader is held in a delivery (a queue past its bound) is decided at that end: with the unanswered route closed or kept before the reader's fan-out the idle one is still spared, and with none unanswered it is ordinary. A route with `kRemoteQueuedCalls` messages unanswered ends the stream at the next one, which is not sent. The owner's stop decides nothing and, the stream's first end, tells no end before it, nor does a second one: every death ordinary, a widget attached afterwards too.
 TEST(remote_stream_hosted_answers_decide_each_death_once_at_the_end) {
     const std::string closed = "the engine process closed the stream";
     {
@@ -1248,7 +1248,8 @@ TEST(remote_stream_hosted_answers_decide_each_death_once_at_the_end) {
         AnsweringClient waiting(engine, 1), idle(engine, 2);
         waiting.client->platform("ask:1");
         waiting.settle();
-        engine.host().stop();
+        const std::optional<std::chrono::steady_clock::time_point> first = engine.host().stop(), second = engine.host().stop();
+        CHECK(!first && !second);
         CHECK_MSG(endsOnce(engine.events().all(), "the host stopped the stream"), joined(engine.events().all()));
         CHECK_MSG(waiting.death() == "ordinary" && idle.death() == "ordinary", waiting.death() + " " + idle.death());
         AnsweringClient attached(engine, 0);

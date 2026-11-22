@@ -426,10 +426,11 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
         else endLocked("an opening past the bound of " + std::to_string(SandboxRemoteWire::kMaxOpeningBytes) + " bytes");
     }
 
-    /// The owner's stop (`SandboxRemoteHostEnd::stop`): the stream ends, deciding nothing of its routes' deaths.
-    void stop() {
+    /// The owner's stop (`SandboxRemoteHostEnd::stop`): the stream ends, deciding nothing of its routes' deaths; the instant of a first end that was no stop.
+    std::optional<Clock::time_point> stop() {
         std::lock_guard<std::mutex> l(mutex_);
         endLocked(kHostStopped, End::Stopped);
+        return stopped_ ? std::nullopt : std::optional<Clock::time_point>(endedAt_);
     }
 
     /// After the threads joined: the stream goes, outside the lock.
@@ -874,13 +875,14 @@ private:
     /// Why the stream ends, as far as its routes' deaths go: a renderer's answer time that ran out by the end's instant (`expireLocked`), the owner's stop, or any other end (the reader's, a write that failed or stalled, a queue past its bounds, a frame the stream cannot take).
     enum class End : uint8_t { Lost, Unanswered, Stopped };
 
-    /// The first reason wins, and with it, on an accounting stream, the decision of every open route's death (`blameLocked`, `at` the instant of an `Unanswered` end), before the shutdown and before any client hears the end; the stream's shutdown wakes a blocked write and read without waiting, and nothing more is queued or delivered.
+    /// The first reason wins, with its instant (`endedAt_`: for an `Unanswered` end `at`, the instant its look concluded, otherwise now), and with it, on an accounting stream, the decision of every open route's death at that same instant (`blameLocked`), before the shutdown and before any client hears the end; the stream's shutdown wakes a blocked write and read without waiting, and nothing more is queued or delivered.
     void endLocked(std::string why, End end = End::Lost, Clock::time_point at = {}) {
         if (ending_) return;
         ending_ = true;
+        endedAt_ = end == End::Unanswered ? at : Clock::now();
         reason_ = std::move(why);
         stopped_ = end == End::Stopped;
-        if (accounting() && !stopped_) blameLocked(end == End::Unanswered, at);
+        if (accounting() && !stopped_) blameLocked(end == End::Unanswered, endedAt_);
         if (held_) held_->shutdown();
         work_.notify_all();
         watched_.notify_all();
@@ -1046,6 +1048,8 @@ private:
     std::condition_variable watched_;
     std::shared_ptr<SandboxRemoteStream> held_;
     bool ending_ = false;
+    /// The first end's instant (`endLocked`), one value for the routes and the owner: the one `blameLocked` decided their deaths at, and the one the owner's `stop` tells unless it was that end.
+    Clock::time_point endedAt_;
     std::string reason_;
     /// The owner's stop ended it (`End::Stopped`): no route's death was decided.
     bool stopped_ = false;
@@ -1203,12 +1207,13 @@ std::shared_ptr<SandboxHostedChannel> SandboxRemoteHostEnd::hostedChannel() {
     return std::make_shared<Connection::Channel>(connection_);
 }
 
-void SandboxRemoteHostEnd::stop() {
-    connection_->stop();
+std::optional<Clock::time_point> SandboxRemoteHostEnd::stop() {
+    const std::optional<Clock::time_point> endedAt = connection_->stop();
     reader_->join();
     writer_->join();
     monitor_->join();
     connection_->release();
+    return endedAt;
 }
 
 SandboxRemoteHostEnd::AnswerLook SandboxRemoteHostEnd::lookAtAnswers(std::optional<Clock::time_point> due, std::optional<Clock::time_point> wake, std::optional<Clock::time_point> recheck,

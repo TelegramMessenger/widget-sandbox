@@ -793,7 +793,12 @@ engine's host kinds (`Start`, `Event`, `Activation`, `AnimationFrame`,
   `widget.answer` when the engine destroys it on the owner's thread. Neither
   cuts short delegate or provider code that already runs: `WidgetHost`'s
   `destroy()` answers its pending layout query dead, and a delegate of your own
-  releases its own waits.
+  releases its own waits. When the stream ended otherwise first (a refusal
+  before `Ready` among them), it returns that end's `std::chrono::steady_clock`
+  instant, taken as the end came (for an answer time that ran out, the instant
+  it was judged to have run out, at which the widgets' deaths were decided),
+  also while `ended` has yet to report that end and at a second stop; none
+  when it or an earlier stop ended the stream.
 - `start` and `startHosting` throw `std::system_error` when `widget.reader`,
   `widget.writer` or `widget.monitor` cannot start: those already started are
   joined, nothing was written to the stream, `Events` hear nothing, and the
