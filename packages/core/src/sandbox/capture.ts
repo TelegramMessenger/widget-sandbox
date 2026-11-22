@@ -12,7 +12,7 @@
 // is implemented on top of the same reconciliation.
 
 import { DOCUMENT_ID } from '../shared/protocol';
-import { document, domHooks, exposeNode, quietly, SVG_NS } from './dom';
+import { document, domHooks, exposeNode, inPlaceTextTarget, quietly, SVG_NS } from './dom';
 import { OpWriter } from './binary-ops';
 import { boxNeutral } from './box-neutral';
 import { counters, host, hostOps, invalidateLayout, sendStagedCanvas } from './host';
@@ -46,7 +46,27 @@ let generation = 0;
  * flushes leave it alone, so a loop that reads or styles the items of a collection stays linear.
  */
 export const domGeneration = (): number => generation;
-const dirty = new Set<any>();
+/**
+ * Bumped only by what can change which element an id names: an element inserted or removed, an `id` written. Not once
+ * a task, as `generation` is: document.getElementById keeps what it found across tasks by it (dom.ts).
+ */
+let treeGeneration = 0;
+domHooks.treeGeneration = () => treeGeneration;
+/**
+ * Elements whose only reason to be dirty is a string written over their own text node in place (the setter below):
+ * the node carries the change, so the flush passes over the element. It keeps its place in `dirty` all the same: a
+ * later change of the element is then synced where the write stood, as when the node is replaced.
+ */
+const textOnly = new Set<any>();
+/** The nodes to sync at the next flush, in the order they were first touched. Any other mark makes a `textOnly` element an ordinary dirty one. */
+class DirtyNodes extends Set<any> {
+  add(node: any): this {
+    if (textOnly.size) textOnly.delete(node);
+    return super.add(node);
+  }
+}
+const markTextOnly = Set.prototype.add;
+const dirty: Set<any> = new DirtyNodes();
 let ops: any[] | OpWriter = [];
 /**
  * Ops after which a long flush hands what it has to the glue between two nodes: a document built in one task (2000
@@ -599,13 +619,18 @@ function flushNow(full: boolean): void {
   for (let i = 0; i < 8 && dirty.size; i++) {
     const batch = [...dirty];
     dirty.clear();
-    for (const node of batch) if (node) { syncNode(node); sendIfLarge(); }
+    for (const node of batch) {
+      if (!node || textOnly.delete(node)) continue;
+      syncNode(node);
+      sendIfLarge();
+    }
   }
   if (full) {
     const before = partialSent + ops.length;
     walkAll(document);
     counters.missed += partialSent + ops.length - before;
     dirty.clear();
+    textOnly.clear();
   }
   for (const o of postOps) {
     if (o.node) {
@@ -751,7 +776,10 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
           value: function (this: any, a?: any, b?: any) {
             'use strict';
             const n = arguments.length;
-            if (n > 2 || changesTree(kind, this, a, b)) generation++;
+            const moved = n > 2 || changesTree(kind, this, a, b);
+            if (moved) generation++;
+            // An attribute method changes the tree for an id lookup only by the `id` attribute.
+            if (kind === 1 ? n > 2 || String(a).toLowerCase() === 'id' : moved) treeGeneration++;
             if (self) dirty.add(this);
             if (parent) dirty.add(this.parentNode);
             if (n > 2) {
@@ -780,7 +808,24 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
               }
             : get,
           set: function (this: any, v: any) {
-            if (tree && (!text || this.firstElementChild)) generation++;
+            if (name === 'textContent' && typeof v === 'string' && v !== '' && this.nodeType === 1) {
+              // A string over an element's own text node: the node takes it and carries the change, and the element
+              // is only held in its place among the dirty nodes. The text the node already has is no change.
+              const node = inPlaceTextTarget(this);
+              if (node) {
+                if (!dirty.has(this)) {
+                  markTextOnly.call(dirty, this);
+                  textOnly.add(this);
+                }
+                if (node.data !== v) node.data = v;
+                return;
+              }
+            }
+            if (tree && (!text || this.firstElementChild)) {
+              generation++;
+              if (name !== 'className') treeGeneration++;
+            }
+            if (name === 'id' || (this.nodeType === 2 && this.name === 'id')) treeGeneration++;
             dirty.add(this);
             // CharacterData and Attr setters affect what their owner renders.
             if (this.nodeType === 2) dirty.add(this.ownerElement);

@@ -3,6 +3,26 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: id lookups and text writes in the shim (2026-11-23)
+
+Two costs of the shim that a widget paid on every frame, found on a widget that redraws its texts while a slider
+moves (Telegram Android, a Redmi Note 11: the script used up the CPU quota at a third of the display's rate).
+
+- `document.getElementById` keeps what it found. linkedom walks every node of the document and reads each
+  element's `id` for each call, so a lookup cost the whole document: in one of 170 nodes, 15 lookups took nine
+  times what 15 text writes did. The answer is kept until an element is inserted or removed or an `id` is written
+  (`domHooks.treeGeneration`, bumped by the wrappers that see those; not once a task), and checked when it is used
+  (the id still there, the element still connected), for a write no wrapper sees. Two elements with one id still
+  answer the first in tree order.
+- A string written to `textContent` over the element's own text node (the in-place path) no longer makes the
+  element dirty: the node carries the change, and the element only keeps its place among the dirty nodes
+  (`textOnly`), so the ops and their order are what the replacing path sends. The text the node already has is
+  not written at all and sends nothing.
+
+Measured in the desktop core (QuickJS, an M-series Mac, CPU time of a task in a 170-node document): 15 lookups each
+followed by a write of the same text 792 µs → 30 µs, of a new text 868 µs → 78 µs. `tests/unit/id-lookup.test.ts`;
+the bundles are rebuilt (only `sandbox-bundle.js` and its `.qbc` change).
+
 ## Unreleased: the Nova engine in the C++ core (opt-in, 2026-11-15)
 
 `QuickJSBackend::Nova` in `packages/desktop`: the widget's code and the validator's run on Nova (the nova-safe fork,

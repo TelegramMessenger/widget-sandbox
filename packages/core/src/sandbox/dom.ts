@@ -30,7 +30,12 @@ export const EXPOSED = Symbol('tw.exposed');
 /** Set on a parent once script holds a live childNodes list of it: every child counts as exposed. */
 const KIDS_EXPOSED = Symbol('tw.kidsExposed');
 /** Hooks the capture layer fills in. */
-export const domHooks = { observing: (): boolean => false, markDirty: (_node: any): void => {} };
+export const domHooks = {
+  observing: (): boolean => false,
+  markDirty: (_node: any): void => {},
+  /** Moves when an element is inserted or removed or an `id` is written (capture.ts): what an id lookup found holds until then. */
+  treeGeneration: (): number => 0,
+};
 let inPlaceText = true;
 let inPlaceKilled = false;
 let rawFirstChild: () => any;
@@ -61,6 +66,45 @@ export function exposeAll(): void {
 
 export function setInPlaceText(enabled: boolean): void {
   inPlaceText = enabled && !inPlaceKilled;
+}
+
+/**
+ * The text node that a string written to `el.textContent` goes into as it is: the element's only child, a text node
+ * no script holds, with no observer to tell. Null when the write must replace the node.
+ */
+export function inPlaceTextTarget(el: any): any {
+  if (!inPlaceText || el[KIDS_EXPOSED] || domHooks.observing()) return null;
+  const first = rawFirstChild.call(el);
+  return first && first.nodeType === 3 && !first[EXPOSED] && !rawNextSibling.call(first) ? first : null;
+}
+
+// document.getElementById: linkedom walks every node of the document and reads each element's `id` attribute, for
+// each call. A widget that looks its elements up by id every frame paid for the whole document many times a frame.
+// What a lookup found is kept until the tree or an `id` changes (domHooks.treeGeneration), and checked when it is
+// used: a write no wrapper saw (an Attr's value) may have taken the id or the element away.
+{
+  const proto = ownerOf(document, 'getElementById');
+  const scan = proto && proto.getElementById;
+  if (typeof scan === 'function') {
+    const found = new Map<string, any>();
+    let foundAt = -1;
+    proto.getElementById = function (this: any, id: any) {
+      'use strict';
+      if (this !== document) return scan.call(this, id);
+      const key = String(id);
+      const at = domHooks.treeGeneration();
+      if (at !== foundAt) {
+        found.clear();
+        foundAt = at;
+      }
+      const hit = found.get(key);
+      if (hit !== undefined && hit.id === key && hit.isConnected) return hit;
+      const el = scan.call(this, key);
+      if (el) found.set(key, el);
+      else found.delete(key);
+      return el;
+    };
+  }
 }
 
 // Exposure tracking: every getter that can hand a text node to script marks it.
