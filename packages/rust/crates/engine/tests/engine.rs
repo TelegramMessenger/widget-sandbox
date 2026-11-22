@@ -111,6 +111,51 @@ fn engine(html: &str, config: SandboxConfig) -> (SandboxEngine, Arc<Recorder>) {
     (engine, recorder)
 }
 
+#[cfg(feature = "oracle-stats-clock")]
+#[test]
+fn trailing_stats_follow_the_oracles_clock() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct Clock(AtomicU64);
+    impl Platform for Clock {
+        fn thread_cpu_seconds(&self) -> f64 {
+            0.0
+        }
+        fn time_zone_offset(&self, _: i64) -> i32 {
+            0
+        }
+        fn random(&self, bytes: &mut [u8]) {
+            TestPlatform.random(bytes);
+        }
+        fn steady_seconds(&self) -> f64 {
+            f64::from_bits(self.0.load(Ordering::Relaxed))
+        }
+    }
+
+    let clock = Arc::new(Clock(AtomicU64::new(1000.0f64.to_bits())));
+    let engine =
+        SandboxEngine::new(b"<p>test</p>".to_vec(), SandboxConfig::default(), resources(), Arc::new(NoIntl), clock.clone()).unwrap();
+    let recorder = Arc::new(Recorder::default());
+    engine.set_delegate(recorder.clone());
+    engine.start();
+    let advance = |time: f64| {
+        clock.0.store(time.to_bits(), Ordering::Relaxed);
+        assert_eq!(engine.probe(b"__twidget_oracle_advance_stats__"), b"1");
+        recorder.seen.lock().unwrap().stats
+    };
+    let initial = advance(1000.0);
+    engine.charge_validator(1.0);
+    engine.charge_validator(1.0);
+    assert_eq!(advance(1000.0), initial);
+    assert_eq!(advance(1000.199), initial);
+    assert_eq!(advance(1000.2), initial + 1);
+    assert_eq!(advance(1000.2), initial + 1);
+    engine.charge_validator(1.0);
+    engine.stop(b"done");
+    assert_eq!(advance(1000.2), initial + 1);
+    assert_eq!(advance(1001.0), initial + 1);
+}
+
 #[test]
 fn boots_and_emits_initial_tree() {
     let (engine, r) = engine("<div id=\"x\">hello</div>", SandboxConfig::default());

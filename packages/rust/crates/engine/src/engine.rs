@@ -354,7 +354,10 @@ struct State {
     last_throttle_diag: f64,
     throttled_since_diag: BTreeMap<Vec<u8>, i32>,
     pending_before_boot: Vec<(Vec<u8>, Vec<u8>)>,
+    #[cfg(not(feature = "oracle-stats-clock"))]
     trailing_stats: Option<Arc<Scheduled>>,
+    #[cfg(feature = "oracle-stats-clock")]
+    trailing_stats: Option<f64>,
     /// The gesture whose event task is running (0 outside one); one gesture unlocks one privileged bridge call.
     active_gesture: i32,
     consumed_gesture: i32,
@@ -366,6 +369,19 @@ struct State {
     held_request: Option<HeldRequest>,
     blocked_requests_reported: i32,
     preview_blocked_reported: i32,
+}
+
+impl State {
+    fn cancel_trailing_stats(&mut self) {
+        #[cfg(not(feature = "oracle-stats-clock"))]
+        if let Some(timer) = self.trailing_stats.take() {
+            timer.cancel();
+        }
+        #[cfg(feature = "oracle-stats-clock")]
+        {
+            self.trailing_stats = None;
+        }
+    }
 }
 
 /// The engine on its thread: what `&Engine` the delegate gets is.
@@ -905,6 +921,13 @@ impl Engine {
     }
 
     fn probe(&self, code: &[u8]) -> Vec<u8> {
+        #[cfg(feature = "oracle-stats-clock")]
+        if code == b"__twidget_oracle_advance_stats__" {
+            if self.st.borrow().trailing_stats.is_some_and(|due| self.now_seconds() >= due) {
+                self.post_stats(true);
+            }
+            return b"1".to_vec();
+        }
         if self.dead() {
             return b"ERROR no runtime".to_vec();
         }
@@ -1674,9 +1697,7 @@ impl Engine {
             if let Some(t) = st.wake_timer.take() {
                 t.cancel();
             }
-            if let Some(t) = st.trailing_stats.take() {
-                t.cancel();
-            }
+            st.cancel_trailing_stats();
         }
         if let Some(d) = self.delegate() {
             d.on_died(self, reason);
@@ -1919,11 +1940,12 @@ impl Engine {
             let mut st = self.st.borrow_mut();
             if force || now - st.last_stats_post > 0.2 {
                 st.last_stats_post = now;
-                if let Some(t) = st.trailing_stats.take() {
-                    t.cancel();
-                }
+                st.cancel_trailing_stats();
                 Some(st.stats)
             } else {
+                #[cfg(feature = "oracle-stats-clock")]
+                st.trailing_stats.get_or_insert(now + 0.2);
+                #[cfg(not(feature = "oracle-stats-clock"))]
                 if st.trailing_stats.is_none() {
                     st.trailing_stats = Some(self.after(0.2, |e| {
                         e.st.borrow_mut().trailing_stats = None;
