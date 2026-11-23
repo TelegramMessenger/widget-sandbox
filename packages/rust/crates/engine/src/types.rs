@@ -1,5 +1,6 @@
 //! `sandbox_engine.h`'s value types: what the host gives an engine (its configuration, the chat's theme, the
-//! band the client draws over the widget) and what the engine reports back (its counters, a query's answer).
+//! band the client draws over the widget, the device's edges), the geometry of each place, and what the engine
+//! reports back (its counters, a query's answer).
 
 use std::collections::BTreeMap;
 
@@ -8,7 +9,8 @@ use twidget_sdk_policy::{DEFAULT_LOCALE, WidgetContext, WidgetData, WidgetStorag
 
 /// What the client draws over the widget, in CSS px (docs/sdk-v1.md §2.17, §5.12): the band of the message
 /// time and status over a widget with no caption below it, and the corner the time takes in it. Passed as
-/// given: the renderer core and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
+/// given: the renderer core and the shim keep an inset of 0–64 and a corner of 0–200 in a bubble, and on a
+/// profile page any finite inset ≥ 0 with the corners 0; anything else is 0.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WidgetContentSafeArea {
     pub top: f64,
@@ -34,6 +36,78 @@ impl WidgetContentSafeArea {
             out.set(name, if v.is_finite() { v } else { 0.0 });
         }
         out
+    }
+}
+
+/// The device's edges over the widget, in CSS px (docs/sdk-v1.md §2.17): on a profile page the status bar and the
+/// cutout (`top`), the home indicator or the navigation bar (`bottom`), the sides in landscape. The widget sees it as
+/// `env(safe-area-inset-*)` (the sum with `WidgetContentSafeArea`), the `--tg-safe-area-inset-*` variables and
+/// `TelegramWidget.safeAreaInset`. Passed as given: the renderer core and the shim keep any finite value ≥ 0 on a page
+/// (NaN, infinite and negative are 0), and everything is 0 in a bubble.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WidgetSafeArea {
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+    pub left: f64,
+}
+
+impl WidgetSafeArea {
+    /// The TS `SafeAreaInset` shape; a value that is not finite is 0 (JSON has no NaN).
+    pub fn json(&self) -> Json {
+        let mut out = Json::object();
+        for (name, v) in [("top", self.top), ("right", self.right), ("bottom", self.bottom), ("left", self.left)] {
+            out.set(name, if v.is_finite() { v } else { 0.0 });
+        }
+        out
+    }
+}
+
+/// The geometry of each place, profile.json's `tables.surfaces` (checked by `profile-surface.test.ts`): a bubble is
+/// 50–600 high and its resize anchor moves it, a page is at least its viewport and at most `PAGE_MAX_HEIGHT` and never
+/// moves.
+pub mod surface {
+    use twidget_sdk_policy::WidgetSurface;
+
+    /// The least height of either place, in CSS px.
+    pub const MIN_HEIGHT: f64 = 50.0;
+    /// A bubble's greatest height, in CSS px.
+    pub const MESSAGE_MAX_HEIGHT: f64 = 600.0;
+    /// A profile page's greatest height, in CSS px. Provisional: the page ceiling waits for the clients' measurements.
+    pub const PAGE_MAX_HEIGHT: f64 = 4000.0;
+
+    /// Whether the widget's `setResizeAnchor` moves anything here: a bubble keeps the anchored edge, a page never moves.
+    pub fn keeps_resize_anchor(s: WidgetSurface) -> bool {
+        s == WidgetSurface::Message
+    }
+
+    /// A profile page's viewport as the glue passes it on: finite, above 0 and at most the page ceiling (checked
+    /// before the rounding), two decimals; anything else, and every bubble, is 0 (no `--tg-viewport-height`).
+    pub fn check_viewport_height(s: WidgetSurface, height: f64) -> f64 {
+        if s != WidgetSurface::Profile || !height.is_finite() || height <= 0.0 || height > PAGE_MAX_HEIGHT {
+            return 0.0;
+        }
+        (height * 100.0).round() / 100.0
+    }
+
+    /// The height the client lays the widget out at: a bubble's content in [50, 600], a page's at least its viewport
+    /// (and 50), at most the page ceiling; a content height that is not finite counts as 0.
+    pub fn height(s: WidgetSurface, content: f64, viewport: f64) -> f64 {
+        let h = if content.is_finite() { content } else { 0.0 };
+        if s == WidgetSurface::Message {
+            return min(max(h, MIN_HEIGHT), MESSAGE_MAX_HEIGHT);
+        }
+        min(max(h, max(MIN_HEIGHT, check_viewport_height(s, viewport))), PAGE_MAX_HEIGHT)
+    }
+
+    /// `std::max` as the C++ compares: `(a < b) ? b : a`.
+    fn max(a: f64, b: f64) -> f64 {
+        if a < b { b } else { a }
+    }
+
+    /// `std::min` as the C++ compares: `(b < a) ? b : a`.
+    fn min(a: f64, b: f64) -> f64 {
+        if b < a { b } else { a }
     }
 }
 
@@ -217,6 +291,9 @@ pub struct SandboxConfig {
     pub locale: Vec<u8>,
     /// What the client draws over the widget at boot; later changes go through `content_safe_area`.
     pub content_safe_area: WidgetContentSafeArea,
+    /// The device's edges over the widget at boot (docs/sdk-v1.md §2.17), 0 in a bubble whatever is passed; later
+    /// changes go through `safe_area`.
+    pub safe_area: WidgetSafeArea,
     /// Web Storage of this message as the client keeps it.
     pub storage: WidgetStorage,
     /// The bot's `chatData` and `publicData` at start.
@@ -248,6 +325,7 @@ impl Default for SandboxConfig {
             theme_params: BTreeMap::new(),
             locale: DEFAULT_LOCALE.as_bytes().to_vec(),
             content_safe_area: WidgetContentSafeArea::default(),
+            safe_area: WidgetSafeArea::default(),
             storage: WidgetStorage::default(),
             data: WidgetData::default(),
             context: WidgetContext::default(),

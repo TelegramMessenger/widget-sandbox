@@ -1,6 +1,7 @@
 //! The engine in process on the real sandbox bundle (packages/desktop/WidgetJS), a few of
 //! packages/desktop/tests/test_main.cpp's engine tests ported by name; the rest run through the C++ suite against
-//! this engine over the stream (`TW_ENGINE_STREAM=rust`).
+//! this engine over the stream (`TW_ENGINE_STREAM=rust`). The places (`surface`) are also compared with the compiled
+//! C++ (`oracle/sdk_policy_oracle`).
 
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -9,6 +10,8 @@ use twidget_bundle_stamp::SandboxResources;
 use twidget_engine::*;
 use twidget_js::{Platform, now};
 use twidget_json::Json;
+use twidget_sdk_policy::{WidgetContext, WidgetSurface, surface_name};
+use twidget_testkit::{Comparison, Fields, Oracle, framed};
 
 struct TestPlatform;
 
@@ -42,6 +45,8 @@ struct Seen {
     loaded: bool,
     died: Option<String>,
     stats: usize,
+    /// Each edge `on_resize_anchor` got.
+    anchors: Vec<String>,
 }
 
 #[derive(Default)]
@@ -86,6 +91,9 @@ impl EngineDelegate for Recorder {
     }
     fn on_diag(&self, _: &Engine, kind: &[u8], detail: &[u8]) {
         self.note(|s| s.diags.push((text(kind), text(detail))));
+    }
+    fn on_resize_anchor(&self, _: &Engine, edge: &[u8]) {
+        self.note(|s| s.anchors.push(text(edge)));
     }
     fn on_loaded(&self, _: &Engine) {
         self.note(|s| s.loaded = true);
@@ -190,6 +198,119 @@ fn widget_code_cannot_reach_host_globals() {
     let (engine, r) = engine("<div>x</div>", SandboxConfig::default());
     r.wait("loaded", |s| s.loaded || s.died.is_some());
     assert_eq!(engine.probe(b"typeof __host + typeof __hostBinary + typeof __twDispatch"), b"undefinedundefinedundefined");
+}
+
+/// Probes `code` until it gives something other than `empty`, for at most 20 s; what it gave last.
+fn probe_until(engine: &SandboxEngine, code: &str, empty: &str) -> String {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let got = text(&engine.probe(code.as_bytes()));
+        if got != empty || Instant::now() > deadline {
+            return got;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The bot's profile page (docs/sdk-v1.md §2.19), the engine's half of test_main.cpp's test: the place and both layers
+/// reach the widget from its first line (no corners and no chat type on a page), two equal device updates fire one
+/// safeAreaChanged, the geometry of each place, and the widget's resize anchor goes nowhere on a page (the shim keeps
+/// it there, and the engine drops one that reaches it all the same). In a bubble the device's edges are 0 and the
+/// anchor reaches the delegate (the bubble's script adds the page's call to the C++ one).
+#[test]
+fn sdk_profile_surface_layers_height_and_anchor() {
+    use WidgetSurface::{Message, Profile};
+    // The C++ test's checks.
+    assert!(surface::height(Message, 9000.0, 844.0) == 600.0 && surface::height(Message, 10.0, 844.0) == 50.0);
+    assert!(surface::height(Profile, 120.0, 844.0) == 844.0 && surface::height(Profile, 9000.0, 844.0) == surface::PAGE_MAX_HEIGHT);
+    assert!(surface::check_viewport_height(Profile, 844.123) == 844.12 && surface::check_viewport_height(Profile, 4001.0) == 0.0);
+    assert!(surface::check_viewport_height(Message, 844.0) == 0.0 && surface::PAGE_MAX_HEIGHT == 4000.0);
+    // The edges of the merged rule: the viewport's range is checked before it is rounded, a content height that is not
+    // finite counts as 0, a page without a usable viewport is at least 50.
+    for (s, h, want) in [
+        (Profile, 0.5, 0.5f64),
+        (Profile, 0.0, 0.0),
+        (Profile, -1.0, 0.0),
+        (Profile, 4000.0, 4000.0),
+        (Profile, 4000.004, 0.0),
+        (Profile, 0.004, 0.0),
+        (Profile, f64::NAN, 0.0),
+        (Profile, f64::INFINITY, 0.0),
+        (Profile, 844.123, 844.12),
+        (Message, 844.0, 0.0),
+    ] {
+        assert_eq!(surface::check_viewport_height(s, h).to_bits(), want.to_bits(), "check_viewport_height({s:?}, {h})");
+    }
+    for (s, content, viewport, want) in [
+        (Message, f64::NAN, 0.0, 50.0),
+        (Profile, f64::NAN, 844.0, 844.0),
+        (Profile, 120.0, 0.0, 120.0),
+        (Profile, 10.0, 0.0, 50.0),
+        (Profile, 120.0, 844.0, 844.0),
+        (Profile, 9000.0, 844.0, 4000.0),
+        (Message, 9000.0, 844.0, 600.0),
+        (Message, 10.0, 844.0, 50.0),
+    ] {
+        assert_eq!(surface::height(s, content, viewport), want, "height({s:?}, {content}, {viewport})");
+    }
+    assert!(surface::keeps_resize_anchor(Message) && !surface::keeps_resize_anchor(Profile));
+
+    let mut page_config = SandboxConfig::default();
+    // A page has no chat: null for the widget.
+    page_config.context = WidgetContext { surface: Profile, chat_type: b"private".to_vec(), ..WidgetContext::default() };
+    // Past the old ranges: as passed on a page; negative: 0 for the widget.
+    page_config.safe_area = WidgetSafeArea { top: 120.0, bottom: 34.0, left: -5.0, ..WidgetSafeArea::default() };
+    // No corners on a page: 0 for the widget.
+    page_config.content_safe_area =
+        WidgetContentSafeArea { top: 90.0, bottom: 150.0, left: 40.0, corner_right: 64.0, ..WidgetContentSafeArea::default() };
+    let (page, r) = engine(
+        concat!(
+            "<p>x</p><script>var log = [], d = TelegramWidget.safeAreaInset, c = TelegramWidget.contentSafeAreaInset;",
+            "var place = [TelegramWidget.surface, d.top, d.bottom, d.left, c.top, c.bottom, c.left, c.cornerRight, String(TelegramWidget.chatType)].join(':');",
+            "TelegramWidget.onEvent('safeAreaChanged', function () { var a = TelegramWidget.safeAreaInset; log.push([a.top, a.left, a.right, a.bottom, Object.isFrozen(a), a !== d].join(':')); });",
+            "TelegramWidget.setResizeAnchor('bottom');</script>"
+        ),
+        page_config,
+    );
+    r.wait("the page loaded", |s| s.loaded || s.died.is_some());
+    assert_eq!(text(&page.probe(b"place")), "profile:120:34:0:90:150:40:0:null");
+    {
+        let seen = r.seen.lock().unwrap();
+        assert!(seen.died.is_none(), "{:?}", seen.died);
+        assert!(seen.anchors.is_empty(), "a page's anchor reached the delegate: {:?}", seen.anchors);
+        assert!(!seen.diags.iter().any(|(k, _)| k == "bridge-rejected"), "{:?}", seen.diags);
+    }
+    let turned = WidgetSafeArea { left: 59.0, right: 59.0, bottom: 21.0, ..WidgetSafeArea::default() };
+    page.safe_area(turned);
+    page.safe_area(turned);
+    assert_eq!(probe_until(&page, "log.join('|')", ""), "0:59:59:21:true:true");
+    assert!(r.seen.lock().unwrap().anchors.is_empty());
+    drop(page);
+
+    let bubble_config = SandboxConfig { safe_area: WidgetSafeArea { top: 47.0, ..WidgetSafeArea::default() }, ..SandboxConfig::default() };
+    let (bubble, r) = engine(
+        "<script>var s = TelegramWidget.surface + ':' + JSON.stringify(TelegramWidget.safeAreaInset);TelegramWidget.setResizeAnchor('bottom');</script>",
+        bubble_config,
+    );
+    r.wait("the bubble's anchor", |s| !s.anchors.is_empty() || s.died.is_some());
+    assert_eq!(r.seen.lock().unwrap().anchors, ["bottom"]);
+    assert_eq!(text(&bubble.probe(b"s")), r#"message:{"top":0,"right":0,"bottom":0,"left":0}"#);
+}
+
+/// The places against the compiled C++ (`oracle/sdk_policy_oracle`, record 'P'): each place's wire name, whether its
+/// resize anchor moves anything and the three height limits of `sandbox_engine.h`. Skipped without
+/// `TWIDGET_ORACLE_DIR`; `tools/gate.py` sets it.
+#[test]
+fn surfaces_alike() {
+    let Some(oracle) = Oracle::find("sdk_policy_oracle") else { return };
+    let mut c = Comparison::new();
+    for (byte, place) in [(0u8, WidgetSurface::Message), (1, WidgetSurface::Profile)] {
+        let mut f = Fields::new();
+        f.str(surface_name(place).as_bytes()).flag(surface::keeps_resize_anchor(place));
+        f.f64(surface::MIN_HEIGHT).f64(surface::MESSAGE_MAX_HEIGHT).f64(surface::PAGE_MAX_HEIGHT);
+        c.case(&framed(b'P', &[byte]), (1, f.take()), format!("the place {place:?}"));
+    }
+    assert_eq!(c.check(&oracle), [0, 2, 0]);
 }
 
 type Diags = Arc<Mutex<Vec<(String, String)>>>;

@@ -10,7 +10,7 @@ mod validator;
 
 pub use engine::{Engine, EngineDelegate, IntlProvider, SandboxEngine, WidgetRequestResponder};
 pub use types::{
-    QueryAnswer, SandboxConfig, SandboxHostedStart, SandboxStats, WidgetButtonTokens, WidgetContentSafeArea, WidgetTextTokens, WidgetTheme,
-    is_strict_policy,
+    QueryAnswer, SandboxConfig, SandboxHostedStart, SandboxStats, WidgetButtonTokens, WidgetContentSafeArea, WidgetSafeArea,
+    WidgetTextTokens, WidgetTheme, is_strict_policy, surface,
 };
 pub use validator::{CpuSink, DiagSink, TrustedValidator, ValidatorError};

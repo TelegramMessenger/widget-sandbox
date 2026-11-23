@@ -22,10 +22,10 @@ use twidget_json::{Json, Surrogates};
 use twidget_sdk_policy as sdk;
 use twidget_sdk_policy::{
     ActionKind, HapticDecision, HapticGate, RequestConditions, RequestGate, RequestVerdict, StorageArea, WalletCall, WalletConditions,
-    WidgetAction, WidgetData, WidgetRequest, WidgetRequestFailure, WidgetRequestOutcome,
+    WidgetAction, WidgetData, WidgetRequest, WidgetRequestFailure, WidgetRequestOutcome, WidgetSurface,
 };
 
-use crate::types::{QueryAnswer, SandboxConfig, SandboxStats, WidgetContentSafeArea, is_strict_policy};
+use crate::types::{QueryAnswer, SandboxConfig, SandboxStats, WidgetContentSafeArea, WidgetSafeArea, is_strict_policy, surface};
 
 const ACTIVATION_PREFIX: &[u8] = b"activation:";
 const HIDE_HOST_GLOBALS: &[u8] =
@@ -257,6 +257,22 @@ impl SandboxEngine {
         });
     }
 
+    /// The device's edges over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.safeAreaInset` and
+    /// `safeAreaChanged` in one task; the shim checks the values against the place (0 in a bubble). Before boot it
+    /// only replaces the config's.
+    pub fn safe_area(&self, area: WidgetSafeArea) {
+        self.post(move |e| {
+            if e.dead() {
+                return;
+            }
+            if !e.booted() {
+                *e.device_safe_area.borrow_mut() = area;
+                return;
+            }
+            e.input(b"deviceSafeArea", &area.json().dump());
+        });
+    }
+
     /// The bot's data changed: the full state of both strings, checked as at boot.
     pub fn set_data(&self, data: &WidgetData) {
         let checked = sdk::check_widget_data(data, self.shared.config.context.is_copy);
@@ -397,6 +413,8 @@ pub struct Engine {
     deadlines: RefCell<Option<Rc<Deadlines>>>,
     /// The config's band until boot; the widget's own afterwards.
     safe_area: RefCell<WidgetContentSafeArea>,
+    /// The config's device edges until boot, as `safe_area` is the band.
+    device_safe_area: RefCell<WidgetSafeArea>,
     st: RefCell<State>,
 }
 
@@ -611,6 +629,7 @@ impl Engine {
             preview_blocked_reported: 0,
         };
         let safe_area = c.content_safe_area;
+        let device_safe_area = c.safe_area;
         Engine {
             me,
             poster,
@@ -621,6 +640,7 @@ impl Engine {
             js: RefCell::new(None),
             deadlines: RefCell::new(None),
             safe_area: RefCell::new(safe_area),
+            device_safe_area: RefCell::new(device_safe_area),
             st: RefCell::new(st),
         }
     }
@@ -808,6 +828,8 @@ impl Engine {
         config.set("themeParams", sdk::theme_params_json(&sdk::check_theme_params_map(&c.theme_params)));
         config.set("locale", sdk::check_locale(&c.locale).unwrap_or_else(|| sdk::DEFAULT_LOCALE.as_bytes().to_vec()));
         config.set("contentSafeArea", self.safe_area.borrow().json());
+        config.set("deviceSafeArea", self.device_safe_area.borrow().json());
+        config.set("surface", sdk::surface_name(c.context.surface));
         config.set("profile", sdk::PROFILE_VERSION);
         // A preview has no message yet: no storage of its own.
         let (storage, preload_accepted) = if c.context.preview { (Json::object(), true) } else { sdk::storage_preload_json(&c.storage) };
@@ -822,12 +844,17 @@ impl Engine {
             );
         }
         // docs/sdk-v1.md §2.13, §2.16, §4.4: the bot's data and the message's flags. A copy gets no chatData and
-        // no chat type; the viewer only where the widget may send requests (canQuery, never in a preview).
+        // no chat type; the viewer only where the widget may send requests (canQuery, never in a preview). A profile
+        // page is in no chat: no chat type.
         let context = &c.context;
         let reveals_viewer = !context.preview && context.can_query;
         self.put_data(&mut config, &sdk::check_widget_data(&c.data, context.is_copy));
         config.set("isCopy", context.is_copy).set("canQuery", context.can_query).set("isPreview", context.preview);
-        let chat_type = if context.preview || context.is_copy { None } else { sdk::check_chat_type(&context.chat_type) };
+        let chat_type = if context.preview || context.is_copy || context.surface == WidgetSurface::Profile {
+            None
+        } else {
+            sdk::check_chat_type(&context.chat_type)
+        };
         config.set("chatType", chat_type.map_or(Json::Null, Json::from));
         // The viewer in the widget's field names (Mini Apps' WebAppUser); a field that breaks its rule is left out and reported.
         let viewer = if reveals_viewer { sdk::check_viewer(context.viewer.as_ref()) } else { sdk::CheckedViewer::default() };
@@ -1336,7 +1363,10 @@ impl Engine {
         }
         // setResizeAnchor is not an action (docs/sdk-v1.md §2.12): the delegate gets it now, ahead of the task's ops.
         if let Some(edge) = &checked.resize_anchor {
-            if let Some(d) = &delegate {
+            // A profile page never moves when its height changes: the call is checked and goes nowhere.
+            if let Some(d) = &delegate
+                && surface::keeps_resize_anchor(c.context.surface)
+            {
                 d.on_resize_anchor(self, edge);
             }
             return;

@@ -11,7 +11,7 @@ use twidget_json::{Json, Surrogates};
 use twidget_sdk_policy as sdk;
 use twidget_sdk_policy::{
     StorageCommit, WalletCall, WalletMethod, WidgetContext, WidgetData, WidgetRequestFailure, WidgetRequestOutcome, WidgetStorage,
-    WidgetViewer,
+    WidgetSurface, WidgetViewer,
 };
 use twidget_stream::{REMOTE_MESSAGE_LIMIT, REMOTE_TEXT_LIMIT, STATS_FIELDS};
 
@@ -189,6 +189,7 @@ fn context_of(o: &Json) -> WidgetContext {
         wallet: o.get("wallet").as_bool(false),
         chat_type: string_of(o.get("chatType")).unwrap_or_default(),
         viewer: None,
+        surface: WidgetSurface::Message,
     };
     let viewer = o.get("viewer");
     if viewer.is_object()

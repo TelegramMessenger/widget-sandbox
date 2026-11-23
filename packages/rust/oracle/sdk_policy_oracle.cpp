@@ -32,7 +32,11 @@
 //   'W' two wallet calls: the first's toJson and methodName, and whether the two are equal.
 //   'B' u8 mask, an action as for 'A', an edge, i64 id, data, u8 wallet (the request), i64 id and a wallet call, a text
 //       to copy, u8 watch: BridgeCall::toJson of the fields the mask sets.
+//   'P' u8 place (0 message, 1 profile): surfaceName, surface::keepsResizeAnchor, then surface::kMinHeight,
+//       kMessageMaxHeight and kPageMaxHeight as f64 (sandbox_engine.h's inline and constant members, no engine source;
+//       rust/crates/engine's tests compare it, where the Rust `surface` lives).
 #include "oracle_io.h"
+#include "twidget/sandbox_engine.h"
 #include "twidget/sdk_policy.h"
 
 #include <memory>
@@ -246,6 +250,12 @@ bool run(int op, oracle::In& in) {
         if (mask & 16) call.copyText = copy;
         if (mask & 32) call.watchPublicData = watch;
         out.str(call.toJson().dump());
+        break;
+    }
+    case 'P': {
+        const auto place = WidgetSurface(in.u8() % 2);
+        out.str(surfaceName(place)).flag(surface::keepsResizeAnchor(place));
+        out.f64(surface::kMinHeight).f64(surface::kMessageMaxHeight).f64(surface::kPageMaxHeight);
         break;
     }
     default: return false;

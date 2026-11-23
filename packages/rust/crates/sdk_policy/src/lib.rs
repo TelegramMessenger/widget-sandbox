@@ -88,6 +88,23 @@ pub struct WidgetViewer {
     pub is_premium: bool,
 }
 
+/// Where the widget is shown (docs/sdk-v1.md §2.19), fixed for the host's life: a bubble in a chat (the default) or
+/// the bot's profile page, full screen. `TelegramWidget.surface` in the widget; the geometry is the engine's `surface`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WidgetSurface {
+    #[default]
+    Message,
+    Profile,
+}
+
+/// The wire name: "message" | "profile".
+pub fn surface_name(s: WidgetSurface) -> &'static str {
+    match s {
+        WidgetSurface::Profile => "profile",
+        WidgetSurface::Message => "message",
+    }
+}
+
 /// Where the widget is and what it may do, from the message and the chat; fixed for the host's life.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WidgetContext {
@@ -97,7 +114,8 @@ pub struct WidgetContext {
     pub can_query: bool,
     /// `background_query`: requests without a tap too.
     pub background_query: bool,
-    /// "private" | "group" | "supergroup" | "channel"; anything else is none.
+    /// "private" | "group" | "supergroup" | "channel"; anything else is none. A profile page is in no chat: none
+    /// there either.
     pub chat_type: Vec<u8>,
     /// The account that looks at the widget.
     pub viewer: Option<WidgetViewer>,
@@ -105,6 +123,10 @@ pub struct WidgetContext {
     pub preview: bool,
     /// The client has Gram Wallet for this user.
     pub wallet: bool,
+    /// Where the widget is shown (docs/sdk-v1.md §2.19). On a profile page the client passes the flags of
+    /// `bot_profile_widget` as they are: none before the user pressed Start, `can_query` and `background_query` after
+    /// it. A page has no chat: the glue gives the widget no `chatType` there.
+    pub surface: WidgetSurface,
 }
 
 /// What the client sends to the bot, as a callback button's press.
