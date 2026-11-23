@@ -33,10 +33,8 @@ const KIDS_EXPOSED = Symbol('tw.kidsExposed');
 export const domHooks = {
   observing: (): boolean => false,
   markDirty: (_node: any): void => {},
-  /** An element written to with no change of its own to sync: it only keeps its place among the dirty nodes (capture.ts). */
-  holdPlace: (_node: any): void => {},
-  /** Moves when an element is inserted or removed or an `id` is written (capture.ts): what an id lookup found holds until then. */
-  treeGeneration: (): number => 0,
+  /** An element was inserted or removed or an `id` written (capture.ts): what the id lookups found no longer holds. */
+  idsMoved: (): void => {},
 };
 let inPlaceText = true;
 let inPlaceKilled = false;
@@ -71,34 +69,30 @@ export function setInPlaceText(enabled: boolean): void {
 }
 
 /**
- * The text node that a string written to `el.textContent` goes into as it is: the element's only child, a text node
- * no script holds, with no observer to tell. Null when the write must replace the node.
+ * Whether an element has an element child, read past the exposure tracking below: linkedom's own firstElementChild
+ * goes through the wrapped firstChild, which would mark a text child as handed to script and so end its in-place writes.
  */
-export function inPlaceTextTarget(el: any): any {
-  if (!inPlaceText || el[KIDS_EXPOSED] || domHooks.observing()) return null;
-  const first = rawFirstChild.call(el);
-  return first && first.nodeType === 3 && !first[EXPOSED] && !rawNextSibling.call(first) ? first : null;
+export function hasElementChild(node: any): boolean {
+  for (let c = rawFirstChild.call(node); c; c = rawNextSibling.call(c)) if (c.nodeType === 1) return true;
+  return false;
 }
 
 // document.getElementById: linkedom walks every node of the document and reads each element's `id` attribute, for
 // each call. A widget that looks its elements up by id every frame paid for the whole document many times a frame.
-// What a lookup found is kept until the tree or an `id` changes (domHooks.treeGeneration), and checked when it is
-// used: a write no wrapper saw (an Attr's value) may have taken the id or the element away.
+// What the lookups found is kept until the tree or an `id` changes (domHooks.idsMoved) and dropped then, all of it:
+// another element may have come before the one found, and a node that left the document is not held here.
 {
   const proto = ownerOf(document, 'getElementById');
   const scan = proto && proto.getElementById;
   if (typeof scan === 'function') {
     const found = new Map<string, any>();
-    let foundAt = -1;
+    domHooks.idsMoved = () => {
+      if (found.size) found.clear();
+    };
     proto.getElementById = function (this: any, id: any) {
       'use strict';
       if (this !== document) return scan.call(this, id);
       const key = String(id);
-      const at = domHooks.treeGeneration();
-      if (at !== foundAt) {
-        found.clear();
-        foundAt = at;
-      }
       const hit = found.get(key);
       if (hit !== undefined && hit.id === key && hit.isConnected) return hit;
       const el = scan.call(this, key);
@@ -185,7 +179,8 @@ export function inPlaceTextTarget(el: any): any {
         const a = s.length <= 256 && SINGLE.test(s) ? this.getAttributeNode('class') : null;
         if (!a) return set.call(this, v);
         const list = this[classListKey];
-        if (list && a.value !== s) {
+        // Also when the attribute was written past the list (an Attr's value): the list then still holds the old tokens.
+        if (list && (a.value !== s || list.size !== 1 || !list.has(s))) {
           list.clear();
           addToken.call(list, s);
         }
@@ -207,7 +202,8 @@ export function inPlaceTextTarget(el: any): any {
         const first = this.nodeType === 1 ? firstChildOf.call(this) : null;
         if (typeof v === 'string' && v !== '' && first && first.nodeType === 3 && !nextSiblingOf.call(first)) {
           if (inPlaceText && !first[EXPOSED] && !this[KIDS_EXPOSED] && !domHooks.observing()) {
-            first.data = v;
+            // The text the node already has is no change: nothing to write, nobody to tell.
+            if (first.data !== v) first.data = v;
             return;
           }
           this.replaceChild(document.createTextNode(v), first);
@@ -336,13 +332,17 @@ export function installAttributeFastPaths(): void {
     ...d,
     set(this: any, v: any) {
       'use strict';
-      // The class the element already has, one token or many or none: nothing changes, so nothing is synced. The
-      // element keeps its place among the dirty nodes, as the write would have given it.
+      // The class the element already has, one token or many or none, with the token list (if there is one) holding
+      // the same: the setter would change nothing. The element is marked as the write would have marked it.
       if (attrFast && typeof v === 'string' && v.length <= 256 && !domHooks.observing() && !this.attributeChangedCallback) {
         const a = getNode.call(this, 'class');
         if (a && a.value === v) {
-          domHooks.holdPlace(this);
-          return;
+          const list = this[classListKey];
+          if (list ? list.value === v : v === '' || SINGLE_TOKEN.test(v)) {
+            domHooks.markDirty(this);
+            domHooks.markDirty(a);
+            return;
+          }
         }
       }
       set.call(this, v);

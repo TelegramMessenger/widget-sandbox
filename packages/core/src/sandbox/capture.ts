@@ -12,7 +12,7 @@
 // is implemented on top of the same reconciliation.
 
 import { DOCUMENT_ID } from '../shared/protocol';
-import { document, domHooks, exposeNode, inPlaceTextTarget, quietly, SVG_NS } from './dom';
+import { document, domHooks, exposeNode, hasElementChild, quietly, SVG_NS } from './dom';
 import { OpWriter } from './binary-ops';
 import { boxNeutral } from './box-neutral';
 import { counters, host, hostOps, invalidateLayout, sendStagedCanvas } from './host';
@@ -47,33 +47,11 @@ let generation = 0;
  */
 export const domGeneration = (): number => generation;
 /**
- * Bumped only by what can change which element an id names: an element inserted or removed, an `id` written. Not once
- * a task, as `generation` is: document.getElementById keeps what it found across tasks by it (dom.ts).
+ * Called for whatever can change which element an id names: an element inserted or removed, an `id` written.
+ * document.getElementById drops what it found (dom.ts), so it holds no node of a subtree that left the document.
  */
-let treeGeneration = 0;
-domHooks.treeGeneration = () => treeGeneration;
-/**
- * Elements a script wrote to with nothing of their own to sync: a string over their own text node, which carries the
- * change itself (the setter below), or the class they already have (dom.ts). The flush passes over them. They keep
- * their place in `dirty` all the same: a later change of the element is then synced where the write stood, so the ops
- * and their order are those of the write that goes the long way.
- */
-const held = new Set<any>();
-/** The nodes to sync at the next flush, in the order they were first touched. Any other mark makes a held element an ordinary dirty one. */
-class DirtyNodes extends Set<any> {
-  add(node: any): this {
-    if (held.size) held.delete(node);
-    return super.add(node);
-  }
-}
-const addHeld = Set.prototype.add;
-const dirty: Set<any> = new DirtyNodes();
-const holdPlace = (node: any): void => {
-  if (dirty.has(node)) return;
-  addHeld.call(dirty, node);
-  held.add(node);
-};
-domHooks.holdPlace = holdPlace;
+const idsMoved = (): void => domHooks.idsMoved();
+const dirty = new Set<any>();
 let ops: any[] | OpWriter = [];
 /**
  * Ops after which a long flush hands what it has to the glue between two nodes: a document built in one task (2000
@@ -328,23 +306,47 @@ function purge(id: number) {
   }
 }
 
+/**
+ * linkedom keeps an element's attributes as the nodes that follow it in its internal chain, under one symbol. Walking
+ * that chain reads them without the `attributes` getter, which builds a list and a proxy over it for every call: most
+ * of what the sync of an element with nothing new cost.
+ */
+const NEXT_NODE: symbol | undefined = (() => {
+  const el = document.createElement('div');
+  el.setAttribute('a', '1');
+  el.setAttribute('b', '2');
+  const a = el.getAttributeNode('a');
+  const b = el.getAttributeNode('b');
+  const key = Object.getOwnPropertySymbols(el).find((k) => el[k] === a);
+  return key !== undefined && a[key] === b && b[key]?.nodeType !== 2 && [...el.attributes].length === 2 ? key : undefined;
+})();
+
+function syncAttr(el: any, id: number, attrs: Map<string, string>, name: string, value: string) {
+  const old = attrs.get(name);
+  if (old === value) return;
+  attrs.set(name, value);
+  if (observers.size) record({ type: 'attributes', target: el, attributeName: name, oldValue: old ?? null });
+  if (name === 'style' && old !== undefined) emitStyleDiff(id, old, value, el);
+  else {
+    if (name === 'style') forgetSentStyle(el);
+    ops.push({ op: 'attr', id, name, value });
+  }
+  hooks.attributeChanged(el, name, value);
+}
+
 function syncAttrs(el: any, id: number, m: Mirror) {
   const attrs = m.attrs!;
   let count = 0;
-  for (const a of el.attributes) {
-    const name: string = a.name;
-    const value = String(a.value ?? '');
-    count++;
-    const old = attrs.get(name);
-    if (old === value) continue;
-    attrs.set(name, value);
-    if (observers.size) record({ type: 'attributes', target: el, attributeName: name, oldValue: old ?? null });
-    if (name === 'style' && old !== undefined) emitStyleDiff(id, old, value, el);
-    else {
-      if (name === 'style') forgetSentStyle(el);
-      ops.push({ op: 'attr', id, name, value });
+  if (NEXT_NODE !== undefined) {
+    for (let a = el[NEXT_NODE]; a && a.nodeType === 2; a = a[NEXT_NODE]) {
+      count++;
+      syncAttr(el, id, attrs, a.name, String(a.value ?? ''));
     }
-    hooks.attributeChanged(el, name, value);
+  } else {
+    for (const a of el.attributes) {
+      count++;
+      syncAttr(el, id, attrs, a.name, String(a.value ?? ''));
+    }
   }
   if (attrs.size <= count) return;
   const seen = new Set<string>();
@@ -626,18 +628,13 @@ function flushNow(full: boolean): void {
   for (let i = 0; i < 8 && dirty.size; i++) {
     const batch = [...dirty];
     dirty.clear();
-    for (const node of batch) {
-      if (!node || held.delete(node)) continue;
-      syncNode(node);
-      sendIfLarge();
-    }
+    for (const node of batch) if (node) { syncNode(node); sendIfLarge(); }
   }
   if (full) {
     const before = partialSent + ops.length;
     walkAll(document);
     counters.missed += partialSent + ops.length - before;
     dirty.clear();
-    held.clear();
   }
   for (const o of postOps) {
     if (o.node) {
@@ -708,6 +705,7 @@ const SELF_METHODS = [
   'setAttribute', 'setAttributeNS', 'removeAttribute', 'removeAttributeNS', 'toggleAttribute', 'setAttributeNode',
   'removeAttributeNode', 'insertAdjacentElement', 'insertAdjacentText', 'insertAdjacentHTML',
 ];
+const ATTR_METHODS = new Set(['setAttribute', 'setAttributeNS', 'removeAttribute', 'removeAttributeNS', 'toggleAttribute', 'setAttributeNode', 'removeAttributeNode']);
 const PARENT_METHODS = ['before', 'after', 'replaceWith', 'remove', 'insertAdjacentElement', 'insertAdjacentText', 'insertAdjacentHTML'];
 /** Accessors that hand out live objects through which the element can be mutated later. */
 const LIVE_GETTERS = ['classList', 'dataset', 'relList', 'part'];
@@ -763,6 +761,14 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
   if (attrValue?.set) {
     const set = attrValue.set;
     setRawAttrValueSetter((attr, value) => set.call(attr, value));
+    // An Attr's value is not dirty-tracked (SKIP_SETTERS), but an `id` written through it renames an element.
+    Object.defineProperty(attrProto, 'value', {
+      ...attrValue,
+      set(this: any, v: any) {
+        if (this.name === 'id') idsMoved();
+        set.call(this, v);
+      },
+    });
   }
   for (const proto of protos) {
     for (const name of Object.getOwnPropertyNames(proto)) {
@@ -785,8 +791,9 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
             const n = arguments.length;
             const moved = n > 2 || changesTree(kind, this, a, b);
             if (moved) generation++;
-            // An attribute method changes the tree for an id lookup only by the `id` attribute.
-            if (kind === 1 ? n > 2 || String(a).toLowerCase() === 'id' : moved) treeGeneration++;
+            // An attribute method changes what an id names only by the `id` attribute; one that takes an Attr node
+            // (setAttributeNode, removeAttributeNode) or a namespace may carry it.
+            if (ATTR_METHODS.has(name) ? n > 2 || typeof a !== 'string' || a.toLowerCase() === 'id' : moved) idsMoved();
             if (self) dirty.add(this);
             if (parent) dirty.add(this.parentNode);
             if (n > 2) {
@@ -815,21 +822,11 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
               }
             : get,
           set: function (this: any, v: any) {
-            if (name === 'textContent' && typeof v === 'string' && v !== '' && this.nodeType === 1) {
-              // A string over an element's own text node: the node takes it and carries the change, and the element
-              // only keeps its place among the dirty nodes. The text the node already has is no change.
-              const node = inPlaceTextTarget(this);
-              if (node) {
-                holdPlace(this);
-                if (node.data !== v) node.data = v;
-                return;
-              }
-            }
-            if (tree && (!text || this.firstElementChild)) {
+            if (tree && (!text || hasElementChild(this))) {
               generation++;
-              if (name !== 'className') treeGeneration++;
+              if (name !== 'className') idsMoved();
             }
-            if (name === 'id' || (this.nodeType === 2 && this.name === 'id')) treeGeneration++;
+            if (name === 'id') idsMoved();
             dirty.add(this);
             // CharacterData and Attr setters affect what their owner renders.
             if (this.nodeType === 2) dirty.add(this.ownerElement);

@@ -114,3 +114,97 @@ describe('shim: a className that changes nothing', () => {
   });
 });
 
+
+describe('shim: writes that ride with a text or a class written again', () => {
+  const colors = (r: any) => r.ops.flat().filter((o: any) => o.op === 'style' && o.name === 'color').map((o: any) => o.value);
+
+  it('a style written with a new text in one task reaches the host', async () => {
+    const r = await runWidget(`<span id="t" style="color: red">a</span><script>
+      var t = document.getElementById('t'), n = 0, list = ['green', 'yellow', 'purple'];
+      function again() { t.style.color = list[n]; t.textContent = 't' + n; if (++n < 3) setTimeout(again, 1); }
+      setTimeout(again, 1);</script>`, { timerRounds: 8, probes: ['n', 't.style.color'] });
+    assert.deepEqual(r.probes, ['3', 'purple']);
+    assert.deepEqual(colors(r), ['green', 'yellow', 'purple']);
+    const other = await runWidget(`<span id="t" style="color: red">a</span><script>
+      var t = document.getElementById('t'), n = 0, list = ['green', 'yellow', 'purple'];
+      function again() { t.textContent = 't' + n; t.style.color = list[n]; if (++n < 3) setTimeout(again, 1); }
+      setTimeout(again, 1);</script>`, { timerRounds: 8, probes: ['n'] });
+    assert.deepEqual(colors(other), ['green', 'yellow', 'purple']);
+  });
+
+  it('a style written with the class the element already has reaches the host', async () => {
+    const r = await runWidget(`<span id="t" class="x y" style="color: red">a</span><script>
+      var t = document.getElementById('t'), n = 0, list = ['green', 'yellow', 'purple'];
+      function again() { t.style.color = list[n]; t.className = 'x y'; if (++n < 3) setTimeout(again, 1); }
+      setTimeout(again, 1);</script>`, { timerRounds: 8, probes: ['n', 't.style.color'] });
+    assert.deepEqual(r.probes, ['3', 'purple']);
+    assert.deepEqual(colors(r), ['green', 'yellow', 'purple']);
+  });
+
+  it('an attribute written through a kept Attr node goes with the text and with the class', async () => {
+    for (const write of ["t.textContent = 't' + n", "t.className = 'x'"]) {
+      const r = await runWidget(`<span id="t" class="x" aria-label="zero">a</span><script>
+        var t = document.getElementById('t'), label = t.getAttributeNode('aria-label'), n = 0, list = ['one', 'two', 'three'];
+        function again() { label.value = list[n]; ${write}; if (++n < 3) setTimeout(again, 1); }
+        setTimeout(again, 1);</script>`, { timerRounds: 8, probes: ['n'] });
+      const labels = r.ops.slice(1).flat().filter((o: any) => o.op === 'attr' && o.name === 'aria-label').map((o: any) => o.value);
+      assert.deepEqual(labels, ['one', 'two', 'three'], write);
+    }
+  });
+});
+
+describe('shim: document.getElementById and className, the ways around the wrappers', () => {
+  it('an earlier element given the id through an Attr node is the one found', async () => {
+    const r = await runWidget(`<div id="r"><p id="e">early</p><p id="x">late</p></div><script>
+      var out = [document.getElementById('x').textContent], early = document.getElementById('e');
+      early.getAttributeNode('id').value = 'x'; out.push(document.getElementById('x').textContent);
+      early.getAttributeNode('id').value = 'e'; out.push(document.getElementById('x').textContent);
+      var res = out.join(',');
+    </script>`, { probes: ['res'] });
+    assert.equal(r.probes[0], 'late,early,late');
+  });
+
+  it('answers what a walk of the document answers after every way to change an id or the tree', async () => {
+    const r = await runWidget(`<div id="r"><p id="p0">0</p><p id="p1">1</p><p id="p2">2</p><p id="p3">3</p></div><script>
+      var r = document.getElementById('r'), keys = ['x', 'y', 'p0', 'p1', 'p2', 'p3', 'q'], bad = [], step = 0;
+      function walk(id) { var all = document.getElementsByTagName('*'); for (var i = 0; i < all.length; i++) if (all[i].getAttribute('id') === id) return all[i]; return null; }
+      function check(what) { step++; for (var i = 0; i < keys.length; i++) if (document.getElementById(keys[i]) !== walk(keys[i])) bad.push(what + ':' + keys[i]); }
+      function kid(i) { return r.children[i]; }
+      function attr(v) { var a = document.createAttribute('id'); a.value = v; return a; }
+      check('start');
+      r.appendChild(document.createElement('p')).setAttribute('id', 'x'); check('late x');
+      kid(0).getAttributeNode('id').value = 'x'; check('Attr.value');
+      kid(0).setAttributeNode(attr('y')); check('setAttributeNode');
+      kid(4).attributes.setNamedItem(attr('y')); check('setNamedItem late');
+      kid(1).attributes.setNamedItem(attr('x')); check('setNamedItem');
+      kid(1).attributes.removeNamedItem('id'); check('removeNamedItem');
+      kid(2).setAttributeNS(null, 'id', 'y'); check('setAttributeNS');
+      kid(0).removeAttributeNode(kid(0).getAttributeNode('id')); check('removeAttributeNode');
+      kid(3).toggleAttribute('id'); check('toggleAttribute');
+      kid(2).removeAttributeNS(null, 'id'); check('removeAttributeNS');
+      kid(4).id = 'q'; kid(0).id = 'q'; check('id');
+      kid(0).attributes.id.value = 'p0'; check('attributes.id.value');
+      kid(1).outerHTML = '<b id="q">b</b>'; check('outerHTML');
+      kid(2).insertAdjacentElement('beforebegin', (function () { var e = document.createElement('i'); e.id = 'q'; return e; })()); check('insertAdjacentElement');
+      var f = document.createDocumentFragment(), s = document.createElement('s'); s.id = 'p0'; f.appendChild(s); r.prepend(f); check('prepend fragment');
+      kid(0).replaceWith(document.createElement('u')); check('replaceWith');
+      var t = document.createElement('template'); t.innerHTML = '<em id="p0">e</em>'; r.insertBefore(t.content, r.firstChild); check('template content');
+      r.firstChild.before((function () { var e = document.createElement('i'); e.id = 'p0'; return e; })()); check('before');
+      r.replaceChild(document.createElement('u'), r.firstChild); check('replaceChild');
+      var c = r.lastChild.cloneNode(true); r.insertBefore(c, r.firstChild); check('clone');
+      r.textContent = 'gone'; check('textContent');
+      var res = step + ' ' + bad.join(',');
+    </script>`, { probes: ['res'] });
+    assert.equal(r.probes[0], '22 ');
+  });
+
+  it('a class written past the token list is taken from className written after', async () => {
+    const r = await runWidget(`<p id="a" class="old">a</p><p id="b" class="old">b</p><script>
+      var a = document.getElementById('a'), b = document.getElementById('b'), la = a.classList, lb = b.classList;
+      a.getAttributeNode('class').value = 'new two'; a.className = 'new two';
+      b.getAttributeNode('class').value = 'solo'; b.className = 'solo';
+      var res = [a.className, la.contains('new'), la.contains('old'), la.length, b.className, lb.contains('solo'), lb.contains('old')].join('|');
+    </script>`, { probes: ['res'] });
+    assert.equal(r.probes[0], 'new two|true|false|2|solo|true|false');
+  });
+});

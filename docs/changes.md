@@ -18,26 +18,35 @@ moves (Telegram Android, a Redmi Note 11: the script used up the CPU quota at a 
 
 - `document.getElementById` keeps what it found. linkedom walks every node of the document and reads each
   element's `id` for each call, so a lookup cost the whole document: in one of 170 nodes, 15 lookups took nine
-  times what 15 text writes did. The answer is kept until an element is inserted or removed or an `id` is written
-  (`domHooks.treeGeneration`, bumped by the wrappers that see those; not once a task), and checked when it is used
-  (the id still there, the element still connected), for a write no wrapper sees. Two elements with one id still
-  answer the first in tree order.
-- A string written to `textContent` over the element's own text node (the in-place path) no longer makes the
-  element dirty: the node carries the change, and the element only keeps its place among the dirty nodes
-  (`textOnly`), so the ops and their order are what the replacing path sends. The text the node already has is
-  not written at all and sends nothing.
-
-- `className` set to the class the element already has (one token, many or none) is no change either: the element
-  only keeps its place among the dirty nodes, where the write would have put it.
+  times what 15 text writes did. What the lookups found is dropped, all of it, as soon as an element is inserted or
+  removed or an `id` is written (`domHooks.idsMoved`, called by the wrappers that see those, an Attr's `value` and
+  the methods that take an Attr node among them): an element given the id earlier in the tree is then the one
+  found, and no node of a subtree that left the document is held.
+- The sync of an element reads its attributes from linkedom's own chain of nodes instead of `attributes`, which
+  builds a list and a proxy over it for every call: most of what the sync of an element with nothing new cost.
+  What is synced, and when, is unchanged: an element written to is dirty and is synced, with whatever else was
+  written on it.
+- The in-place path of `textContent` (a string over the element's own text node) was never taken: the dirty
+  tracking asked the element for `firstElementChild`, which reads the text child through the exposure tracking and
+  marked it as handed to script, so every write replaced the node. It now reads the children past the tracking.
+  The text the node already has is not written again.
+- `className` set to the class the element already has (one token, many or none) changes nothing and is not passed
+  on, as one token already was; the token list must hold the same, so a class written past it (an Attr's `value`)
+  is still taken from a `className` written after.
 - The validator measures the document's nesting depth again only after a batch that inserted a node: the depth
   grows by an insert alone, and the walk of the whole tree after every batch was most of what a small batch (a
   frame of an animation, one text) cost it.
 
+An earlier form of this change (`bd1a606`, `efa0076`) kept an element out of the sync after such a text or class
+write. A style, or an attribute written through a kept Attr node, set on the same element in the same task was then
+never sent; it also answered a stale element for an id given through an Attr's `value`. Both are covered by
+`tests/unit/id-lookup.test.ts` now.
+
 Measured in the desktop core (QuickJS, an M-series Mac, CPU time of a task in a 170-node document): 15 lookups each
-followed by a write of the same text 792 µs → 28 µs, of a new text 868 µs → 68 µs with the validator's part of its
-batch 115 µs → 32 µs; five `style.transform` writes 262 µs → 47 µs and 95 µs → 25 µs. `tests/unit/id-lookup.test.ts`
-and the nesting cases of `strict-limits.test.ts`; the bundles are rebuilt (`sandbox-bundle` and `validator-bundle`
-with their `.qbc`).
+followed by a write of the same text 787 µs → 65 µs, of a new text 888 µs → 135 µs with the validator's part of its
+batch 112 µs → 45 µs; eight writes of the same class 385 µs → 45 µs; five `style.transform` writes 247 µs → 47 µs
+and 95 µs → 32 µs. `tests/unit/id-lookup.test.ts` and the nesting cases of `strict-limits.test.ts`; the bundles are
+rebuilt (`sandbox-bundle` and `validator-bundle` with their `.qbc`).
 
 ## Unreleased: the Nova engine in the C++ core (opt-in, 2026-11-15)
 
