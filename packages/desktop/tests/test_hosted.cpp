@@ -114,25 +114,47 @@ TEST(hosted_coding_round_trips_and_refuses_damage) {
     start.theme = full;
     start.stoppedLabel = "Stopped by the host";
     start.validatedOps = true;
+    start.viewportHeight = 844.12;
     const std::string startWire = Coding::encodeHostedStart(start);
     std::optional<SandboxHostedStart> started = Coding::decodeHostedStart(startWire);
-    CHECK_MSG(started && sameTheme(started->theme, full) && started->stoppedLabel == start.stoppedLabel && started->validatedOps, startWire);
+    CHECK_MSG(started && sameTheme(started->theme, full) && started->stoppedLabel == start.stoppedLabel && started->validatedOps && started->viewportHeight == 844.12, startWire);
     const std::string defaults = Coding::encodeHostedStart(SandboxHostedStart{});
-    CHECK_MSG(defaults == "{\"theme\":" + plain + ",\"stoppedLabel\":\"Widget stopped\",\"validatedOps\":false}", defaults);
+    CHECK_MSG(defaults == "{\"theme\":" + plain + ",\"stoppedLabel\":\"Widget stopped\",\"validatedOps\":false,\"viewportHeight\":0}", defaults);
     started = Coding::decodeHostedStart(defaults);
-    CHECK(started && sameTheme(started->theme, WidgetTheme{}) && started->stoppedLabel == "Widget stopped" && !started->validatedOps);
+    CHECK(started && sameTheme(started->theme, WidgetTheme{}) && started->stoppedLabel == "Widget stopped" && !started->validatedOps && started->viewportHeight == 0);
+    // The viewport as given when finite (the served host checks it against the place), 0 when not: written as null, so read back as 0.
+    for (double finite : {0.5, 4000.0, 4000.01, -5.0, 1e300}) {
+        SandboxHostedStart sized;
+        sized.viewportHeight = finite;
+        started = Coding::decodeHostedStart(Coding::encodeHostedStart(sized));
+        CHECK_MSG(started && started->viewportHeight == finite, std::to_string(finite));
+    }
+    for (double nonFinite : {std::nan(""), std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()}) {
+        SandboxHostedStart sized;
+        sized.viewportHeight = nonFinite;
+        const std::string sizedWire = Coding::encodeHostedStart(sized);
+        started = Coding::decodeHostedStart(sizedWire);
+        CHECK_MSG(started && started->viewportHeight == 0 && sizedWire.ends_with(",\"viewportHeight\":null}"), sizedWire);
+    }
     for (size_t extra : {size_t(0), size_t(1), size_t(100)}) {
         SandboxHostedStart labelled;
         labelled.stoppedLabel = std::string(SandboxEngine::kRemoteTextLimit + extra, 'l');
         started = Coding::decodeHostedStart(Coding::encodeHostedStart(labelled));
         CHECK_MSG(started && started->stoppedLabel == std::string(SandboxEngine::kRemoteTextLimit, 'l'), std::to_string(extra));
     }
-    // A label or flag of another type keeps the default, a flag is true only when it is true.
+    // A label, flag or viewport of another type keeps the default, a flag is true only when it is true; a form from before the viewport has none.
     for (const char* odder : {"{\"theme\":{\"colorScheme\":\"light\"},\"stoppedLabel\":5,\"validatedOps\":\"true\"}", "{\"theme\":{\"colorScheme\":\"light\"},\"validatedOps\":1}",
-                              "{\"theme\":{\"colorScheme\":\"light\"},\"stoppedLabel\":null,\"validatedOps\":null}"}) {
+                              "{\"theme\":{\"colorScheme\":\"light\"},\"stoppedLabel\":null,\"validatedOps\":null}",
+                              "{\"theme\":{\"colorScheme\":\"light\",\"params\":{},\"button\":{},\"text\":{}},\"stoppedLabel\":\"Widget stopped\",\"validatedOps\":false}",
+                              "{\"theme\":{\"colorScheme\":\"light\"},\"viewportHeight\":\"844\"}", "{\"theme\":{\"colorScheme\":\"light\"},\"viewportHeight\":true}",
+                              "{\"theme\":{\"colorScheme\":\"light\"},\"viewportHeight\":null}", "{\"theme\":{\"colorScheme\":\"light\"},\"viewportHeight\":[844]}",
+                              "{\"theme\":{\"colorScheme\":\"light\"},\"viewportHeight\":{\"height\":844}}", "{\"theme\":{\"colorScheme\":\"light\"},\"viewportHeight\":1e999}",
+                              "{\"theme\":{\"colorScheme\":\"light\"},\"viewportHeight\":-1e999}"}) {
         started = Coding::decodeHostedStart(odder);
-        CHECK_MSG(started && started->stoppedLabel == "Widget stopped" && !started->validatedOps, odder);
+        CHECK_MSG(started && started->stoppedLabel == "Widget stopped" && !started->validatedOps && started->viewportHeight == 0, odder);
     }
+    started = Coding::decodeHostedStart("{\"theme\":{\"colorScheme\":\"light\"},\"viewportHeight\":700.125,\"viewportHeight\":1}");
+    CHECK(started && started->viewportHeight == 700.125);
     for (const char* bad : {"{}", "{\"theme\":{}}", "{\"theme\":\"light\",\"validatedOps\":true}", "{\"theme\":{\"colorScheme\":2}}", "[]", "null", "",
                             "{\"theme\":{\"colorScheme\":\"light\"}"})
         CHECK_MSG(!Coding::decodeHostedStart(bad), bad);

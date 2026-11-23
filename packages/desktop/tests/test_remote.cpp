@@ -106,6 +106,8 @@ static bool sameSafeArea(const WidgetContentSafeArea& a, const WidgetContentSafe
     return a.top == b.top && a.right == b.right && a.bottom == b.bottom && a.left == b.left && a.cornerLeft == b.cornerLeft && a.cornerRight == b.cornerRight;
 }
 
+static bool sameDeviceSafeArea(const WidgetSafeArea& a, const WidgetSafeArea& b) { return a.top == b.top && a.right == b.right && a.bottom == b.bottom && a.left == b.left; }
+
 /// The fields in which two configs differ, "" when none (SandboxConfig has no ==).
 static std::string configDifferences(const SandboxConfig& a, const SandboxConfig& b) {
     std::string out;
@@ -125,11 +127,12 @@ static std::string configDifferences(const SandboxConfig& a, const SandboxConfig
     field("themeParams", a.themeParams == b.themeParams);
     field("locale", a.locale == b.locale);
     field("contentSafeArea", sameSafeArea(a.contentSafeArea, b.contentSafeArea));
+    field("safeArea", sameDeviceSafeArea(a.safeArea, b.safeArea));
     field("storage", a.storage.local == b.storage.local && a.storage.session == b.storage.session);
     field("data", a.data == b.data);
     const WidgetContext &x = a.context, &y = b.context;
     field("context", x.isCopy == y.isCopy && x.canQuery == y.canQuery && x.backgroundQuery == y.backgroundQuery && x.preview == y.preview && x.wallet == y.wallet &&
-                         x.chatType == y.chatType && x.viewer == y.viewer);
+                         x.chatType == y.chatType && x.viewer == y.viewer && x.surface == y.surface);
     field("policy", a.policy == b.policy);
     field("features", a.features == b.features);
     return out;
@@ -153,12 +156,14 @@ static SandboxConfig everyConfigField() {
     c.themeParams = {{"bg_color", "#000000"}, {"text_color", "#FFFFFF"}};
     c.locale = "ru-RU";
     c.contentSafeArea = WidgetContentSafeArea{1, 2, 3.5, 4, 5, 6};
+    c.safeArea = WidgetSafeArea{47, 8.5, 34, 9};
     c.storage.local = {{"a", "b"}, {"lone", "\xED\xA0\x80"}, {"bytes", "\xFF\xC3"}};
     c.storage.session = {{"nul", std::string("d\0e", 3)}};
     c.data = WidgetData{std::string("chat"), std::string("public\x01")};
     c.context.isCopy = c.context.canQuery = c.context.backgroundQuery = c.context.preview = c.context.wallet = true;
     c.context.chatType = "group";
     c.context.viewer = WidgetViewer{42, std::string("Ann"), std::string("Lee"), std::string("ann_lee"), true};
+    c.context.surface = WidgetSurface::Profile;
     c.policy = "compat";
     c.features = {"webAnimations", "binaryOps", "canvasWords"};
     return c;
@@ -172,14 +177,28 @@ TEST(remote_config_coding_round_trips_and_survives_damage) {
     auto decoded = Coding::decodeConfig(wire);
     CHECK_MSG(decoded && configDifferences(*decoded, full).empty(), decoded ? configDifferences(*decoded, full) : wire);
     auto parsed = Json::parse(wire);
-    CHECK_MSG(parsed && parsed->isObject() && parsed->size() == 20 && uniqueKeys(*parsed), wire);
-    auto defaults = Coding::decodeConfig(Coding::encodeConfig(SandboxConfig{}));
+    CHECK_MSG(parsed && parsed->isObject() && parsed->size() == 21 && uniqueKeys(*parsed), wire);
+    // The device's edges beside the content's, the place inside the context.
+    CHECK_MSG(parsed && (*parsed)["safeArea"].dump() == "{\"top\":47,\"right\":8.5,\"bottom\":34,\"left\":9}" && (*parsed)["context"]["surface"].asString() == "profile", wire);
+    const std::string defaultWire = Coding::encodeConfig(SandboxConfig{});
+    auto defaults = Coding::decodeConfig(defaultWire);
     CHECK(defaults && configDifferences(*defaults, SandboxConfig{}).empty() && !defaults->context.viewer && !defaults->data.chatData && !defaults->data.publicData);
+    auto defaultParsed = Json::parse(defaultWire);
+    CHECK_MSG(defaultParsed && (*defaultParsed)["safeArea"].dump() == "{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}" && (*defaultParsed)["context"]["surface"].asString() == "message",
+              defaultWire);
     for (bool WidgetContext::*flag : {&WidgetContext::isCopy, &WidgetContext::canQuery, &WidgetContext::backgroundQuery, &WidgetContext::preview, &WidgetContext::wallet}) {
         SandboxConfig one;
         one.context.*flag = true;
         auto back = Coding::decodeConfig(Coding::encodeConfig(one));
         CHECK(back && configDifferences(*back, one).empty());
+    }
+    // Each new member alone: a page without the device's edges, the device's edges on a bubble (carried as given; the engine and the renderer bound them).
+    SandboxConfig page, edged;
+    page.context.surface = WidgetSurface::Profile;
+    edged.safeArea = WidgetSafeArea{0, 59, 21, 59};
+    for (const SandboxConfig& one : {page, edged}) {
+        auto back = Coding::decodeConfig(Coding::encodeConfig(one));
+        CHECK_MSG(back && configDifferences(*back, one).empty(), back ? configDifferences(*back, one) : "nothing");
     }
 
     const std::string required = "\"innerWidth\":320,\"innerHeight\":240,\"devicePixelRatio\":2,\"theme\":\"dark\"";
@@ -199,14 +218,34 @@ TEST(remote_config_coding_round_trips_and_survives_damage) {
 
     // Optional members of another type keep their defaults, as Swift's `as?` does; nesting within kMaxDepth is accepted in a member nobody reads.
     auto wrong = with("\"memoryLimitBytes\":\"1\",\"cpuLimitMs\":true,\"cpuQuotaMs\":null,\"cpuQuotaWindowMs\":[],\"cpuKillAfterMs\":{},\"mainThreadQuotaMs\":1e999,"
-                      "\"maxTimers\":\"7\",\"visible\":0,\"themeParams\":{\"bg_color\":1},\"locale\":5,\"contentSafeArea\":[1],\"storage\":\"x\",\"data\":[],\"context\":1,"
+                      "\"maxTimers\":\"7\",\"visible\":0,\"themeParams\":{\"bg_color\":1},\"locale\":5,\"contentSafeArea\":[1],\"safeArea\":[1],\"storage\":\"x\",\"data\":[],\"context\":1,"
                       "\"policy\":1,\"features\":[\"webAnimations\",1],\"unknown\":" + nestedArrays(Coding::kMaxDepth - 1));
     CHECK_MSG(wrong && configDifferences(*wrong, minimal).empty(), wrong ? configDifferences(*wrong, minimal) : "nothing");
     auto inner = with("\"storage\":{\"local\":{\"a\":1},\"session\":{\"b\":\"c\"}},\"data\":{\"chatData\":1,\"publicData\":\"p\"},\"contentSafeArea\":{\"top\":\"1\",\"bottom\":2},"
-                      "\"context\":{\"isCopy\":1,\"canQuery\":true,\"chatType\":7,\"viewer\":{\"id\":\"42\"}}");
+                      "\"safeArea\":{\"top\":\"1\",\"right\":null,\"bottom\":34,\"left\":1e999,\"cornerLeft\":5},"
+                      "\"context\":{\"isCopy\":1,\"canQuery\":true,\"chatType\":7,\"viewer\":{\"id\":\"42\"},\"surface\":\"PROFILE\"}");
     CHECK(inner && inner->storage.local.empty() && inner->storage.session == (StorageArea{{"b", "c"}}) && !inner->data.chatData && inner->data.publicData == std::string("p") &&
           inner->contentSafeArea.top == 0 && inner->contentSafeArea.bottom == 2 && !inner->context.isCopy && inner->context.canQuery && inner->context.chatType.empty() &&
           !inner->context.viewer);
+    CHECK(inner && sameDeviceSafeArea(inner->safeArea, WidgetSafeArea{0, 0, 34, 0}) && inner->context.surface == WidgetSurface::Message);
+    // A form from before the place and the device's edges (no `surface`, no `safeArea`) is a bubble without them.
+    auto legacy = with("\"contentSafeArea\":{\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":64},"
+                       "\"context\":{\"isCopy\":false,\"canQuery\":true,\"backgroundQuery\":false,\"preview\":false,\"wallet\":false,\"chatType\":\"group\"}");
+    CHECK(legacy && legacy->context.surface == WidgetSurface::Message && sameDeviceSafeArea(legacy->safeArea, WidgetSafeArea{}) && legacy->context.canQuery &&
+          legacy->context.chatType == "group" && legacy->contentSafeArea.bottom == 24 && legacy->contentSafeArea.cornerRight == 64);
+    // The place: exactly "profile" is a page; another case, another type or none is a bubble.
+    for (auto [value, isPage] : {std::pair<const char*, bool>{"\"profile\"", true}, {"\"message\"", false}, {"\"PROFILE\"", false}, {"\"Profile\"", false}, {"\"profile \"", false},
+                               {"\"\"", false}, {"1", false}, {"true", false}, {"null", false}, {"[\"profile\"]", false}, {"{\"surface\":\"profile\"}", false}}) {
+        auto c = with(std::string("\"context\":{\"surface\":") + value + "}");
+        CHECK_MSG(c && c->context.surface == (isPage ? WidgetSurface::Profile : WidgetSurface::Message), value);
+    }
+    // The device's edges: any finite side as given (negative, fractional, huge), anything else 0; a member that is no object keeps the default.
+    auto odd = with("\"safeArea\":{\"top\":-5,\"right\":0.25,\"bottom\":1e300,\"left\":4000.5}");
+    CHECK(odd && sameDeviceSafeArea(odd->safeArea, WidgetSafeArea{-5, 0.25, 1e300, 4000.5}));
+    for (const char* notObject : {"\"x\"", "null", "1", "true", "[47,0,34,0]"}) {
+        auto c = with(std::string("\"safeArea\":") + notObject);
+        CHECK_MSG(c && sameDeviceSafeArea(c->safeArea, WidgetSafeArea{}), notObject);
+    }
     CHECK(!with("\"unknown\":" + nestedArrays(Coding::kMaxDepth)) && !with("\"unknown\":" + nestedArrays(100000)));
 
     const int intMax = std::numeric_limits<int>::max(), intMin = std::numeric_limits<int>::min();
@@ -239,6 +278,8 @@ TEST(remote_config_coding_round_trips_and_survives_damage) {
                                       "\"storage\":{\"local\":{\"k\":\"1\",\"k\":\"2\"},\"local\":{}}}");
     CHECK(twice && twice->theme == "first" && twice->themeParams == (std::map<std::string, std::string>{{"bg_color", "#222222"}}) &&
           twice->storage.local == (StorageArea{{"k", "2"}}));
+    auto placedTwice = with("\"context\":{\"surface\":\"profile\",\"surface\":\"message\"},\"safeArea\":{\"top\":1,\"top\":2},\"safeArea\":{\"top\":3}");
+    CHECK(placedTwice && placedTwice->context.surface == WidgetSurface::Profile && sameDeviceSafeArea(placedTwice->safeArea, WidgetSafeArea{1, 0, 0, 0}));
     // Strings as the engine has them in process: an escaped lone surrogate stays WTF-8, so the SDK checks that refuse it still do and storage keeps it.
     auto strings = with("\"storage\":{\"local\":{\"s\":\"\\ud800\",\"n\":\"a\\u0000b\"}},\"data\":{\"chatData\":\"\\udc00\"},\"context\":{\"viewer\":{\"id\":7,\"first_name\":\"A\\ud800\"}}");
     CHECK(strings && strings->storage.local == (StorageArea{{"s", "\xED\xA0\x80"}, {"n", std::string("a\0b", 3)}}));
@@ -453,6 +494,27 @@ TEST(remote_data_and_safe_area_coding_round_trip_and_survive_damage) {
     auto twice = Coding::decodeSafeArea("{\"top\":1,\"top\":2}");
     CHECK(empty && sameSafeArea(*empty, WidgetContentSafeArea{}) && twice && twice->top == 1);
     for (const char* bad : {"[]", "null", "1", "", "{\"top\":1"}) CHECK_MSG(!Coding::decodeSafeArea(bad), bad);
+
+    // The device's edges, the same way: four sides, a non-object refused, a side that is no finite number 0, the content's corners no part of it.
+    const WidgetSafeArea device{47, 0.5, 34, 2};
+    const std::string deviceWire = Coding::encodeDeviceSafeArea(device);
+    CHECK_MSG(deviceWire == "{\"top\":47,\"right\":0.5,\"bottom\":34,\"left\":2}", deviceWire);
+    auto deviceBack = Coding::decodeDeviceSafeArea(deviceWire);
+    CHECK(deviceBack && sameDeviceSafeArea(*deviceBack, device));
+    CHECK(decodablePrefixes(deviceWire, Coding::decodeDeviceSafeArea) == 0 && boundedAtTheMessageLimit(deviceWire, Coding::decodeDeviceSafeArea));
+    const int deviceAccepted = damageRoundTrips(deviceWire, 2000, seed + 1, Coding::decodeDeviceSafeArea, Coding::encodeDeviceSafeArea);
+    CHECK_MSG(deviceAccepted > 0, std::to_string(deviceAccepted) + " damaged device safe areas accepted");
+    auto deviceOdd = Coding::decodeDeviceSafeArea(Coding::encodeDeviceSafeArea(WidgetSafeArea{nan, -inf, -3, 1e300}));
+    CHECK(deviceOdd && sameDeviceSafeArea(*deviceOdd, WidgetSafeArea{0, 0, -3, 1e300}));
+    CHECK(Coding::encodeDeviceSafeArea(WidgetSafeArea{nan, inf, -inf, 0}) == "{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}");
+    auto deviceWrong = Coding::decodeDeviceSafeArea("{\"top\":\"1\",\"right\":null,\"bottom\":true,\"left\":1e999}");
+    CHECK(deviceWrong && sameDeviceSafeArea(*deviceWrong, WidgetSafeArea{}));
+    auto deviceEmpty = Coding::decodeDeviceSafeArea("{}");
+    auto deviceTwice = Coding::decodeDeviceSafeArea("{\"top\":1,\"top\":2,\"left\":-1e999}");
+    CHECK(deviceEmpty && sameDeviceSafeArea(*deviceEmpty, WidgetSafeArea{}) && deviceTwice && sameDeviceSafeArea(*deviceTwice, WidgetSafeArea{1, 0, 0, 0}));
+    auto fromContent = Coding::decodeDeviceSafeArea(wire);
+    CHECK(fromContent && sameDeviceSafeArea(*fromContent, WidgetSafeArea{1.5, 2, 3, 4}));
+    for (const char* bad : {"[]", "null", "1", "\"top\"", "", "{\"top\":1", "[{\"top\":1}]"}) CHECK_MSG(!Coding::decodeDeviceSafeArea(bad), bad);
 }
 
 // ───────────── client-mode engine (SandboxEngine over a SandboxRemoteChannel) ─────────────

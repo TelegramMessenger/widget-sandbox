@@ -248,17 +248,27 @@ impl Default for WidgetTheme {
     }
 }
 
-/// What a hosted widget's start carries beyond its `SandboxConfig` (remote_hosted.h).
+/// What a hosted widget's start carries beyond its `SandboxConfig` (remote_hosted.h): the whole theme, the label
+/// its renderer shows over a stopped widget, whether the host asks for every validated batch, and a profile page's
+/// viewport (host glue state, not the engine's config).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SandboxHostedStart {
     pub theme: WidgetTheme,
     pub stopped_label: Vec<u8>,
     pub validated_ops: bool,
+    /// The page's viewport as the host has it at its start (the options' and any setter's before it, checked: 0 in a
+    /// bubble): the served host's before the inputs kept for it and its start.
+    pub viewport_height: f64,
 }
 
 impl Default for SandboxHostedStart {
     fn default() -> Self {
-        SandboxHostedStart { theme: WidgetTheme::default(), stopped_label: b"Widget stopped".to_vec(), validated_ops: false }
+        SandboxHostedStart {
+            theme: WidgetTheme::default(),
+            stopped_label: b"Widget stopped".to_vec(),
+            validated_ops: false,
+            viewport_height: 0.0,
+        }
     }
 }
 

@@ -391,6 +391,9 @@ impl SandboxHostedRuntime {
             let sink = Arc::clone(&self.sink);
             host.set_on_render_ops(Box::new(move |json| sink.remote_validated_ops(json)));
         }
+        // The page's viewport at its start, on the glue's thread ahead of the inputs kept before the start (a setter
+        // among them comes later and wins) and of `start` itself; a bubble's, or a start without one, stays 0.
+        host.set_viewport_height(start.viewport_height);
         // Only the glue's own waits in its platform requests leave its layout queries' time; `ended` is called on
         // the glue thread alone, until the drop unwatches it before the host goes.
         let platform = Arc::clone(&self.platform);

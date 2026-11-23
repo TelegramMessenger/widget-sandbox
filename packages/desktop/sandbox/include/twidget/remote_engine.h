@@ -236,13 +236,17 @@ struct SandboxRemoteCoding {
     static constexpr int kMaxDepth = 8;
     static constexpr size_t kStatsFields = 11;
 
-    /// Every `SandboxConfig` field as one JSON object (a non-finite number is written as null).
+    /// Every `SandboxConfig` field as one JSON object (a non-finite number is written as null): the device's edges as `"safeArea"` beside `"contentSafeArea"` (`encodeDeviceSafeArea`'s object), the place as `"surface": "message" | "profile"` inside `"context"`.
     static std::string encodeConfig(const SandboxConfig& config);
-    /// Nullopt without finite numbers `innerWidth`, `innerHeight`, `devicePixelRatio` and a string `theme`; any other member absent or of another type keeps its default.
+    /// Nullopt without finite numbers `innerWidth`, `innerHeight`, `devicePixelRatio` and a string `theme`; any other member absent or of another type keeps its default: `safeArea` read only from an object, as `decodeDeviceSafeArea` reads one, and the place a profile page only when `context.surface` is exactly "profile" (a form without it is a bubble).
     static std::optional<SandboxConfig> decodeConfig(std::string_view text);
     static std::string encodeSafeArea(const WidgetContentSafeArea& area);
     /// An object, or nullopt; each side a finite number, else 0.
     static std::optional<WidgetContentSafeArea> decodeSafeArea(std::string_view text);
+    /// The device's edges (`WidgetSafeArea`): `{"top", "right", "bottom", "left": number}`, a non-finite side written as 0.
+    static std::string encodeDeviceSafeArea(const WidgetSafeArea& area);
+    /// An object, or nullopt; each side a finite number, else 0.
+    static std::optional<WidgetSafeArea> decodeDeviceSafeArea(std::string_view text);
     /// `{"chatData": text | null, "publicData": text | null}`.
     static std::string encodeData(const WidgetData& data);
     /// An object, or nullopt; a member that is not a string is none.
@@ -255,9 +259,9 @@ struct SandboxRemoteCoding {
     static std::string encodeTheme(const WidgetTheme& theme);
     /// An object with a string `colorScheme`, or nullopt; any other member absent, of another type or a non-finite number is unset, and `params` is read as `decodeThemeParams` reads a palette (not an object of strings: none).
     static std::optional<WidgetTheme> decodeTheme(std::string_view text);
-    /// A hosted start (`SandboxHostedChannel::startHosted`): `{"theme": encodeTheme's object, "stoppedLabel": text, "validatedOps": bool}`.
+    /// A hosted start (`SandboxHostedChannel::startHosted`): `{"theme": encodeTheme's object, "stoppedLabel": text, "validatedOps": bool, "viewportHeight": number}` (a non-finite viewport written as null).
     static std::string encodeHostedStart(const SandboxHostedStart& start);
-    /// An object whose `theme` decodes as `decodeTheme` reads one, or nullopt; `stoppedLabel` a string cut to `SandboxEngine::kRemoteTextLimit` bytes, else the default; `validatedOps` true only when it is true.
+    /// An object whose `theme` decodes as `decodeTheme` reads one, or nullopt; `stoppedLabel` a string cut to `SandboxEngine::kRemoteTextLimit` bytes, else the default; `validatedOps` true only when it is true; `viewportHeight` a finite number as given, else 0 (a form without it too).
     static std::optional<SandboxHostedStart> decodeHostedStart(std::string_view text);
     /// `{"answer": text | null}`, `{"failure": code}` (`sdk::walletFailureCode`) or `{"unsupported": true}`.
     static std::string encodeOutcome(const SandboxRemoteOutcome& outcome);

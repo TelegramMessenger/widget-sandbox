@@ -109,11 +109,13 @@ struct WidgetTheme {
     WidgetTextTokens text;
 };
 
-/// What a hosted widget's start carries beyond its `SandboxConfig` (remote_hosted.h, `SandboxEngine::startHosted`): the whole theme the engine process's renderer draws with (the config has only the scheme and the palette), the label its renderer shows over a stopped widget (WidgetHost's `stoppedLabel`), and whether the host asks for every validated batch (a harness's `onRenderOps` set before `start()`); without that ask it gets none.
+/// What a hosted widget's start carries beyond its `SandboxConfig` (remote_hosted.h, `SandboxEngine::startHosted`): the whole theme the engine process's renderer draws with (the config has only the scheme and the palette), the label its renderer shows over a stopped widget (WidgetHost's `stoppedLabel`), whether the host asks for every validated batch (a harness's `onRenderOps` set before `start()`; without that ask it gets none), and a profile page's viewport (host glue state, not the engine's config).
 struct SandboxHostedStart {
     WidgetTheme theme;
     std::string stoppedLabel = "Widget stopped";
     bool validatedOps = false;
+    /// The page's viewport as the host has it at `start()` (`WidgetHostOptions::viewportHeight` and any `setViewportHeight` before it, checked: 0 in a bubble): the served host's before the inputs kept for it and its start.
+    double viewportHeight = 0;
 };
 
 /// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts (docs/decisions.md, "Strict limits from the start").

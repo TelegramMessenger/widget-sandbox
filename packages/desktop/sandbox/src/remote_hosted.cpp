@@ -249,6 +249,8 @@ std::unique_ptr<WidgetHost> SandboxHostedRuntime::build(const std::string& html,
                                                     *this, std::move(reports)));
     host->stoppedLabel = start.stoppedLabel;
     if (start.validatedOps) host->onRenderOps = [sink](const std::string& json) { sink->remoteValidatedOps(json); };
+    // The page's viewport at its start, on the glue's thread ahead of the inputs kept before the start (a setter among them comes later and wins) and of `start` itself; a bubble's, or a start without one, stays 0.
+    host->setViewportHeight(start.viewportHeight);
     // Only the glue's own waits in its platform requests leave its layout queries' time; `ended` is called on the glue thread alone, until the destructor unwatches it before the host goes.
     const std::shared_ptr<HostedPlatform> platform = platform_;
     WidgetHost* served = host.get();

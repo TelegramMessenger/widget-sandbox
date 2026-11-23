@@ -20,7 +20,7 @@ use std::time::Duration;
 use twidget_bundle_stamp::SandboxResources;
 use twidget_engine::{
     Engine, EngineDelegate, IntlProvider, QueryAnswer, SandboxConfig, SandboxEngine, TrustedValidator, ValidatorError,
-    WidgetContentSafeArea, WidgetTheme, is_strict_policy,
+    WidgetContentSafeArea, WidgetSafeArea, WidgetTheme, is_strict_policy, surface,
 };
 use twidget_js::{JsThread, Platform, Poster};
 use twidget_json::Json;
@@ -34,9 +34,6 @@ use crate::renderer::{Renderer, WidgetPaintLimit, paint_limit_code, paint_limit_
 const DEAD: &[u8] = b"{\"error\":\"dead\"}";
 /// qid of the host's own post-load ack query; engine queries count up from 1.
 const RENDER_ACK_QID: i32 = -1;
-/// The shared bubble height bounds of v0.1.0 (docs/integration.md, "Bubble sizing").
-const MIN_HEIGHT: f64 = 50.0;
-const MAX_HEIGHT: f64 = 600.0;
 /// The diagnostic of an engine whose renderer messages passed the backlog bounds (its death is
 /// `BACKLOG_LIMIT_REASON`).
 const BACKLOG_LIMIT: &[u8] = b"backlog-limit";
@@ -270,6 +267,9 @@ pub(crate) struct HostState {
     /// Set once, when the engine's message passed those bounds: nothing the engine sends afterwards has an effect.
     engine_cut: Cell<bool>,
     viewport: Cell<(f64, f64, f64)>,
+    /// A profile page's checked viewport (0 in a bubble), `set_viewport_height`: the runtime's from the hosted start,
+    /// then the host's.
+    page_viewport: Cell<f64>,
     qid: Cell<i32>,
     ops_sent: Cell<i32>,
     /// The colour scheme ("light" | "dark") and the whole theme with its palette checked.
@@ -816,9 +816,9 @@ impl Served {
                 self.resolve_query(&result, binary);
             }
             b"size" => {
-                let height = msg.get("height").as_number(0.0);
-                let height = if height < MIN_HEIGHT { MIN_HEIGHT } else { height };
-                let height = if MAX_HEIGHT < height { MAX_HEIGHT } else { height };
+                // A bubble's height is the content's in [50, 600], a profile page's at least its viewport (`surface::height`).
+                let place = st.config.borrow().context.surface;
+                let height = surface::height(place, msg.get("height").as_number(0.0), st.page_viewport.get());
                 let notify = {
                     let mut d = lock(&self.diagnostics);
                     let mut notify = false;
@@ -955,11 +955,34 @@ impl Served {
         msg.dump()
     }
 
+    /// `{"type":"deviceSafeArea","inset":{…}}`: the renderer core checks the values against the place.
+    fn device_safe_area_message(area: &WidgetSafeArea) -> Vec<u8> {
+        let mut msg = Json::object();
+        msg.set("type", "deviceSafeArea").set("inset", area.json());
+        msg.dump()
+    }
+
+    /// `{"type":"surface","surface":"message" | "profile","viewportHeight":…}`: the place and the page's checked
+    /// viewport (0 in a bubble).
+    fn surface_message(st: &HostState) -> Vec<u8> {
+        let mut msg = Json::object();
+        msg.set("type", "surface")
+            .set("surface", sdk::surface_name(st.config.borrow().context.surface))
+            .set("viewportHeight", st.page_viewport.get());
+        msg.dump()
+    }
+
     fn local_start(self: &Arc<Self>, st: &HostState) {
         // Queued until the renderer is ready, so the variables are its first message, before any ops.
         self.to_renderer(st, Self::theme_message(st));
-        let area = st.config.borrow().content_safe_area;
+        // The place first: it bounds both safe-area layers and sets a page's viewport.
+        self.to_renderer(st, Self::surface_message(st));
+        let (area, device) = {
+            let config = st.config.borrow();
+            (config.content_safe_area, config.safe_area)
+        };
         self.to_renderer(st, Self::safe_area_message(&area));
+        self.to_renderer(st, Self::device_safe_area_message(&device));
         // Under strict the renderer counts heavy boxes and reports `limit` past them; compat counts nothing.
         let strict = is_strict_policy(&st.config.borrow().policy);
         self.to_renderer(st, format!("{{\"type\":\"policy\",\"policy\":\"{}\"}}", if strict { "strict" } else { "compat" }).into_bytes());
@@ -1047,6 +1070,7 @@ impl ServedHost {
                 backlog_messages: Cell::new(0),
                 engine_cut: Cell::new(false),
                 viewport: Cell::new(viewport),
+                page_viewport: Cell::new(0.0),
                 qid: Cell::new(0),
                 ops_sent: Cell::new(0),
                 theme: RefCell::new(theme),
@@ -1168,6 +1192,21 @@ impl ServedHost {
             }
             if let Some(engine) = s.engine() {
                 engine.content_safe_area(area);
+            }
+        });
+    }
+
+    /// A profile page's viewport changed with the screen's layout: `--tg-viewport-height`, and the page's least
+    /// height; ignored (0) in a bubble. The renderer gets the place again once started.
+    pub(crate) fn set_viewport_height(&self, height: f64) {
+        self.served.host(move |s, st| {
+            if s.destroyed.load(Ordering::SeqCst) || s.renderer_only.load(Ordering::SeqCst) {
+                return;
+            }
+            let place = st.config.borrow().context.surface;
+            st.page_viewport.set(surface::check_viewport_height(place, height));
+            if st.started.get() {
+                s.to_renderer(st, Served::surface_message(st));
             }
         });
     }

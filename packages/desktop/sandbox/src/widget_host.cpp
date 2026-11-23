@@ -54,7 +54,8 @@ WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, Widget
       hosting_{true, nullptr},
       validator_(nullptr, nullptr),
       engine_(SandboxEngine::hostedClient(html_, config_, std::move(hosted), std::move(intl), std::move(wait))),
-      viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio) {}
+      viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio),
+      pageViewport_(surface::checkViewportHeight(config_.context.surface, options.viewportHeight)) {}
 
 WidgetHost::~WidgetHost() {
     destroy();
@@ -75,8 +76,8 @@ void WidgetHost::start() {
         started_ = true;
         // On the client's dispatch thread before the engine's start below: what it kept (a death) comes now, nothing came before.
         if (engine_->isRemote()) engine_->setDelegate(this);
-        // The engine process loads its renderer and boots the widget; validated batches only for an observer set by now.
-        if (hosting_.hosted) return engine_->startHosted(SandboxHostedStart{widgetTheme_, stoppedLabel, bool(onRenderOps)}, keepsRenderer);
+        // The engine process loads its renderer and boots the widget; validated batches only for an observer set by now, the page's viewport as it is now.
+        if (hosting_.hosted) return engine_->startHosted(SandboxHostedStart{widgetTheme_, stoppedLabel, bool(onRenderOps), pageViewport_}, keepsRenderer);
         (this->*glue_->start)();
     });
 }

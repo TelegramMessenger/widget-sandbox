@@ -5,7 +5,8 @@
 use std::collections::BTreeMap;
 
 use twidget_engine::{
-    SandboxConfig, SandboxHostedStart, SandboxStats, WidgetButtonTokens, WidgetContentSafeArea, WidgetTextTokens, WidgetTheme,
+    SandboxConfig, SandboxHostedStart, SandboxStats, WidgetButtonTokens, WidgetContentSafeArea, WidgetSafeArea, WidgetTextTokens,
+    WidgetTheme,
 };
 use twidget_json::{Json, Surrogates};
 use twidget_sdk_policy as sdk;
@@ -155,6 +156,12 @@ fn safe_area_of(o: &Json) -> WidgetContentSafeArea {
     }
 }
 
+/// The device's edges of an object, as `safe_area_of` reads the content's: each side a finite number, else 0.
+fn device_safe_area_of(o: &Json) -> WidgetSafeArea {
+    let side = |key| finite_number(o, key).unwrap_or(0.0);
+    WidgetSafeArea { top: side("top"), right: side("right"), bottom: side("bottom"), left: side("left") }
+}
+
 /// A finite number inside `i64`'s range, truncated toward zero; the range is checked exactly, [-2^63, 2^63).
 fn int64_of(v: &Json) -> Option<i64> {
     let n = v.as_number(0.0);
@@ -175,11 +182,13 @@ fn context_json(c: &WidgetContext) -> Json {
     if let Some(viewer) = &c.viewer {
         o.set("viewer", sdk::viewer_json(viewer));
     }
+    o.set("surface", sdk::surface_name(c.surface));
     o
 }
 
 /// A fresh context, as Swift's decoder builds one: each flag a bool or false, the chat type a string or none,
-/// a viewer only with a usable `id`.
+/// a viewer only with a usable `id`, the place a profile page only when `surface` is exactly "profile" (else a
+/// bubble).
 fn context_of(o: &Json) -> WidgetContext {
     let mut c = WidgetContext {
         is_copy: o.get("isCopy").as_bool(false),
@@ -202,6 +211,10 @@ fn context_of(o: &Json) -> WidgetContext {
             username: string_of(viewer.get("username")),
             is_premium: viewer.get("is_premium").as_bool(false),
         });
+    }
+    let surface = o.get("surface");
+    if surface.is_string() && surface.as_str() == sdk::surface_name(WidgetSurface::Profile).as_bytes() {
+        c.surface = WidgetSurface::Profile;
     }
     c
 }
@@ -226,7 +239,9 @@ fn theme_of(o: &Json) -> Option<WidgetTheme> {
     })
 }
 
-/// Every `SandboxConfig` field as one JSON object (a non-finite number is written as null).
+/// Every `SandboxConfig` field as one JSON object (a non-finite number is written as null): the device's edges as
+/// `"safeArea"` beside `"contentSafeArea"` (`encode_device_safe_area`'s object), the place as
+/// `"surface": "message" | "profile"` inside `"context"`.
 pub fn encode_config(c: &SandboxConfig) -> Vec<u8> {
     let mut features = Json::array();
     for feature in &c.features {
@@ -247,7 +262,8 @@ pub fn encode_config(c: &SandboxConfig) -> Vec<u8> {
         .set("theme", c.theme.as_slice());
     o.set("themeParams", string_map_json(&c.theme_params))
         .set("locale", c.locale.as_slice())
-        .set("contentSafeArea", c.content_safe_area.json());
+        .set("contentSafeArea", c.content_safe_area.json())
+        .set("safeArea", c.safe_area.json());
     o.set("storage", StorageCommit { local: Some(c.storage.local.clone()), session: Some(c.storage.session.clone()) }.to_json())
         .set("data", data_json(&c.data))
         .set("context", context_json(&c.context));
@@ -256,7 +272,9 @@ pub fn encode_config(c: &SandboxConfig) -> Vec<u8> {
 }
 
 /// None without finite numbers `innerWidth`, `innerHeight`, `devicePixelRatio` and a string `theme`; any other
-/// member absent or of another type keeps its default.
+/// member absent or of another type keeps its default: `safeArea` read only from an object, as
+/// `decode_device_safe_area` reads one, and the place a profile page only when `context.surface` is exactly
+/// "profile" (a form without it is a bubble).
 pub fn decode_config(text: &[u8]) -> Option<SandboxConfig> {
     let o = parse_object(text)?;
     let width = finite_number(&o, "innerWidth");
@@ -293,6 +311,9 @@ pub fn decode_config(text: &[u8]) -> Option<SandboxConfig> {
     if o.get("contentSafeArea").is_object() {
         c.content_safe_area = safe_area_of(o.get("contentSafeArea"));
     }
+    if o.get("safeArea").is_object() {
+        c.safe_area = device_safe_area_of(o.get("safeArea"));
+    }
     // Each area an object of strings or empty; the quota stays the receiving engine's check.
     let storage = o.get("storage");
     if storage.is_object() {
@@ -325,6 +346,16 @@ pub fn decode_safe_area(text: &[u8]) -> Option<WidgetContentSafeArea> {
     parse_object(text).map(|o| safe_area_of(&o))
 }
 
+/// The device's edges: `{"top", "right", "bottom", "left": number}`, a non-finite side written as 0.
+pub fn encode_device_safe_area(area: &WidgetSafeArea) -> Vec<u8> {
+    area.json().dump()
+}
+
+/// An object, or none; each side a finite number, else 0.
+pub fn decode_device_safe_area(text: &[u8]) -> Option<WidgetSafeArea> {
+    parse_object(text).map(|o| device_safe_area_of(&o))
+}
+
 /// `{"chatData": text | null, "publicData": text | null}`.
 pub fn encode_data(data: &WidgetData) -> Vec<u8> {
     data_json(data).dump()
@@ -355,14 +386,20 @@ pub fn decode_theme(text: &[u8]) -> Option<WidgetTheme> {
     theme_of(&parse_object(text)?)
 }
 
-/// A hosted start: `{"theme": encode_theme's object, "stoppedLabel": text, "validatedOps": bool}`.
+/// A hosted start: `{"theme": encode_theme's object, "stoppedLabel": text, "validatedOps": bool, "viewportHeight":
+/// number}` (a non-finite viewport written as null).
 pub fn encode_hosted_start(start: &SandboxHostedStart) -> Vec<u8> {
     let mut o = Json::object();
-    o.set("theme", theme_json(&start.theme)).set("stoppedLabel", start.stopped_label.as_slice()).set("validatedOps", start.validated_ops);
+    o.set("theme", theme_json(&start.theme))
+        .set("stoppedLabel", start.stopped_label.as_slice())
+        .set("validatedOps", start.validated_ops)
+        .set("viewportHeight", start.viewport_height);
     o.dump()
 }
 
-/// An object whose `theme` decodes, or none; `stoppedLabel` a string cut to the text limit, else the default.
+/// An object whose `theme` decodes, or none; `stoppedLabel` a string cut to the text limit, else the default;
+/// `validatedOps` true only when it is true; `viewportHeight` a finite number as given, else 0 (a form without it
+/// too).
 pub fn decode_hosted_start(text: &[u8]) -> Option<SandboxHostedStart> {
     let o = parse_object(text)?;
     let theme = theme_of(o.get("theme"))?;
@@ -371,6 +408,7 @@ pub fn decode_hosted_start(text: &[u8]) -> Option<SandboxHostedStart> {
         start.stopped_label = label[..label.len().min(REMOTE_TEXT_LIMIT)].to_vec();
     }
     start.validated_ops = o.get("validatedOps").as_bool(false);
+    start.viewport_height = finite_number(&o, "viewportHeight").unwrap_or(0.0);
     Some(start)
 }
 

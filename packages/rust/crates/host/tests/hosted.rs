@@ -18,6 +18,23 @@ use twidget_stream::{Field, FrameReader, Kind, MAX_FRAME_BYTES, Side, Stream, VE
 
 const BUILD: &[u8] = b"rust-hosted-tests";
 
+/// A config and a hosted start as a client wrote them before the bot's profile page (no `context.surface`, no
+/// `safeArea`, no `viewportHeight`), by hand, so the defaults are read from the form an older client sends and not
+/// from what this workspace's encoder writes: a bubble 300 px wide whose host asks for the validated batches.
+const LEGACY_CONFIG: &str = concat!(
+    "{\"memoryLimitBytes\":8388608,\"cpuLimitMs\":500,\"cpuQuotaMs\":300,\"cpuQuotaWindowMs\":1000,\"cpuKillAfterMs\":0,",
+    "\"mainThreadQuotaMs\":100,\"maxTimers\":64,\"visible\":true,\"innerWidth\":300,\"innerHeight\":300,\"devicePixelRatio\":1,",
+    "\"theme\":\"light\",\"themeParams\":{},\"locale\":\"en-US\",",
+    "\"contentSafeArea\":{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0,\"cornerLeft\":0,\"cornerRight\":0},",
+    "\"storage\":{\"local\":{},\"session\":{}},\"data\":{\"chatData\":null,\"publicData\":null},",
+    "\"context\":{\"isCopy\":false,\"canQuery\":false,\"backgroundQuery\":false,\"preview\":false,\"wallet\":false,\"chatType\":\"\"},",
+    "\"policy\":\"strict\",\"features\":[]}"
+);
+const LEGACY_START: &str = concat!(
+    "{\"theme\":{\"colorScheme\":\"light\",\"params\":{},\"button\":{},\"text\":{}},",
+    "\"stoppedLabel\":\"Widget stopped\",\"validatedOps\":true}"
+);
+
 struct TestPlatform;
 
 impl Platform for TestPlatform {
@@ -159,12 +176,13 @@ impl Host {
     fn hosted_start(&self, runtime: u32, html: &str, validated_ops: bool) {
         let config = SandboxConfig { inner_width: 300.0, ..SandboxConfig::default() };
         let start = SandboxHostedStart { validated_ops, ..SandboxHostedStart::default() };
+        self.hosted_start_forms(runtime, html, &encode_config(&config), &encode_hosted_start(&start));
+    }
+
+    /// The route opened and its hosted start with these coded forms.
+    fn hosted_start_forms(&self, runtime: u32, html: &str, config: &[u8], start: &[u8]) {
         self.send(runtime, Kind::Open, &[]);
-        self.send(
-            runtime,
-            Kind::HostedStart,
-            &[Field::Str(html.as_bytes()), Field::Str(&encode_config(&config)), Field::Str(&encode_hosted_start(&start))],
-        );
+        self.send(runtime, Kind::HostedStart, &[Field::Str(html.as_bytes()), Field::Str(config), Field::Str(start)]);
     }
 
     fn all(&self) -> Vec<Seen> {
@@ -267,7 +285,8 @@ fn serves_a_hosted_widget_and_keeps_its_renderer_past_its_death() {
     let host = Host::new(host_end);
     host.opening(Kind::HostingOpening, &res);
     host.wait("Ready", |s| s.kind == Kind::Ready);
-    host.hosted_start(1, "<p id='p'>hello</p>", true);
+    // An older client's forms: a bubble.
+    host.hosted_start_forms(1, "<p id='p'>hello</p>", LEGACY_CONFIG.as_bytes(), LEGACY_START.as_bytes());
     host.wait("Rendered", |s| s.runtime == 1 && s.kind == Kind::Rendered);
     assert_eq!(built.load(Ordering::SeqCst), 1);
     for kind in [Kind::RendererReady, Kind::Loaded, Kind::Nodes] {
@@ -279,8 +298,21 @@ fn serves_a_hosted_widget_and_keeps_its_renderer_past_its_death() {
     for kind in [Kind::Ops, Kind::Query, Kind::Listen, Kind::RequestsFrame, Kind::TaskStarted, Kind::TaskCompleted] {
         assert_eq!(host.count(1, kind), 0, "{kind:?}");
     }
-    let first = sent.lock().unwrap().first().cloned().unwrap_or_default();
-    assert!(first.starts_with("{\"type\":\"theme\""), "{first}");
+    // The served host's start, in the C++ glue's order (widget_host_local.cpp's `localStart`), all before the first
+    // ops: the theme, the place with its viewport, the content's safe area, the device's, the policy.
+    let started = sent.lock().unwrap().clone();
+    assert!(started.len() > 5 && started[0].starts_with("{\"type\":\"theme\""), "{started:?}");
+    assert_eq!(
+        started[1..5],
+        [
+            "{\"type\":\"surface\",\"surface\":\"message\",\"viewportHeight\":0}",
+            "{\"type\":\"safeArea\",\"inset\":{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0,\"cornerLeft\":0,\"cornerRight\":0}}",
+            "{\"type\":\"deviceSafeArea\",\"inset\":{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}}",
+            "{\"type\":\"policy\",\"policy\":\"strict\"}",
+        ]
+    );
+    let first_ops = started.iter().position(|m| m.starts_with("{\"type\":\"ops\""));
+    assert!(first_ops.is_some_and(|at| at >= 5), "{started:?}");
 
     host.send(1, Kind::Probe, &[Field::I64(1), Field::Str(b"document.getElementById('p').textContent")]);
     assert_eq!(host.wait("the probe's answer", |s| s.kind == Kind::ProbeAnswer && s.number == 1).first(), "hello");

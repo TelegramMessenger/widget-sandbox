@@ -94,6 +94,12 @@ WidgetContentSafeArea safeAreaOf(const Json& o) {
     return WidgetContentSafeArea{side("top"), side("right"), side("bottom"), side("left"), side("cornerLeft"), side("cornerRight")};
 }
 
+/// The device's edges of an object, as `safeAreaOf` reads the content's: each side a finite number, else 0.
+WidgetSafeArea deviceSafeAreaOf(const Json& o) {
+    auto side = [&](std::string_view key) { return finiteNumber(o, key).value_or(0); };
+    return WidgetSafeArea{side("top"), side("right"), side("bottom"), side("left")};
+}
+
 /// A finite number inside `int64_t`'s range, truncated toward zero; the range is checked exactly, [-2^63, 2^63).
 std::optional<int64_t> int64Of(const Json& v) {
     constexpr double end = rangeEnd<int64_t>();
@@ -107,6 +113,7 @@ Json contextJson(const WidgetContext& c) {
     o.set("isCopy", c.isCopy).set("canQuery", c.canQuery).set("backgroundQuery", c.backgroundQuery).set("preview", c.preview).set("wallet", c.wallet);
     o.set("chatType", c.chatType);
     if (c.viewer) o.set("viewer", sdk::viewerJson(*c.viewer));
+    o.set("surface", surfaceName(c.surface));
     return o;
 }
 
@@ -129,7 +136,7 @@ std::optional<WidgetTheme> themeOf(const Json& o) {
     return t;
 }
 
-/// A fresh context, as Swift's decoder builds one: each flag a bool or false, the chat type a string or none, a viewer only with a usable `id`.
+/// A fresh context, as Swift's decoder builds one: each flag a bool or false, the chat type a string or none, a viewer only with a usable `id`, the place a profile page only when `surface` is exactly "profile" (else a bubble).
 WidgetContext contextOf(const Json& o) {
     WidgetContext c;
     c.isCopy = o["isCopy"].asBool();
@@ -148,6 +155,7 @@ WidgetContext contextOf(const Json& o) {
         v.isPremium = viewer["is_premium"].asBool();
         c.viewer = std::move(v);
     }
+    if (const Json& surface = o["surface"]; surface.isString() && surface.asString() == surfaceName(WidgetSurface::Profile)) c.surface = WidgetSurface::Profile;
     return c;
 }
 
@@ -160,7 +168,7 @@ std::string SandboxRemoteCoding::encodeConfig(const SandboxConfig& c) {
     o.set("memoryLimitBytes", c.memoryLimitBytes).set("cpuLimitMs", c.cpuLimitMs).set("cpuQuotaMs", c.cpuQuotaMs).set("cpuQuotaWindowMs", c.cpuQuotaWindowMs);
     o.set("cpuKillAfterMs", c.cpuKillAfterMs).set("mainThreadQuotaMs", c.mainThreadQuotaMs).set("maxTimers", c.maxTimers).set("visible", c.visible);
     o.set("innerWidth", c.innerWidth).set("innerHeight", c.innerHeight).set("devicePixelRatio", c.devicePixelRatio).set("theme", c.theme);
-    o.set("themeParams", stringMapJson(c.themeParams)).set("locale", c.locale).set("contentSafeArea", c.contentSafeArea.json());
+    o.set("themeParams", stringMapJson(c.themeParams)).set("locale", c.locale).set("contentSafeArea", c.contentSafeArea.json()).set("safeArea", c.safeArea.json());
     o.set("storage", sdk::StorageCommit{c.storage.local, c.storage.session}.toJson()).set("data", dataJson(c.data)).set("context", contextJson(c.context));
     o.set("policy", c.policy).set("features", std::move(features));
     return o.dump();
@@ -187,6 +195,7 @@ std::optional<SandboxConfig> SandboxRemoteCoding::decodeConfig(std::string_view 
     if (std::optional<std::map<std::string, std::string>> v = stringMap((*o)["themeParams"])) c.themeParams = std::move(*v);
     if (std::optional<std::string> v = stringOf((*o)["locale"])) c.locale = std::move(*v);
     if (const Json& v = (*o)["contentSafeArea"]; v.isObject()) c.contentSafeArea = safeAreaOf(v);
+    if (const Json& v = (*o)["safeArea"]; v.isObject()) c.safeArea = deviceSafeAreaOf(v);
     // Each area an object of strings or empty (Swift's `?? [:]`); the quota stays the receiving engine's check, which drops an over-quota preload with its diagnostic.
     if (const Json& v = (*o)["storage"]; v.isObject()) c.storage = WidgetStorage{stringMap(v["local"]).value_or(StorageArea{}), stringMap(v["session"]).value_or(StorageArea{})};
     if (const Json& v = (*o)["data"]; v.isObject()) c.data = dataOf(v);
@@ -202,6 +211,14 @@ std::optional<WidgetContentSafeArea> SandboxRemoteCoding::decodeSafeArea(std::st
     std::optional<Json> o = parseObject(text);
     if (!o) return std::nullopt;
     return safeAreaOf(*o);
+}
+
+std::string SandboxRemoteCoding::encodeDeviceSafeArea(const WidgetSafeArea& area) { return area.json().dump(); }
+
+std::optional<WidgetSafeArea> SandboxRemoteCoding::decodeDeviceSafeArea(std::string_view text) {
+    std::optional<Json> o = parseObject(text);
+    if (!o) return std::nullopt;
+    return deviceSafeAreaOf(*o);
 }
 
 std::string SandboxRemoteCoding::encodeData(const WidgetData& data) { return dataJson(data).dump(); }
@@ -230,7 +247,7 @@ std::optional<WidgetTheme> SandboxRemoteCoding::decodeTheme(std::string_view tex
 
 std::string SandboxRemoteCoding::encodeHostedStart(const SandboxHostedStart& start) {
     Json o = Json::object();
-    o.set("theme", themeJson(start.theme)).set("stoppedLabel", start.stoppedLabel).set("validatedOps", start.validatedOps);
+    o.set("theme", themeJson(start.theme)).set("stoppedLabel", start.stoppedLabel).set("validatedOps", start.validatedOps).set("viewportHeight", start.viewportHeight);
     return o.dump();
 }
 
@@ -243,6 +260,7 @@ std::optional<SandboxHostedStart> SandboxRemoteCoding::decodeHostedStart(std::st
     start.theme = std::move(*theme);
     if (std::optional<std::string> label = stringOf((*o)["stoppedLabel"])) start.stoppedLabel = label->substr(0, SandboxEngine::kRemoteTextLimit);
     start.validatedOps = (*o)["validatedOps"].asBool();
+    start.viewportHeight = finiteNumber(*o, "viewportHeight").value_or(0);
     return start;
 }
 
