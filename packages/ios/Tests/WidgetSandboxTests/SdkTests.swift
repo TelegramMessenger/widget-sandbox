@@ -848,9 +848,8 @@ final class SdkTests: XCTestCase {
         h.pump { h.logs.contains { $0.hasPrefix("first=") } }
         XCTAssertTrue(h.logs.contains("first={\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}"), "\(h.logs)")
         let messages = h.renderer.messages.compactMap { Self.object($0) }
-        XCTAssertEqual(messages.first?["type"] as? String, "theme")
-        XCTAssertEqual(messages.dropFirst().first?["type"] as? String, "safeArea", "right after the theme, before any op")
-        let inset = try XCTUnwrap(messages.dropFirst().first?["inset"] as? [String: Double])
+        XCTAssertEqual(messages.prefix(4).map { $0["type"] as? String }, ["theme", "surface", "safeArea", "deviceSafeArea"], "right after the theme and the place, before any op")
+        let inset = try XCTUnwrap(messages.dropFirst(2).first?["inset"] as? [String: Double])
         XCTAssertEqual(inset["bottom"], 24)
         XCTAssertEqual(inset["cornerRight"], 72)
         XCTAssertEqual(inset["top"], 99, "passed as given: the renderer core checks the range")
@@ -892,6 +891,55 @@ final class SdkTests: XCTestCase {
             second = await withCheckedContinuation { c in host.evaluateInRenderer(probe) { c.resume(returning: $0) } }
         }
         XCTAssertEqual(second, "20px|0px|70px|20px|20px")
+    }
+
+    // MARK: the bot's profile page (docs/sdk-v1.md §2.19)
+
+    /// A bubble by default: the place goes to the renderer as `message`, the device's edges are 0 in the widget whatever
+    /// the client passed, the height is the content's in [50, 600], and the resize anchor moves the bubble.
+    func testMessageSurfaceByDefault() throws {
+        var options = WidgetHost.Options()
+        options.safeArea = WidgetSafeArea(top: 47, bottom: 34)
+        options.viewportHeight = 844
+        let h = Harness("<p>x</p><script>console.log('place='+TelegramWidget.surface+':'+JSON.stringify(TelegramWidget.safeAreaInset));TelegramWidget.setResizeAnchor('bottom');</script>", options: options)
+        h.pump { h.logs.contains { $0.hasPrefix("place=") } && h.host.diagnostics.resizeAnchor == .bottom }
+        XCTAssertEqual(h.logs.first { $0.hasPrefix("place=") }, "place=message:{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}")
+        let surface = try XCTUnwrap(h.renderer.messages.compactMap { Self.object($0) }.first { $0["type"] as? String == "surface" })
+        XCTAssertEqual(surface["surface"] as? String, "message")
+        XCTAssertEqual(surface["viewportHeight"] as? Double, 0, "a bubble has no viewport")
+        XCTAssertEqual(h.host.diagnostics.height, 120)
+        XCTAssertEqual(h.host.diagnostics.resizeAnchor, .bottom)
+    }
+
+    /// On a profile page: both layers reach the widget at boot and `setSafeArea` fires one `safeAreaChanged`; the page is
+    /// at least its viewport tall; the widget's resize anchor goes nowhere (the page never moves); a page has no chat,
+    /// whatever chat type the client passes. The insets pass as given past the old ranges, a negative one is 0, no corners.
+    func testProfileSurfaceLayersHeightAndAnchor() throws {
+        var options = WidgetHost.Options()
+        options.context = WidgetContext(chatType: .private, surface: .profile)
+        options.safeArea = WidgetSafeArea(top: 120, bottom: 34, left: -5)
+        options.contentSafeArea = WidgetContentSafeArea(top: 90, bottom: 150, left: 40, cornerRight: 64)
+        options.viewportHeight = 844
+        let h = Harness("<p>x</p><script>var d=TelegramWidget.safeAreaInset,c=TelegramWidget.contentSafeAreaInset;console.log('place='+[TelegramWidget.surface,d.top,d.bottom,d.left,c.top,c.bottom,c.left,c.cornerRight,String(TelegramWidget.chatType)].join(':'));TelegramWidget.onEvent('safeAreaChanged',function(){var a=TelegramWidget.safeAreaInset;console.log('changed='+[a.top,a.left,a.right,a.bottom,Object.isFrozen(a),a!==d].join(':'));});TelegramWidget.setResizeAnchor('bottom');</script>", options: options)
+        h.pump { h.logs.contains { $0.hasPrefix("place=") } && h.host.diagnostics.height > 0 }
+        XCTAssertEqual(h.logs.first { $0.hasPrefix("place=") }, "place=profile:120:34:0:90:150:40:0:null", "as passed, a negative side 0, no corners and no chat on a page")
+        let messages = h.renderer.messages.compactMap { Self.object($0) }
+        let surface = try XCTUnwrap(messages.first { $0["type"] as? String == "surface" })
+        XCTAssertEqual(surface["surface"] as? String, "profile")
+        XCTAssertEqual(surface["viewportHeight"] as? Double, 844)
+        XCTAssertEqual((messages.first { $0["type"] as? String == "deviceSafeArea" }?["inset"] as? [String: Double])?["top"], 120)
+        XCTAssertEqual(h.host.diagnostics.height, 844, "120 px of content on an 844 px page")
+        XCTAssertEqual(h.host.diagnostics.resizeAnchor, .top, "a page never moves")
+        h.host.setSafeArea(WidgetSafeArea(top: 0, right: 59, bottom: 21, left: 59))
+        h.host.setSafeArea(WidgetSafeArea(top: 0, right: 59, bottom: 21, left: 59))
+        h.pump { h.logs.contains { $0.hasPrefix("changed=") } }
+        XCTAssertEqual(h.logs.filter { $0.hasPrefix("changed=") }, ["changed=0:59:59:21:true:true"])
+        h.host.setViewportHeight(390)
+        h.pump { h.renderer.messages.compactMap { Self.object($0) }.contains { $0["type"] as? String == "surface" && $0["viewportHeight"] as? Double == 390 } }
+        XCTAssertEqual(WidgetSurface.profile.height(content: 120, viewport: 390), 390)
+        XCTAssertEqual(WidgetSurface.profile.height(content: 9000, viewport: 844), WidgetSurface.pageMaximumHeight)
+        XCTAssertEqual(WidgetSurface.profile.checkViewportHeight(4001), 0)
+        XCTAssertEqual(WidgetSurface.message.height(content: 9000, viewport: 844), 600)
     }
 
     // MARK: helpers

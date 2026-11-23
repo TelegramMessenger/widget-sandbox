@@ -52,6 +52,8 @@ public struct SandboxConfig {
     public var locale = SdkPolicy.defaultLocale
     /// What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes go through `contentSafeArea(_:)`.
     public var contentSafeArea = WidgetContentSafeArea()
+    /// The device's edges over the widget at boot (docs/sdk-v1.md §2.17), 0 in a bubble whatever is passed; later changes go through `safeArea(_:)`.
+    public var safeArea = WidgetSafeArea()
     /// The client's Web Storage preload (docs/sdk-v1.md §2.8); over the quota it is dropped whole at boot (`storage-rejected`).
     public var storage = WidgetStorage()
     /// The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13), checked at boot (`SdkPolicy.checkWidgetData`):
@@ -450,6 +452,8 @@ public final class SandboxEngine {
                 "themeParams": SdkPolicy.checkThemeParams(self.config.themeParams),
                 "locale": SdkPolicy.checkLocale(self.config.locale) ?? SdkPolicy.defaultLocale,
                 "contentSafeArea": self.config.contentSafeArea.json,
+                "deviceSafeArea": self.config.safeArea.json,
+                "surface": self.config.context.surface.rawValue,
                 "profile": SdkPolicy.profileVersion,
                 // A preview has no message yet: no storage of its own (it lives in the sandbox for this run only).
                 "storage": self.config.context.preview ? [String: Any]() : self.preload(),
@@ -486,7 +490,7 @@ public final class SandboxEngine {
     /// The bot's data, the server's flags and where the widget is, checked for the shim's boot (docs/sdk-v1.md §3.1):
     /// JSON null for none; a forwarded copy gets no `chatData` and no `chatType` (the bot learns nothing about where its
     /// widget was forwarded), and no `viewer` unless it may request; a preview gets its data but no flags, chat type or
-    /// viewer.
+    /// viewer; a profile page has no chat, so no `chatType`.
     private func widgetContext() -> [String: Any] {
         let context = config.context.effective
         var out = dataFields(SdkPolicy.checkWidgetData(config.data, copy: context.isCopy))
@@ -495,7 +499,8 @@ public final class SandboxEngine {
         out["isPreview"] = context.preview
         // Whatever the widget knows can reach the bot in a request: no copy tells where it was forwarded, and the
         // widget knows its viewer only where it may send requests (canQuery, never in a preview), as the network marker.
-        let noChatType = context.preview || context.isCopy
+        // A profile page is in no chat.
+        let noChatType = context.preview || context.isCopy || context.surface == .profile
         let noViewer = context.preview || !context.canQuery
         out["chatType"] = Self.orNull(noChatType ? nil : SdkPolicy.checkChatType(context.chatType)?.rawValue)
         out["viewer"] = noViewer ? NSNull() : checkedViewer(context.viewer)
@@ -551,6 +556,17 @@ public final class SandboxEngine {
             if self.dead { return }
             guard self.started else { self.config.contentSafeArea = area; return }
             self.enqueueNow("safeArea", Self.json(area.json))
+        }
+    }
+
+    /// The device's edges over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.safeAreaInset` and
+    /// `safeAreaChanged` in one task; the shim checks the values against the place (0 in a bubble). Before `start` it
+    /// only replaces `config.safeArea`.
+    public func safeArea(_ area: WidgetSafeArea) {
+        queue.async {
+            if self.dead { return }
+            guard self.started else { self.config.safeArea = area; return }
+            self.enqueueNow("deviceSafeArea", Self.json(area.json))
         }
     }
 
@@ -829,7 +845,8 @@ public final class SandboxEngine {
             return
         }
         if case .setResizeAnchor(let edge) = checked {
-            delegate?.engine(self, resizeAnchor: edge)
+            // A profile page never moves when its height changes: the call is checked and goes nowhere.
+            if config.context.surface.keepsResizeAnchor { delegate?.engine(self, resizeAnchor: edge) }
             return
         }
         if case .watchPublicData(let on) = checked {

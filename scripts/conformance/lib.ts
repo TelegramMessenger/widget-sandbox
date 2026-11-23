@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { PNG } from 'pngjs';
 import type { ContentSafeArea } from '../../packages/core/src/shared/sdk-policy.ts';
+import { PROFILE_SURFACES } from '../../packages/core/src/shared/profile-tables.ts';
+import { REFERENCE_PROFILE } from '../../packages/core/src/shared/reference.ts';
 
 /** path.relative with / separators: what the manifest and the channel table store, on every OS. */
 export const posixRelative = (from: string, to: string) => path.relative(from, to).split(path.sep).join('/');
@@ -26,6 +28,16 @@ export type SetName = (typeof SETS)[number];
  * Chromium fails, which makes it taller than on a client).
  */
 export const MAX_HEIGHT = { width: 320, height: 560 };
+
+/**
+ * A profile case (the header's "surface": "profile", docs/sdk-v1.md §2.19) is a page, not a bubble: it is laid out at the
+ * reference page's width and may be as tall as the page ceiling (provisional, profile.json `tables.surfaces`); it is at
+ * least the viewport tall on every client, so the bubble's gate does not apply.
+ */
+export const MAX_PAGE_HEIGHT = { width: REFERENCE_PROFILE.width, height: PROFILE_SURFACES.profile.height.max };
+
+/** The height gate of a widget: the bubble's, or the page's for a profile case. */
+export const heightGate = (w: Widget) => (w.meta.surface === 'profile' ? MAX_PAGE_HEIGHT : MAX_HEIGHT);
 
 /** Default stage sizes (CSS px) and the auto set's grid. */
 export const STAGE = { auto: { w: 80, h: 60 }, visual: { w: 150, h: 90 } };
@@ -78,7 +90,7 @@ export interface HostCheck {
  * and the tester looks at the list of results.
  */
 export interface MessageSpec {
-  kind: 'private' | 'group' | 'via-bot' | 'no-queries' | 'live-copy' | 'copy' | 'preview';
+  kind: 'private' | 'group' | 'via-bot' | 'no-queries' | 'live-copy' | 'copy' | 'preview' | 'profile-prestart' | 'profile';
   allow_queries?: boolean;
   fwd_allow_queries?: boolean;
   shared_widget?: boolean;
@@ -137,6 +149,13 @@ export interface WidgetMeta {
    * them and the reference time over the corner. The widget's checks compare with what its host passed, never with these.
    */
   safeArea?: Partial<ContentSafeArea>;
+  /**
+   * Where the widget is shown (docs/sdk-v1.md §2.19): "profile" = the bot's profile page, full screen, with both safe-area
+   * layers and the viewport (the reference runner gives the dev app REFERENCE_PROFILE's numbers, a client its own). Its
+   * message spec names the phase (`profile-prestart` before Start, `profile` after it); the height gate is the
+   * page's (MAX_PAGE_HEIGHT), and the test bot cannot post it (no server call sets a bot's profile widget yet).
+   */
+  surface?: 'profile';
   /**
    * The host must stop this widget (a counted limit under strict, docs/decisions.md "Strict limits from the start"): its
    * covers pass when the runtime dies with a reason that starts with this text, and fail on any other end.
@@ -218,6 +237,9 @@ export function parseWidget(set: SetName, stem: string, html: string): Widget {
     const colors = (attr(tag, 'data-colors') ?? '').split(/\s+/).filter(Boolean);
     stages.push({ name, w, h, covers, themes, maxDiff: maxDiff ? Number(maxDiff) : undefined, reftest: html.includes(`data-ref="${name}"`), xfail: attr(tag, 'data-xfail'), colors: colors.length ? colors : undefined, illustration: /\sdata-illustration(?=[\s=>])/.test(tag) || undefined });
   }
+  // A profile case names its phase with a profile message kind, and a profile kind is a profile case.
+  const profileKind = (meta.message ?? []).some((m) => m.kind.startsWith('profile'));
+  if (profileKind !== (meta.surface === 'profile')) throw new Error(`${id}: "surface": "profile" goes with a profile message kind (profile-prestart, profile) and only with one`);
   return { set, stem, id, file: path.join(CONF, set, stem + '.html'), html, meta, stages };
 }
 

@@ -103,6 +103,7 @@ constinit const SandboxEngine::InProcess SandboxEngine::kInProcess = {
     &SandboxEngine::inProcessResize,
     &SandboxEngine::inProcessTheme,
     &SandboxEngine::inProcessContentSafeArea,
+    &SandboxEngine::inProcessSafeArea,
     &SandboxEngine::inProcessSetData,
     &SandboxEngine::inProcessSetVisible,
     &SandboxEngine::inProcessProbe,
@@ -233,6 +234,8 @@ void SandboxEngine::boot() {
         config.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(config_.themeParams)));
         config.set("locale", sdk::checkLocale(config_.locale).value_or(std::string(sdk::DEFAULT_LOCALE)));
         config.set("contentSafeArea", config_.contentSafeArea.json());
+        config.set("deviceSafeArea", config_.safeArea.json());
+        config.set("surface", surfaceName(config_.context.surface));
         config.set("profile", sdk::PROFILE_VERSION);
         // A preview has no message yet: no storage of its own (it lives in memory for this run and is never committed).
         bool preloadAccepted = true;
@@ -243,14 +246,14 @@ void SandboxEngine::boot() {
         // docs/sdk-v1.md §2.13, §2.16, §4.4: the bot's data and the message's flags. A copy gets no chatData
         // and no chat type: the bot learns nothing about where its widget was forwarded (whatever the widget knows can
         // go to the bot in a request). The viewer only where the widget may send requests (canQuery, never in a
-        // preview), as the network marker: on a tap the bot gets `from` anyway.
+        // preview), as the network marker: on a tap the bot gets `from` anyway. A profile page is in no chat: no chat type.
         const WidgetContext& context = config_.context;
         const bool revealsViewer = !context.preview && context.canQuery;
         putData(config, sdk::checkWidgetData(config_.data, context.isCopy));
         config.set("isCopy", context.isCopy);
         config.set("canQuery", context.canQuery);
         config.set("isPreview", context.preview);
-        std::optional<std::string> chatType = context.preview || context.isCopy ? std::nullopt : sdk::checkChatType(context.chatType);
+        std::optional<std::string> chatType = context.preview || context.isCopy || context.surface == WidgetSurface::Profile ? std::nullopt : sdk::checkChatType(context.chatType);
         config.set("chatType", chatType ? Json(*chatType) : Json());
         // The viewer in the widget's field names (Mini Apps' WebAppUser); a field that breaks its rule is left out and reported.
         sdk::CheckedViewer viewer = revealsViewer ? sdk::checkViewer(context.viewer) : sdk::CheckedViewer{};
@@ -306,6 +309,14 @@ void SandboxEngine::inProcessTheme(const std::string& colorScheme, const std::ma
     t.set("theme", colorScheme);
     t.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(themeParams)));
     enqueue("theme", t.dump());
+}
+
+void SandboxEngine::inProcessSafeArea(const WidgetSafeArea& area) {
+    thread_.async([this, area] {
+        if (dead_) return;
+        if (!js_) { config_.safeArea = area; return; }
+        input("deviceSafeArea", area.json().dump());
+    });
 }
 
 void SandboxEngine::inProcessContentSafeArea(const WidgetContentSafeArea& area) {
@@ -603,7 +614,8 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         // onBridge; the host keeps the latest edge next to the height. The shim sends only changes, before the ops of
         // the content change, and the delegate gets it now, in the task: ahead of that task's onOps.
         if (checked->resizeAnchor) {
-            if (delegate_) delegate_->onResizeAnchor(*this, *checked->resizeAnchor);
+            // A profile page never moves when its height changes: the call is checked and goes nowhere.
+            if (delegate_ && surface::keepsResizeAnchor(config_.context.surface)) delegate_->onResizeAnchor(*this, *checked->resizeAnchor);
             return HostReturn::undefined();
         }
         // Not an action either: the host keeps whether the widget watches its public_data (the client polls only then).

@@ -38,6 +38,7 @@ inline SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const 
     c.devicePixelRatio = o.devicePixelRatio;
     c.locale = o.locale;
     c.contentSafeArea = o.contentSafeArea;
+    c.safeArea = o.safeArea;
     c.storage = o.storage;
     c.data = o.data;
     c.context = o.context;

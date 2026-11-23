@@ -37,7 +37,7 @@ import { chromium, webkit, type Browser, type BrowserContext, type Page } from '
 import { PNG } from 'pngjs';
 import { CATALOGUE } from './catalogue';
 import { emitCatalogue } from './emit-catalogue';
-import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, picturePath, posixRelative, readJson, refPath, type BotAction, type MessageSpec, type Published, type Widget } from './lib';
+import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, heightGate, listWidgets, parseWidget, perform, picturePath, posixRelative, readJson, refPath, type BotAction, type MessageSpec, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
 import { measureHeights } from './heights';
 import { checkPictures } from './picture-check';
@@ -284,7 +284,7 @@ async function drawTime(page: Page, area: Partial<ContentSafeArea>, height: numb
 
 /** The height gate: the widget's height at MAX_HEIGHT.width, drawn natively in reference mode. */
 async function measureHeight(browser: Browser, w: Widget, html: string): Promise<number> {
-  const ctx = await newContext(browser, 'light', MAX_HEIGHT.width);
+  const ctx = await newContext(browser, 'light', heightGate(w).width);
   const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette', 'light', w.meta.message?.[0], w.meta.safeArea);
   await waitStatus(page, ['done', 'awaiting'], 15_000);
   await page.waitForTimeout(300);
@@ -364,7 +364,7 @@ async function main() {
     const refs = NO_REFS ? (entries.get(w.id)?.stages ?? []).reduce((m: any, s: any) => ({ ...m, [s.name]: s.refs }), {}) : await renderRefs(browsers, w, html);
     const refImages = w.set === 'visual' ? (NO_REFS ? entries.get(w.id)?.refImages ?? {} : await renderPictures(browsers.chromium, w, html)) : undefined;
     const height = w.set === 'visual' ? await measureHeight(browsers.chromium, w, html) : undefined;
-    if (height !== undefined && height > MAX_HEIGHT.height && !w.meta.tall) tooTall.push(`${w.id}: ${height} px at ${MAX_HEIGHT.width} px wide`);
+    if (height !== undefined && height > heightGate(w).height && !w.meta.tall) tooTall.push(`${w.id}: ${height} px at ${heightGate(w).width} px wide`);
     const size = sizeOf(html);
     const bad = checkSize(w, html);
     if (bad) tooLarge.push(bad);
@@ -422,6 +422,7 @@ async function main() {
       ...(isSdk(w) ? { group: 'sdk', expect: w.meta.expect, contract: w.meta.contract, pending: w.meta.pending } : {}),
       ...(w.meta.stops ? { stops: w.meta.stops } : {}),
       ...(w.meta.safeArea ? { safeArea: w.meta.safeArea } : {}),
+      ...(w.meta.surface ? { surface: w.meta.surface } : {}),
       ...(w.meta.message ? { message: w.meta.message } : {}),
       ...(w.meta.bot ? { bot: w.meta.bot } : {}),
     });
@@ -581,7 +582,8 @@ function writeChannel(tests: any[]) {
     // without a caption, then with its caption above the widget (invert_media), which must look the same.
     const captions: ('none' | 'above' | undefined)[] = header.safeArea ? ['none', 'above'] : [undefined];
     for (const message of messages) for (const captionAt of captions) for (const [width, height] of header.anchors ?? ANCHORS[t.id] ?? [[0, 0]]) {
-      const view = message ? ` Sent as ${describeMessage(message)}${message.view ? `; look at ${message.view}` : ''}.` : '';
+      const view = header.surface === 'profile' ? ` On the bot's profile page, ${message?.kind === 'profile' ? 'after Start' : 'before Start'} (no server call sets a bot's profile widget yet: open it through your client's own profile screen).`
+        : message ? ` Sent as ${describeMessage(message)}${message.view ? `; look at ${message.view}` : ''}.` : '';
       const placed = captionAt === 'none' ? ' Sent without a caption: your time over the widget\'s bottom corner.'
         : captionAt === 'above' ? ' Sent with its caption above the widget (invert_media): your time over the widget\'s bottom corner, as without a caption.' : '';
       posts.push({

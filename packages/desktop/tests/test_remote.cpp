@@ -2902,7 +2902,9 @@ static std::string described(const std::string& message) {
     const Json m = Json::parse(message).value_or(Json());
     const std::string& type = m["type"].asString();
     if (type == "theme") return "theme:" + m["theme"]["colorScheme"].asString() + m["theme"]["params"].dump();
+    if (type == "surface") return "surface:" + m["surface"].asString() + m["viewportHeight"].dump();
     if (type == "safeArea") return "safeArea:" + m["inset"].dump();
+    if (type == "deviceSafeArea") return "deviceSafeArea:" + m["inset"].dump();
     if (type == "policy") return "policy:" + m["policy"].asString();
     if (type == "ops") return "ops:" + m["ops"].dump();
     if (type == "listen") return "listen:" + m["types"].dump();
@@ -2931,8 +2933,10 @@ static std::vector<std::string> sentRuns(RemoteHostRun& r) {
     return out;
 }
 
-/// What a quiet renderer's host queued at start, before anything else: the default theme, no safe area, strict.
-static std::vector<std::string> startMessages() { return {"theme:light{}", "safeArea:" + WidgetContentSafeArea{}.json().dump(), "policy:strict"}; }
+/// What a quiet renderer's host queued at start, before anything else: the default theme, a bubble's place, no safe area in either layer, strict.
+static std::vector<std::string> startMessages() {
+    return {"theme:light{}", "surface:message0", "safeArea:" + WidgetContentSafeArea{}.json().dump(), "deviceSafeArea:" + WidgetSafeArea{}.json().dump(), "policy:strict"};
+}
 
 /// A quiet renderer's host keeps what a client-mode engine sends before `ready` up to exactly the message bound (validated ops, listen, preventDefault, an anim, the loaded ack, frame requests), the owner's safe area and theme among them and at the bound too, and nothing dies; at `ready` the renderer gets the host's messages, then all of it in its order, the ack marks the widget rendered, and the engine's later output goes on at once.
 TEST(remote_widget_host_keeps_an_early_engines_messages_in_order_up_to_the_bound) {

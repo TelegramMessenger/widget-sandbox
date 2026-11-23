@@ -124,7 +124,43 @@ export function docSource(p: ProfileFile): string {
   out.push(`- **The renderer's own stylesheet** (since v0.1.1 the defaults of the root and the text elements, with the bubble's palette \`--tg-theme-*\` and the client's text tokens \`--tg-text-*\`, and text not selectable unless the widget sets \`user-select: text\`; an unstyled \`<button>\` in the client's style, with the \`--tg-button-*\` tokens; any widget CSS wins over the layer, docs/sdk-v1.md §2.4): \`${t.uaStylesheet}\``);
   out.push(`- **Media types:** ${code(t.css.mediaTypes)}; **media features:** ${code(t.css.mediaFeatures)} (\`prefers-color-scheme\` and \`prefers-reduced-motion\` are answered by the client). A query with anything else drops its \`@media\` rule and makes \`matchMedia\` answer \`false\`.`);
   out.push('');
+  out.push(...surfacesSource(t.surfaces));
   return out.join('\n');
+}
+
+interface Surface {
+  height: { min: number; max: number };
+  viewport: boolean;
+  resizeAnchor: boolean;
+  /** The largest value per side, `null` for no maximum (any finite number ≥ 0). */
+  safeArea: Record<string, number | null>;
+  contentSafeArea: Record<string, number | null>;
+  provisional?: string[];
+}
+
+/** The geometry of each place (`tables.surfaces`): one row per value, one column per place; provisional values marked. */
+function surfacesSource(surfaces: Record<string, Surface>): string[] {
+  const names = Object.keys(surfaces);
+  const mark = (s: Surface, key: string, text: string) => (s.provisional?.includes(key) ? `${text} (provisional)` : text);
+  const range = (max: number | null) => (max === null ? 'any ≥ 0' : max === 0 ? '0' : `0–${max}`);
+  const rows: [string, (s: Surface) => string][] = [
+    ['height (CSS px)', (s) => (s.viewport ? `the content's, at least the viewport, at most ${mark(s, 'height.max', String(s.height.max))}` : `the content's, ${s.height.min}–${mark(s, 'height.max', String(s.height.max))}`)],
+    ['`--tg-viewport-height`', (s) => (s.viewport ? 'the whole area edge to edge' : 'not set')],
+    ['resize anchor', (s) => (s.resizeAnchor ? 'kept' : 'ignored')],
+    ...Object.keys(surfaces[names[0]].safeArea).map((k): [string, (s: Surface) => string] => [`\`safeAreaInset.${k}\``, (s) => range(s.safeArea[k])]),
+    ...Object.keys(surfaces[names[0]].contentSafeArea).map((k): [string, (s: Surface) => string] => [`\`contentSafeAreaInset.${k}\``, (s) => range(s.contentSafeArea[k])]),
+  ];
+  return [
+    '## Places',
+    '',
+    'Where a widget is shown (`context.surface`, `TelegramWidget.surface`, decision P1-profile): the same widget and the same counted limits on every place; only the',
+    'geometry differs, the same on every client. A safe-area value outside its range (NaN, infinite, negative, not a number, or over its maximum) is 0.',
+    '',
+    `| | ${names.map((n) => '`' + n + '`').join(' | ')} |`,
+    `|---|${names.map(() => '---').join('|')}|`,
+    ...rows.map(([label, f]) => `| ${label} | ${names.map((n) => f(surfaces[n])).join(' | ')} |`),
+    '',
+  ];
 }
 
 /** A feature's title without its explanations: every parenthesis without a colon goes ("overflow: auto / scroll

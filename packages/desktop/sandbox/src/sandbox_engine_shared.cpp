@@ -1,10 +1,11 @@
-// What every SandboxEngine runs, in process and in client mode: the constructor's shared part and the destructor, the entry points both modes take (each branching on the mode: a hosted client's refusal, the client's call, else the in-process half through `inProcess_`, sandbox_engine.cpp), the haptic gate's presses, the clock and the value types' JSON. The in-process halves are reached only through that table, which the in-process constructor alone installs, so a program whose engines are all client-mode ones links neither them nor Nova.
+// What every SandboxEngine runs, in process and in client mode: the constructor's shared part and the destructor, the entry points both modes take (each branching on the mode: a hosted client's refusal, the client's call, else the in-process half through `inProcess_`, sandbox_engine.cpp), the haptic gate's presses, the clock, the value types' JSON and the places' geometry (`surface::`). The in-process halves are reached only through that table, which the in-process constructor alone installs, so a program whose engines are all client-mode ones links neither them nor Nova.
 #include "twidget/sandbox_engine.h"
 
 #include "twidget/json.h"
 #include "twidget/remote_engine.h"
 #include "steady_clock.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace twidget {
@@ -111,6 +112,29 @@ Json WidgetContentSafeArea::json() const {
     return out;
 }
 
+Json WidgetSafeArea::json() const {
+    Json out = Json::object();
+    auto put = [&](const char* name, double v) { out.set(name, std::isfinite(v) ? v : 0.0); };
+    put("top", top);
+    put("right", right);
+    put("bottom", bottom);
+    put("left", left);
+    return out;
+}
+
+namespace surface {
+double checkViewportHeight(WidgetSurface s, double height) {
+    if (s != WidgetSurface::Profile || !std::isfinite(height) || height <= 0 || height > kPageMaxHeight) return 0;
+    return std::round(height * 100) / 100;
+}
+
+double height(WidgetSurface s, double content, double viewport) {
+    double h = std::isfinite(content) ? content : 0;
+    if (s == WidgetSurface::Message) return std::min(std::max(h, kMinHeight), kMessageMaxHeight);
+    return std::min(std::max(h, std::max(kMinHeight, checkViewportHeight(s, viewport))), kPageMaxHeight);
+}
+} // namespace surface
+
 namespace {
 
 /// A theme token's key and its member, a string or a number.
@@ -176,6 +200,12 @@ WidgetTextTokens WidgetTextTokens::from(const Json& object) { return tokensFrom(
 void SandboxEngine::contentSafeArea(const WidgetContentSafeArea& area) {
     if (client_) return forward([area](SandboxRemoteChannel& remote) { remote.contentSafeArea(area); });
     (this->*inProcess_->contentSafeArea)(area);
+}
+
+void SandboxEngine::safeArea(const WidgetSafeArea& area) {
+    // Neither the config's wire form nor a remote channel carries the device's edges yet: a client-mode engine's widget has none.
+    if (client_) return;
+    (this->*inProcess_->safeArea)(area);
 }
 
 void SandboxEngine::setData(const WidgetData& data) {

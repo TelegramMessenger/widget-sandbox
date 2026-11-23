@@ -119,7 +119,8 @@ data class WidgetTextTokens(
  * `cornerRight` (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes in
  * it; with a caption below it everything is 0 (the time is in the caption's line; a caption shown above it, `invert_media`, is as none). The widget sees it as `env(safe-area-inset-*)`,
  * the `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed as given: the renderer core
- * and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
+ * and the shim keep an inset of 0–64 and a corner of 0–200 in a bubble, and on a profile page any finite inset ≥ 0 with
+ * the corners 0; anything else is 0.
  */
 data class WidgetContentSafeArea(
     val top: Double = 0.0,
@@ -136,6 +137,67 @@ data class WidgetContentSafeArea(
             out.put(k, if (v.isFinite()) v else 0.0)
         }
         return out
+    }
+}
+
+/**
+ * The device's edges over the widget, in dp = CSS px (docs/sdk-v1.md §2.17): on a profile page the status bar and the
+ * cutout (`top`), the navigation bar (`bottom`), the sides in landscape. The widget sees it as `env(safe-area-inset-*)`
+ * (the sum with [WidgetContentSafeArea]), the `--tg-safe-area-inset-*` variables and `TelegramWidget.safeAreaInset`.
+ * Passed as given: the renderer core and the shim keep any finite value ≥ 0 on a page (NaN, infinite and negative are
+ * 0), and everything is 0 in a bubble.
+ */
+data class WidgetSafeArea(
+    val top: Double = 0.0,
+    val right: Double = 0.0,
+    val bottom: Double = 0.0,
+    val left: Double = 0.0,
+) {
+    /** The TS `SafeAreaInset` shape; a value that is not finite is 0 (JSON has no NaN). */
+    internal fun json(): JSONObject {
+        val out = JSONObject()
+        for ((k, v) in listOf("top" to top, "right" to right, "bottom" to bottom, "left" to left)) out.put(k, if (v.isFinite()) v else 0.0)
+        return out
+    }
+}
+
+/**
+ * Where the widget is shown (docs/sdk-v1.md §2.19), fixed for the host's life: [MESSAGE] (a bubble in a chat, the
+ * default) or [PROFILE] (the bot's profile page, full screen); `TelegramWidget.surface` in the widget. The geometry is
+ * profile.json's `tables.surfaces` (checked by `profile-surface.test.ts`): a bubble is 50–600 high and its resize anchor
+ * moves it, a page is at least its viewport and at most [PAGE_MAX_HEIGHT] and never moves.
+ */
+enum class WidgetSurface(val wire: String) {
+    MESSAGE("message"),
+    PROFILE("profile");
+
+    /** Whether the widget's `setResizeAnchor` moves anything here: a bubble keeps the anchored edge, a page never moves. */
+    val keepsResizeAnchor: Boolean get() = this == MESSAGE
+
+    /** A profile page's viewport as the glue passes it on: finite, in 1…the page ceiling, two decimals; anything else, and every bubble, is 0. */
+    fun checkViewportHeight(height: Double): Double =
+        if (this != PROFILE || !height.isFinite() || height <= 0 || height > PAGE_MAX_HEIGHT) 0.0 else Math.round(height * 100) / 100.0
+
+    /** The height the client lays the widget out at: a bubble's content in [min, max], a page's at least its viewport (and 50), at most the page ceiling. */
+    fun height(content: Double, viewport: Double, bubbleMin: Double = MIN_HEIGHT, bubbleMax: Double = MESSAGE_MAX_HEIGHT): Double {
+        val h = if (content.isFinite()) content else 0.0
+        return when (this) {
+            MESSAGE -> h.coerceIn(bubbleMin, bubbleMax)
+            PROFILE -> h.coerceIn(maxOf(MIN_HEIGHT, checkViewportHeight(viewport)), PAGE_MAX_HEIGHT)
+        }
+    }
+
+    /** `{type:'surface', surface, viewportHeight}` (docs/sdk-v1.md §3.4), sent before both safe-area layers. */
+    internal fun rendererMessage(viewportHeight: Double): String =
+        JSONObject().put("type", "surface").put("surface", wire).put("viewportHeight", checkViewportHeight(viewportHeight)).toString()
+
+    companion object {
+        /** The least height of either place, in dp. */
+        const val MIN_HEIGHT = 50.0
+        /** A bubble's greatest height, in dp. */
+        const val MESSAGE_MAX_HEIGHT = 600.0
+        /** A profile page's greatest height, in dp. Provisional: the page ceiling waits for the clients' measurements. */
+        const val PAGE_MAX_HEIGHT = 4000.0
     }
 }
 
@@ -174,7 +236,7 @@ data class WidgetContext(
     val canQuery: Boolean = false,
     /** `background_query`: requests without a tap too (the original in the private chat with the bot): one when the widget appears on screen, then one per 5 s while visible; one made off screen waits for it to appear. */
     val backgroundQuery: Boolean = false,
-    /** "private" | "group" | "supergroup" | "channel" ([SdkPolicy.CHAT_TYPES]); anything else is none. No copy gets it, with `canQuery` or not (a bot must learn nothing about where its widget was forwarded), nor a preview. */
+    /** "private" | "group" | "supergroup" | "channel" ([SdkPolicy.CHAT_TYPES]); anything else is none. No copy gets it, with `canQuery` or not (a bot must learn nothing about where its widget was forwarded), nor a preview, nor a profile page (no chat). */
     val chatType: String? = null,
     /** A copy without `canQuery` gets none. */
     val viewer: WidgetViewer? = null,
@@ -190,6 +252,12 @@ data class WidgetContext(
      * (docs/sdk-v1.md §2.18). The widget gets `TelegramWidget.wallet` only with [canQuery] too, never in a preview.
      */
     val wallet: Boolean = false,
+    /**
+     * Where the widget is shown (docs/sdk-v1.md §2.19): a bubble (the default) or the bot's profile page. On a page the
+     * client passes the flags of `bot_profile_widget` as they are: none before the user pressed Start, `canQuery` and
+     * `backgroundQuery` after it. A page has no chat: the glue gives the widget no `chatType` there.
+     */
+    val surface: WidgetSurface = WidgetSurface.MESSAGE,
 )
 
 /**
@@ -348,6 +416,18 @@ class WidgetHost(
         /** The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer (docs/sdk-v1.md §4.4); without `canQuery` every request is refused. */
         val context: WidgetContext = WidgetContext(),
         /**
+         * The device's edges over the widget (docs/sdk-v1.md §2.17): on a profile page (`context.surface`) the status bar and
+         * the cutout, the navigation bar, the sides in landscape; ignored (0) in a bubble. Pass it here, before the first
+         * render; later only with the screen's layout ([setSafeArea]), never per frame. On a page [contentSafeArea] is the
+         * native header over the top and the Start / Open App button over the bottom, measured inside this one.
+         */
+        val safeArea: WidgetSafeArea = WidgetSafeArea(),
+        /**
+         * On a profile page: the widget's whole area edge to edge, in dp (the screen under the native header and button
+         * included): `--tg-viewport-height`, and the page is never shorter. Ignored in a bubble. Later: [setViewportHeight].
+         */
+        val viewportHeight: Double = 0.0,
+        /**
          * What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it the band of
          * the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
          * render, so the first height already has the band; later only with the bubble's layout ([setContentSafeArea]).
@@ -416,6 +496,10 @@ class WidgetHost(
     private val options = options
     /** [WidgetContext.preview]: an inline result not sent yet takes no input. */
     private val preview = options.context.preview
+    /** [WidgetContext.surface]: where the widget is shown, fixed for the host's life. */
+    private val surface = options.context.surface
+    /** A profile page's checked viewport (0 in a bubble), [setViewportHeight]. */
+    private var viewportHeight = 0.0
     /** The client's theme, its scheme normalised and its palette checked. */
     private var theme = checkedTheme(theme)
     private val scheme get() = theme.colorScheme
@@ -448,6 +532,7 @@ class WidgetHost(
             memoryLimitBytes = options.memoryLimitBytes, cpuLimitMs = options.cpuLimitMs,
             cpuQuotaMs = options.cpuQuotaMs, cpuQuotaWindowMs = options.cpuQuotaWindowMs, cpuKillAfterMs = options.cpuKillAfterMs,
             mainThreadQuotaMs = options.mainThreadQuotaMs, maxTimers = options.maxTimers, visible = options.visible, policy = options.policy, features = options.features,
+            safeArea = options.safeArea,
             themeParams = this.theme.params, locale = options.locale, contentSafeArea = options.contentSafeArea, storage = options.storage,
             data = options.data, context = options.context,
         )
@@ -466,7 +551,11 @@ class WidgetHost(
         })
         // The theme goes first (queued until `ready`, which flushes it before the engine starts).
         toRenderer(themeMessage())
+        // The place first: it bounds both safe-area layers and sets a page's viewport.
+        viewportHeight = surface.checkViewportHeight(options.viewportHeight)
+        toRenderer(surface.rendererMessage(viewportHeight))
         toRenderer(safeAreaMessage(options.contentSafeArea))
+        toRenderer(deviceSafeAreaMessage(options.safeArea))
         // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
         toRenderer(JSONObject().put("type", "policy").put("policy", if (isStrictPolicy(options.policy)) "strict" else "compat").toString())
         // The engine starts once the renderer announced itself, so the very first
@@ -504,6 +593,27 @@ class WidgetHost(
 
     /** `{type:'safeArea', inset}` (docs/sdk-v1.md §3.4): the renderer core checks the values and sets the `--tg-content-safe-area-*` variables. */
     private fun safeAreaMessage(area: WidgetContentSafeArea) = JSONObject().put("type", "safeArea").put("inset", area.json()).toString()
+
+    /**
+     * The device's edges over the widget changed with the screen's layout (docs/sdk-v1.md §2.17): a rotation, a window
+     * resized. The renderer gets the `--tg-safe-area-inset-*` variables and the widget `safeAreaInset` and
+     * `safeAreaChanged`, from this one call; never per frame. Always 0 in a bubble.
+     */
+    fun setSafeArea(area: WidgetSafeArea) {
+        if (destroyed) return
+        toRenderer(deviceSafeAreaMessage(area))
+        engine.safeArea(area)
+    }
+
+    /** A profile page's viewport changed with the screen's layout: `--tg-viewport-height`, and the page's least height. Ignored in a bubble. */
+    fun setViewportHeight(height: Double) {
+        if (destroyed) return
+        viewportHeight = surface.checkViewportHeight(height)
+        toRenderer(surface.rendererMessage(viewportHeight))
+    }
+
+    /** `{type:'deviceSafeArea', inset}` (docs/sdk-v1.md §3.4): the renderer core checks the values against the place and sets the `--tg-safe-area-inset-*` variables. */
+    private fun deviceSafeAreaMessage(area: WidgetSafeArea) = JSONObject().put("type", "deviceSafeArea").put("inset", area.json()).toString()
 
     /**
      * The bot's data changed (an edit the client got from the server): the full state of both strings. The widget gets
@@ -800,7 +910,8 @@ class WidgetHost(
                 resolveQuery(if (result == null) "null" else JSONObject.wrap(result)?.toString() ?: "null", binary)
             }
             "size" -> {
-                val height = msg.optDouble("height", 0.0).coerceIn(options.minHeightDp, options.maxHeightDp)
+                // A bubble's height is the content's in [minHeightDp, maxHeightDp], a profile page's at least its viewport (WidgetSurface).
+                val height = surface.height(msg.optDouble("height", 0.0), viewportHeight, options.minHeightDp, options.maxHeightDp)
                 if (diagnostics.firstContentMs == null && opsSent > 0) {
                     diagnostics.firstContentMs = sinceCreatedMs()
                     changed()

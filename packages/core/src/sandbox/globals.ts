@@ -7,10 +7,10 @@ import { diag, host, invalidateLayout, query, unsupported } from './host';
 import { PROFILE_VERSION } from '../shared/profile-tables';
 import { cssSupports } from '../shared/css-supports';
 import {
-  CONTENT_SAFE_AREA_FIELDS, DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, NO_CONTENT_SAFE_AREA, REQUEST_ERRORS,
-  STORAGE_QUOTA_BYTES, checkChatType, checkContentSafeArea, checkCopyText, checkLink, checkLocale, checkRequestData, checkRequestOptions, checkResizeAnchor, checkSignDataPayload,
+  CONTENT_SAFE_AREA_FIELDS, DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, DEFAULT_SURFACE, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, NO_CONTENT_SAFE_AREA, NO_SAFE_AREA, REQUEST_ERRORS,
+  SAFE_AREA_FIELDS, STORAGE_QUOTA_BYTES, checkChatType, checkContentSafeArea, checkSafeArea, checkSurface, surfaceKeepsResizeAnchor, checkCopyText, checkLink, checkLocale, checkRequestData, checkRequestOptions, checkResizeAnchor, checkSignDataPayload,
   checkViewer, checkWalletTransaction, checkWidgetDataValue, completeThemeParams, utf8Length,
-  type ChatType, type ContentSafeArea, type RequestError, type ResizeAnchor, type ThemeParams, type WidgetUser,
+  type ChatType, type ContentSafeArea, type RequestError, type ResizeAnchor, type SafeAreaInset, type ThemeParams, type WidgetSurface, type WidgetUser,
 } from '../shared/sdk-policy';
 
 const G: any = globalThis;
@@ -422,7 +422,7 @@ function installNetworkStubs() {
 
 let colorScheme: 'light' | 'dark' = 'light';
 let themeParams: Readonly<ThemeParams> = Object.freeze(completeThemeParams({}, 'light'));
-const WIDGET_EVENTS = ['themeChanged', 'activated', 'deactivated', 'chatDataChanged', 'publicDataChanged', 'contentSafeAreaChanged'];
+const WIDGET_EVENTS = ['themeChanged', 'activated', 'deactivated', 'chatDataChanged', 'publicDataChanged', 'contentSafeAreaChanged', 'safeAreaChanged'];
 const widgetHandlers = new Map<string, Function[]>(WIDGET_EVENTS.map((t) => [t, []]));
 const themeCallbacks: Function[] = [];
 
@@ -447,7 +447,15 @@ export function setTheme(theme: unknown, notify: boolean) {
   for (const cb of [...themeCallbacks]) { try { cb(colorScheme); } catch (e) { reportError(e); } }
 }
 
+/** Where the widget is shown (docs/sdk-v1.md §2.19): fixed at boot, before the safe areas, which it bounds. */
+let surface: WidgetSurface = DEFAULT_SURFACE;
 let contentSafeArea: Readonly<ContentSafeArea> = NO_CONTENT_SAFE_AREA;
+let safeArea: Readonly<SafeAreaInset> = NO_SAFE_AREA;
+
+/** The glue's place at boot (checked: `profile` exactly, anything else a message). */
+export function setSurface(value: unknown) {
+  surface = checkSurface(value);
+}
 
 /**
  * What the client draws over the widget (docs/sdk-v1.md §2.17): at boot (`notify` false) and on every change. A
@@ -455,12 +463,24 @@ let contentSafeArea: Readonly<ContentSafeArea> = NO_CONTENT_SAFE_AREA;
  * renderer has the root variables from the same call of the host).
  */
 export function setContentSafeArea(area: unknown, notify: boolean) {
-  const next = checkContentSafeArea(area);
+  const next = checkContentSafeArea(area, surface);
   if (CONTENT_SAFE_AREA_FIELDS.every((k) => next[k] === contentSafeArea[k])) return;
   contentSafeArea = Object.freeze(next);
   // The variables moved boxes in the renderer: no cached layout answer survives.
   invalidateLayout();
   if (notify) fireWidgetEvent('contentSafeAreaChanged');
+}
+
+/**
+ * The device's edges over the widget (docs/sdk-v1.md §2.17), always 0 in a bubble: at boot (`notify` false) and on
+ * every change, a fresh frozen `safeAreaInset`, then `safeAreaChanged`, in one task.
+ */
+export function setSafeArea(area: unknown, notify: boolean) {
+  const next = checkSafeArea(area, surface);
+  if (SAFE_AREA_FIELDS.every((k) => next[k] === safeArea[k])) return;
+  safeArea = Object.freeze(next);
+  invalidateLayout();
+  if (notify) fireWidgetEvent('safeAreaChanged');
 }
 
 /** Visibility changed (the caller has flipped `document.hidden`): `activated` / `deactivated`. */
@@ -518,7 +538,8 @@ function watchPublicData(on: boolean) {
 function setResizeAnchor(edge: unknown) {
   const checked = checkResizeAnchor(edge);
   if (checked === null) throw new TypeError("setResizeAnchor: edge must be 'top' or 'bottom'");
-  if (checked === resizeAnchor) return;
+  // A profile page does not move when its height changes: the call is checked and kept, and nothing goes to the host.
+  if (checked === resizeAnchor || !surfaceKeepsResizeAnchor(surface)) { resizeAnchor = checked; return; }
   resizeAnchor = checked;
   bridge('setResizeAnchor', checked);
 }
@@ -537,7 +558,8 @@ let walletAvailable = false;
 
 /**
  * The glue's context at boot (already decided there from the server's flags: a copy never has chatData, and has no
- * chatType or viewer unless it may request); checked again, the shim trusts nothing.
+ * chatType or viewer unless it may request; a profile page has no chatType); checked again, the shim trusts nothing.
+ * After `setSurface`.
  */
 export function configureWidget(config: Record<string, unknown>) {
   isCopy = config.isCopy === true;
@@ -545,7 +567,7 @@ export function configureWidget(config: Record<string, unknown>) {
   canQuery = config.canQuery === true && !isPreview;
   chatData = isCopy ? null : checkWidgetDataValue(config.chatData);
   publicData = checkWidgetDataValue(config.publicData);
-  chatType = checkChatType(config.chatType);
+  chatType = surface === 'profile' ? null : checkChatType(config.chatType);
   const v = checkViewer(config.viewer).viewer;
   viewer = v && Object.freeze(v);
   walletAvailable = config.wallet === true && canQuery;
@@ -680,6 +702,14 @@ function installBridge() {
      * client's corner in it; 0 with a caption below. A fresh frozen object per change, then `contentSafeAreaChanged`.
      */
     get contentSafeAreaInset() { return contentSafeArea; },
+    /**
+     * The device's edges over the widget, in CSS px (the `--tg-safe-area-inset-*` root variables): the cutout, the status
+     * bar, the home indicator, the sides in landscape on a profile page; always 0 in a bubble. `env(safe-area-inset-*)`
+     * is this plus `contentSafeAreaInset`. A fresh frozen object per change, then `safeAreaChanged`.
+     */
+    get safeAreaInset() { return safeArea; },
+    /** Where the widget is shown: `'message'` (a bubble in a chat) or `'profile'` (the bot's profile page). */
+    get surface() { return surface; },
     onEvent(type: unknown, handler: unknown) {
       const list = widgetHandlers.get(String(type));
       if (!list || typeof handler !== 'function' || list.includes(handler) || list.length >= MAX_HANDLERS_PER_EVENT) return;

@@ -12,16 +12,18 @@
 
 import { pathToFileURL } from 'node:url';
 import { chromium, type Page } from '@playwright/test';
-import { MAX_HEIGHT, listWidgets, type Widget } from './lib';
+import { MAX_HEIGHT, heightGate, listWidgets, type Widget } from './lib';
 
 /** Loads the widget at `width` and returns its unclamped content height once it has run its checks (or waits for input). */
 async function measure(page: Page, w: Widget, width: number): Promise<{ height: number; status: string }> {
-  await page.evaluate(({ html, name, width, safeArea }) => {
+  await page.evaluate(({ html, name, width, safeArea, kind }) => {
     const wrap = document.querySelector('#sandbox-wrap') as HTMLElement;
     (wrap.closest('.chat') as HTMLElement).style.width = width + 'px';
     (wrap.closest('.bubble') as HTMLElement).style.padding = '0';
     const tw = (window as any).__tw;
     const m: any = ((window as any).__heights = { height: 0, attr: null, html: null });
+    // A profile case is laid out on the dev app's profile page (its phase from the header's message kind); the rest in the bubble.
+    tw.bot.context.message = kind;
     // A widget drawn with the client's time over its corner is that much taller (the UA layer's body padding, its own env()).
     tw.setSafeArea(safeArea);
     tw.load(html, name);
@@ -44,7 +46,7 @@ async function measure(page: Page, w: Widget, width: number): Promise<{ height: 
       }
       return send(msg);
     };
-  }, { html: w.html, name: `conformance/${w.id}.html`, width, safeArea: w.meta.safeArea ?? null });
+  }, { html: w.html, name: `conformance/${w.id}.html`, width, safeArea: w.meta.safeArea ?? null, kind: w.meta.surface === 'profile' ? w.meta.message![0].kind : 'private' });
   let status = 'none';
   const t0 = Date.now();
   while (Date.now() - t0 < 10_000) {
@@ -72,14 +74,16 @@ export async function measureHeights(widgets: Widget[], origin: string, renderer
   await page.waitForFunction(() => !!(window as any).__tw, null, { timeout: 60_000 });
 
   const over: string[] = [];
-  log(`${renderer}, widths ${widths.join(', ')}; at most ${MAX_HEIGHT.height} px at ${MAX_HEIGHT.width} px wide`);
+  log(`${renderer}, widths ${widths.join(', ')}; at most ${MAX_HEIGHT.height} px at ${MAX_HEIGHT.width} px wide (a profile case: the page's gate at its width)`);
   for (const w of widgets) {
     const cells: string[] = [];
     let status = '';
-    for (const width of widths) {
+    // A profile case is a page: one width (the reference page's) and the page ceiling (lib.ts heightGate).
+    const gate = heightGate(w);
+    for (const width of w.meta.surface === 'profile' ? [gate.width] : widths) {
       const r = await measure(page, w, width);
       status = r.status;
-      const tooTall = width <= MAX_HEIGHT.width && r.height > MAX_HEIGHT.height;
+      const tooTall = width <= gate.width && r.height > gate.height;
       if (tooTall && !w.meta.tall) over.push(`${w.id}: ${r.height} px at ${width} px wide`);
       cells.push(`${String(r.height).padStart(5)}${tooTall ? (w.meta.tall ? '~' : '!') : ' '}`);
     }

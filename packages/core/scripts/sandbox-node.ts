@@ -22,12 +22,14 @@ import { formatReports, parseStep, type GestureReport, type GestureStep } from '
 import { sizeLine, sizeVerdict, type WidgetSize } from '../src/shared/widget-size.ts';
 import {
   DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, checkBridgeCall, checkChatType, checkContentSafeArea, checkLocale, checkRequestAnswer, checkStorageCommit,
+  checkSafeArea, checkSurface, checkViewportHeight, surfaceHeight, surfaceKeepsResizeAnchor, type SafeAreaInset, type WidgetSurface,
   allowedInPreview, checkThemeParams, checkViewer, checkWidgetData, requestFailure, requestRefusal, toWidgetTheme, viewerFromList, viewerUser, VIEWER_FIELD_RULES,
   walletFailure, WIDGET_MESSAGE_KINDS, type WalletCall, type WidgetMessageKind, type WidgetViewer,
   type ButtonTokens, type ContentSafeArea, type RequestError, type RequestVerdict, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetContext,
   type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
 } from '../src/shared/sdk-policy.ts';
-import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
+import { PROFILE_SURFACES, PROFILE_VERSION } from '../src/shared/profile-tables.ts';
+import { REFERENCE_PROFILE } from '../src/shared/reference.ts';
 import { PAINT_BACKDROP_BOXES, PAINT_HEAVY_BOXES, checkPaintLimit, paintLimitMessage } from '../src/shared/paint-policy.ts';
 import { formatIntl } from '../src/shared/intl.ts';
 import { decodeBinaryOps } from '../src/shared/binary-ops-decode.ts';
@@ -42,6 +44,12 @@ export interface RunResult {
   theme: WidgetTheme;
   /** What the client draws over the widget as the renderer and the widget got it last (checked; docs/sdk-v1.md §2.17). */
   contentSafeArea: ContentSafeArea;
+  /** The device's edges over the widget as the renderer and the widget got them last (checked against the place: 0 in a bubble). */
+  safeArea: SafeAreaInset;
+  /** Where the widget is shown (`context.surface`, docs/sdk-v1.md §2.19). */
+  surface: WidgetSurface;
+  /** On a profile page: the viewport the client passed (checked; 0 for none), `--tg-viewport-height`. */
+  viewportHeight: number;
   /** One entry per `morph` script step: whether the shim applied it. */
   morphed: boolean[];
   ops: unknown[][];
@@ -181,7 +189,7 @@ export interface RunOptions {
   /** Initial visibility (default true): a hidden widget gets no frames and cannot use a gesture, as in the worker and the web host. */
   visible?: boolean;
   /** Steps run after the timer rounds: visibility and theme changes and probes, in order (probe results land in RunResult.probes before `probes`). */
-  script?: ({ visible: boolean } | { probe: string } | { morph: string } | { theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> } | { data: WidgetData } | { safeArea: Partial<ContentSafeArea> })[];
+  script?: ({ visible: boolean } | { probe: string } | { morph: string } | { theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> } | { data: WidgetData } | { safeArea: Partial<ContentSafeArea> } | { deviceSafeArea: Partial<SafeAreaInset> })[];
   /** The colour scheme at start (default light). */
   theme?: 'light' | 'dark';
   /** The client's palette (checked as WidgetHost does: unknown keys and non-#rrggbb values are dropped). */
@@ -193,6 +201,10 @@ export interface RunOptions {
   locale?: string;
   /** What the client draws over the widget (docs/sdk-v1.md §2.17): the time's band and corner, in CSS px; 0 by default. `{ safeArea }` script steps change it. */
   contentSafeArea?: Partial<ContentSafeArea>;
+  /** The device's edges over the widget on a profile page (docs/sdk-v1.md §2.17), in CSS px; 0 by default and always 0 in a bubble. `{ deviceSafeArea }` script steps change it. */
+  safeArea?: Partial<SafeAreaInset>;
+  /** On a profile page: the widget's whole area edge to edge, in CSS px (`--tg-viewport-height`, the page's least height); the renderer's page is this tall. */
+  viewportHeight?: number;
   /** The client's Web Storage preload; over the quota it is dropped whole (`storage-rejected`). */
   storage?: unknown;
   /** The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13); `{ data }` script steps are the client's `setData`. */
@@ -292,8 +304,9 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let queryLimitHit: 'count' | 'time' | null = null;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), contentSafeArea: checkContentSafeArea(opts.contentSafeArea), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], walletCalls: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, nodes: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, policy: opts.policy === 'compat' ? 'compat' as const : 'strict' as const, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, mainThreadQuotaMs: opts.mainThreadQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: opts.dpr ?? 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, contentSafeArea: res.contentSafeArea, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null, wallet };
+  const surface = checkSurface(opts.context?.surface);
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), contentSafeArea: checkContentSafeArea(opts.contentSafeArea, surface), safeArea: checkSafeArea(opts.safeArea, surface), surface, viewportHeight: checkViewportHeight(surface, opts.viewportHeight), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], walletCalls: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, nodes: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, policy: opts.policy === 'compat' ? 'compat' as const : 'strict' as const, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, mainThreadQuotaMs: opts.mainThreadQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: opts.dpr ?? 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, contentSafeArea: res.contentSafeArea, deviceSafeArea: res.safeArea, surface, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy || surface === 'profile' ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null, wallet };
   res.diags.push(...dataDiags.splice(0));
   if (opts.storage !== undefined && !preview) {
     const preload = checkStorageCommit(opts.storage);
@@ -377,10 +390,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
           if (action.kind === 'request' || action.kind === 'wallet') answers.push(Promise.resolve({ type: 'answer', id: action.id, error: 'NOT_ALLOWED', reason: 'preview' }));
           return vm.undefined;
         }
-        // Not an action: the host keeps the latest anchor next to the height.
+        // Not an action: the host keeps the latest anchor next to the height (a profile page never moves: always top).
         if (action.kind === 'setResizeAnchor') {
-          res.resizeAnchor = action.edge;
-          res.resizeAnchors.push(action.edge);
+          if (surfaceKeepsResizeAnchor(surface)) {
+            res.resizeAnchor = action.edge;
+            res.resizeAnchors.push(action.edge);
+          }
           log('[bridge]', arg);
           return vm.undefined;
         }
@@ -697,9 +712,14 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     else if ('morph' in step) task('morph', () => { res.morphed.push(tw('morph', JSON.stringify({ html: step.morph })) === '1'); });
     else if ('theme' in step) task('theme', () => tw('theme', JSON.stringify({ theme: step.theme, themeParams: checkThemeParams(step.themeParams) })));
     else if ('safeArea' in step) {
-      res.contentSafeArea = checkContentSafeArea(step.safeArea);
+      res.contentSafeArea = checkContentSafeArea(step.safeArea, surface);
       const inset = res.contentSafeArea;
       task('safeArea', () => tw('safeArea', JSON.stringify(inset)));
+    }
+    else if ('deviceSafeArea' in step) {
+      res.safeArea = checkSafeArea(step.deviceSafeArea, surface);
+      const inset = res.safeArea;
+      task('deviceSafeArea', () => tw('deviceSafeArea', JSON.stringify(inset)));
     }
     else if ('data' in step) {
       const event: BridgeEvent = { type: 'data', ...checkData(step.data) };
@@ -741,7 +761,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       return labels.get(Number(id)) ?? '#' + String(id);
     };
     let sent = 0, sentListens = '', sentPd = '';
-    const r = await openRenderer(width, (msg) => {
+    const r = await openRenderer(width, res.viewportHeight || undefined, (msg) => {
       switch (msg?.type) {
         case 'event': {
           const ev = msg.ev as Record<string, unknown>;
@@ -783,7 +803,9 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     };
     try {
       r.send({ type: 'theme', theme: res.theme });
+      r.send({ type: 'surface', surface, viewportHeight: res.viewportHeight });
       r.send({ type: 'safeArea', inset: res.contentSafeArea });
+      r.send({ type: 'deviceSafeArea', inset: res.safeArea });
       r.send({ type: 'policy', policy: config.policy, paintReports: true });
       r.send({ type: 'arbitrate', bubble: true, touch: !desktop });
       flush();
@@ -808,6 +830,29 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       await r.close();
     }
   }
+}
+
+/**
+ * `--safe-area`: the bubble's `bottom[,cornerRight[,cornerLeft]]` (the client's time), or `key=px` pairs for both layers:
+ * `top`, `right`, `bottom`, `left`, `cornerLeft`, `cornerRight` (the client's chrome) and `device-top`, `device-right`,
+ * `device-bottom`, `device-left` (the device's edges). Null when malformed; the host checks the ranges.
+ */
+function parseSafeArea(text: string): { content: Partial<ContentSafeArea>; device: Partial<SafeAreaInset> } | null {
+  const content: Record<string, number> = {}, device: Record<string, number> = {};
+  if (!text.includes('=')) {
+    const [bottom, cornerRight, cornerLeft] = text.split(',').map((n) => (n.trim() === '' ? 0 : Number(n)));
+    if (![bottom, cornerRight ?? 0, cornerLeft ?? 0].every((n) => n >= 0 && Number.isFinite(n))) return null;
+    return { content: { bottom, cornerRight: cornerRight ?? 0, cornerLeft: cornerLeft ?? 0 }, device: {} };
+  }
+  for (const pair of text.split(',')) {
+    const [key, v] = pair.split('=').map((x) => x.trim());
+    const n = Number(v);
+    if (!(n >= 0 && Number.isFinite(n))) return null;
+    if (key.startsWith('device-') && ['top', 'right', 'bottom', 'left'].includes(key.slice(7))) device[key.slice(7)] = n;
+    else if (['top', 'right', 'bottom', 'left', 'cornerLeft', 'cornerRight'].includes(key)) content[key] = n;
+    else return null;
+  }
+  return { content, device };
 }
 
 function defaultAnswer(q: any, viewport: { innerWidth: number; innerHeight: number; dpr: number }): unknown {
@@ -846,10 +891,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error(`usage: tsx scripts/sandbox-node.ts --guide     (the rules for a model writing widgets)
        tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--dark] [--font-size px] [--verbose] [--json]
        [--width px] [--desktop] [--tap x,y] [--hold x,y[,ms]] [--double-tap x,y] [--swipe x,y,dx,dy] [--right-click x,y]
-       [--message private|group|via-bot|no-queries|live-copy|copy|preview] [--copy] [--can-query] [--background-query] [--chat-type t] [--viewer id[,first,last,username,premium]]
+       [--message private|group|via-bot|no-queries|live-copy|copy|preview|profile-prestart|profile] [--copy] [--can-query] [--background-query] [--chat-type t] [--viewer id[,first,last,username,premium]]
        [--chat-data s] [--public-data s] [--answer json | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data json] [--offscreen]
        [--wallet] [--wallet-answer json | --wallet-error REJECTED|BAD_REQUEST|TIMEOUT|RATE_LIMITED|FAILED]
-       [--safe-area bottom[,cornerRight[,cornerLeft]]]
+       [--safe-area bottom[,cornerRight[,cornerLeft]] | --safe-area key=px,…] [--surface message|profile] [--viewport-height px]
   --width lays the widget out at that bubble width in the real renderer (headless Chromium) and reports its height;
   the presses run there in order, on a phone's bubble (a finger) or with --desktop a desktop client's (a mouse),
   and each is reported: the element, its touch-action claim, who got the press, the events the widget received, a hint.
@@ -869,7 +914,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   --safe-area: what the client draws over a widget with no caption below it (docs/sdk-v1.md §2.17), in CSS px: the band of the
   message time at the bottom and its corner on the right (a left-to-right interface), or on the left as the third number
   (right-to-left: 24,0,72); env(safe-area-inset-bottom), the --tg-content-safe-area-* variables and
-  TelegramWidget.contentSafeAreaInset get them, and the UA layer adds the band to an unstyled body's bottom padding.`);
+  TelegramWidget.contentSafeAreaInset get them, and the UA layer adds the band to an unstyled body's bottom padding.
+  Named, --safe-area sets both layers (docs/sdk-v1.md §2.17): top, right, bottom, left, cornerLeft, cornerRight for the
+  client's chrome and device-top, device-right, device-bottom, device-left for the device's edges, e.g.
+  --safe-area device-top=47,top=56,bottom=64,device-bottom=34; env(safe-area-inset-*) is their sum.
+  --surface profile: the bot's profile page (docs/sdk-v1.md §2.19; --message profile-prestart, before Start with no
+  flags, and --message profile, after Start with taps and background requests, set it): no chat type on a page, whatever
+  --chat-type says; the widget the width of the screen and as tall as its document,
+  at least the viewport (--viewport-height, default 844) and at most the page ceiling; without --safe-area it gets the
+  reference phone's layers (the status bar and the home indicator, the native header and the Start button).`);
     process.exit(2);
   }
   const verbose = args.includes('--verbose');
@@ -901,9 +954,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const viewerId = value('--viewer');
   const kind = value('--message') as WidgetMessageKind | undefined;
   const safeArea = value('--safe-area');
-  const [bottom, cornerRight, cornerLeft] = (safeArea ?? '').split(',').map((n) => (n.trim() === '' ? 0 : Number(n)));
-  if (safeArea !== undefined && ![bottom, cornerRight ?? 0, cornerLeft ?? 0].every((n) => n >= 0 && Number.isFinite(n))) { console.error('--safe-area takes bottom[,cornerRight[,cornerLeft]] in CSS px'); process.exit(2); }
+  const layers = safeArea === undefined ? undefined : parseSafeArea(safeArea);
+  if (layers === null) { console.error('--safe-area takes bottom[,cornerRight[,cornerLeft]], or key=px pairs (top, right, bottom, left, cornerLeft, cornerRight, device-top, device-right, device-bottom, device-left), in CSS px'); process.exit(2); }
   if (kind !== undefined && !(kind in WIDGET_MESSAGE_KINDS)) { console.error(`--message takes ${Object.keys(WIDGET_MESSAGE_KINDS).join(', ')}`); process.exit(2); }
+  const surfaceFlag = value('--surface');
+  if (surfaceFlag !== undefined && surfaceFlag !== 'message' && surfaceFlag !== 'profile') { console.error('--surface takes message or profile'); process.exit(2); }
+  const kindSurface = kind ? (WIDGET_MESSAGE_KINDS[kind] as { surface?: WidgetSurface }).surface : undefined;
+  const surface = checkSurface(surfaceFlag ?? kindSurface);
+  const viewportFlag = value('--viewport-height');
+  if (viewportFlag !== undefined && !(Number(viewportFlag) > 0)) { console.error('--viewport-height takes CSS px'); process.exit(2); }
+  const viewportHeight = viewportFlag !== undefined ? Number(viewportFlag) : surface === 'profile' ? REFERENCE_PROFILE.viewportHeight : undefined;
+  const pageLayers = surface === 'profile' && !layers ? { content: REFERENCE_PROFILE.contentSafeArea, device: REFERENCE_PROFILE.safeArea } : layers;
   const r = await runWidget(fs.readFileSync(file, 'utf8'), {
     data: { chatData: value('--chat-data') ?? null, publicData: value('--public-data') ?? null },
     context: {
@@ -912,15 +973,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ...(args.includes('--background-query') ? { backgroundQuery: true } : {}), ...(value('--chat-type') ? { chatType: value('--chat-type') as any } : {}),
       ...(viewerId !== undefined && viewerFromList(viewerId) ? { viewer: viewerFromList(viewerId)! } : {}),
       ...(args.includes('--wallet') ? { wallet: true } : {}),
+      surface,
     },
     onRequest: () => (answerError ? Promise.reject(answerError) : answer),
     onWallet: () => (walletError ? Promise.reject(walletError) : walletAnswer),
     ...(args.includes('--offscreen') ? { visible: false } : {}),
-    ...(safeArea !== undefined ? { contentSafeArea: { bottom, cornerRight: cornerRight ?? 0, cornerLeft: cornerLeft ?? 0 } } : {}),
+    ...(pageLayers ? { contentSafeArea: pageLayers.content, safeArea: pageLayers.device } : {}),
+    ...(viewportHeight !== undefined ? { viewportHeight } : {}),
     script: [...(args.includes('--offscreen') ? [{ visible: true }] : []), ...(setData !== undefined ? [{ data: setData }] : [])],
     verbose, probes, cssScope: args.includes('--shadow') ? 'shadow' : 'document', theme: args.includes('--dark') ? 'dark' : 'light',
     ...(fontSize >= 0 ? { text: { fontSize: Number(args[fontSize + 1]) } } : {}),
-    width, desktop, layout: width !== undefined, ...(gestures.length ? { gestures } : {}),
+    width: width ?? (surface === 'profile' ? REFERENCE_PROFILE.width : undefined), desktop, layout: width !== undefined || surface === 'profile', ...(gestures.length ? { gestures } : {}),
   });
   if (json) {
     const { ops, renderOps, stream, anims, animOps, ...rest } = r;
@@ -930,7 +993,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   r.probes.forEach((p, i) => console.log(`probe[${i}] ${probes[i]} → ${p}`));
   if (args.includes('--ops')) console.log(JSON.stringify(r.renderOps, null, 0));
   const opsFile = args.indexOf('--ops-file');
-  if (opsFile >= 0 && args[opsFile + 1]) fs.writeFileSync(args[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'safeArea', inset: r.contentSafeArea }, { type: 'ops', ops: r.renderOps }]));
+  if (opsFile >= 0 && args[opsFile + 1]) fs.writeFileSync(args[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'surface', surface: r.surface, viewportHeight: r.viewportHeight }, { type: 'safeArea', inset: r.contentSafeArea }, { type: 'deviceSafeArea', inset: r.safeArea }, { type: 'ops', ops: r.renderOps }]));
   const tags = r.renderOps.filter((o) => o.op === 'el').length;
   const size = sizeVerdict(r.size);
   console.log(sizeLine(r.size));
@@ -938,7 +1001,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(`batches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}; main thread ${r.mainThreadMs.toFixed(1)} ms (layout queries + 25 µs per op + 2 µs per canvas command; a host allows ${LIMIT_DEFAULTS.mainThreadQuotaMs} ms per second)`);
   console.log(`nodes: ${r.nodes} (max 2000)${r.nodes > 1500 ? ' — over 1500: close to the node limit, past it the widget stops' : ''}`);
   if (r.stopped) console.log(`STOPPED: ${r.stopped} (a host stops the widget here, the bubble keeps its last render)`);
-  if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
+  const shownWidth = width ?? (r.surface === 'profile' ? REFERENCE_PROFILE.width : 400);
+  if (r.height !== undefined && r.surface === 'profile') {
+    const page = surfaceHeight('profile', r.height, r.viewportHeight);
+    console.log(`height ${Math.ceil(r.height)} px at width ${shownWidth} px: a profile page of ${Math.ceil(page)} px (at least the viewport, ${r.viewportHeight} px; at most ${PROFILE_SURFACES.profile.height.max}, provisional; the rest is clipped)`);
+  } else if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${shownWidth} px (a bubble shows 50–600 px, the rest is clipped)`);
   if (r.paint) {
     const p = r.paint;
     const most = p.peakHeavy > p.heavy || p.peakBackdrop > p.backdrop ? ` (at most ${p.peakHeavy}, ${p.peakBackdrop} with backdrop-filter)` : '';
@@ -947,7 +1014,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   }
   if (r.publicDataWatches.length) console.log(`public data: ${r.watchesPublicData ? 'watched' : 'not watched'} (watchPublicData: ${r.publicDataWatches.join(' → ')}): a client polls a shared widget's public_data only while it watches`);
   const sa = r.contentSafeArea;
-  if (sa.bottom || sa.cornerLeft || sa.cornerRight) console.log(`content safe area: the client's time over the bottom ${sa.bottom} px, its corner ${sa.cornerRight ? `${sa.cornerRight} px on the right` : sa.cornerLeft ? `${sa.cornerLeft} px on the left` : 'none'}`);
+  if (r.surface === 'profile') {
+    const d = r.safeArea, sum = (k: 'top' | 'right' | 'bottom' | 'left') => d[k] + sa[k];
+    console.log(`profile page: the device's edges ${d.top},${d.right},${d.bottom},${d.left} and the client's chrome ${sa.top},${sa.right},${sa.bottom},${sa.left} (top, right, bottom, left); env(safe-area-inset-*) is ${sum('top')},${sum('right')},${sum('bottom')},${sum('left')}; --tg-viewport-height ${r.viewportHeight ? r.viewportHeight + ' px' : 'not set'}`);
+  } else if (sa.bottom || sa.cornerLeft || sa.cornerRight) console.log(`content safe area: the client's time over the bottom ${sa.bottom} px, its corner ${sa.cornerRight ? `${sa.cornerRight} px on the right` : sa.cornerLeft ? `${sa.cornerLeft} px on the left` : 'none'}`);
   if (r.resizeAnchors.length) console.log(`resize anchor: ${r.resizeAnchor} (setResizeAnchor: ${r.resizeAnchors.join(' → ')}): the ${r.resizeAnchor} edge of the bubble stays put when the height changes`);
   console.log(`listens for: ${r.listens.length ? r.listens.join(', ') : '(no listeners)'}; click, load, error and toggle are always delivered`);
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);

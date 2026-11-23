@@ -409,8 +409,9 @@ TEST(remote_stream_hosted_engine_end_serves_a_widget) {
     CHECK(r->drew("hosted"));
     {
         std::lock_guard<std::mutex> l(r->mutex);
-        CHECK_MSG(r->messages.size() > 2 && r->messages[0].rfind("{\"type\":\"theme\"", 0) == 0 && r->messages[1].find("\"bottom\":24") != std::string::npos,
-                  r->messages.size() > 1 ? r->messages[1] : "");
+        CHECK_MSG(r->messages.size() > 3 && r->messages[0].rfind("{\"type\":\"theme\"", 0) == 0 && r->messages[1].rfind("{\"type\":\"surface\"", 0) == 0 &&
+                      r->messages[2].find("\"bottom\":24") != std::string::npos,
+                  r->messages.size() > 2 ? r->messages[2] : "");
     }
     CHECK_MSG(eventually([&] { return host.probe(1, "n + ' ' + TelegramWidget.chatData") == "INTL-H chat-h"; }), host.probe(1, "TelegramWidget.chatData").value_or("no answer"));
 

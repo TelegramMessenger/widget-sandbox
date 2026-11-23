@@ -1257,10 +1257,12 @@ TEST(hosted_loopback_runs_the_whole_widget_in_the_engine_end) {
                               "\"disabledOpacity\":0.4},\"text\":{\"fontSize\":16.5,\"lineHeight\":1.4,\"padding\":\"10px 14px\"}}}";
     {
         std::lock_guard<std::mutex> l(r.mutex);
-        CHECK_MSG(r.messages.size() > 3 && r.messages[0] == theme, r.messages.empty() ? "nothing sent" : r.messages[0]);
-        CHECK_MSG(r.messages.size() > 3 && r.messages[1] == "{\"type\":\"safeArea\",\"inset\":{\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}}",
-                  r.messages.size() > 1 ? r.messages[1] : "");
-        CHECK_MSG(r.messages.size() > 3 && r.messages[2] == "{\"type\":\"policy\",\"policy\":\"strict\"}", r.messages.size() > 2 ? r.messages[2] : "");
+        CHECK_MSG(r.messages.size() > 5 && r.messages[0] == theme, r.messages.empty() ? "nothing sent" : r.messages[0]);
+        CHECK_MSG(r.messages.size() > 5 && r.messages[1] == "{\"type\":\"surface\",\"surface\":\"message\",\"viewportHeight\":0}", r.messages.size() > 1 ? r.messages[1] : "");
+        CHECK_MSG(r.messages.size() > 5 && r.messages[2] == "{\"type\":\"safeArea\",\"inset\":{\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}}",
+                  r.messages.size() > 2 ? r.messages[2] : "");
+        CHECK_MSG(r.messages.size() > 5 && r.messages[3] == "{\"type\":\"deviceSafeArea\",\"inset\":{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}}", r.messages.size() > 3 ? r.messages[3] : "");
+        CHECK_MSG(r.messages.size() > 5 && r.messages[4] == "{\"type\":\"policy\",\"policy\":\"strict\"}", r.messages.size() > 4 ? r.messages[4] : "");
     }
     for (const char* type : {"ops", "listen", "requestFrame"}) CHECK_MSG(!r.sent(type).empty(), type);
     const std::vector<Json> queries = r.sent("query");

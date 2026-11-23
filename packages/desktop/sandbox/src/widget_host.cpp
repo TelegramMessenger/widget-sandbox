@@ -116,7 +116,25 @@ void WidgetHost::setContentSafeArea(const WidgetContentSafeArea& area) {
     });
 }
 
-// After a keep the client is the handle's: the owner's inputs find none (`start`, `setTheme` and `setContentSafeArea` stop at `destroyed_` on the host thread first).
+void WidgetHost::setSafeArea(const WidgetSafeArea& area) {
+    host([this, area] {
+        if (destroyed_ || rendererOnly_) return;
+        config_.safeArea = area;
+        if (glue_) (this->*glue_->deviceSafeArea)(area);
+        engine_->safeArea(area);
+    });
+}
+
+void WidgetHost::setViewportHeight(double height) {
+    host([this, height] {
+        if (destroyed_ || rendererOnly_) return;
+        pageViewport_ = surface::checkViewportHeight(config_.context.surface, height);
+        // A hosted widget's renderer is the engine process's, and no channel carries the viewport there yet.
+        if (glue_) (this->*glue_->viewportHeight)();
+    });
+}
+
+// After a keep the client is the handle's: the owner's inputs find none (`start`, `setTheme` and the safe-area and viewport setters stop at `destroyed_` on the host thread first).
 void WidgetHost::setVisible(bool visible) {
     if (engine_) engine_->setVisible(visible);
 }

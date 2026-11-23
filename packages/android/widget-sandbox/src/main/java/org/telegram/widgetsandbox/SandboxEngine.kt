@@ -62,6 +62,8 @@ data class SandboxConfig(
     var data: WidgetData = WidgetData(),
     /** The message's flags from the server (docs/sdk-v1.md §4.4: `isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer; fixed for the engine's life. */
     var context: WidgetContext = WidgetContext(),
+    /** The device's edges over the widget at boot (docs/sdk-v1.md §2.17), 0 in a bubble whatever is passed; later changes: [SandboxEngine.safeArea]. */
+    var safeArea: WidgetSafeArea = WidgetSafeArea(),
     /** What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes: [SandboxEngine.contentSafeArea]. */
     var contentSafeArea: WidgetContentSafeArea = WidgetContentSafeArea(),
 )
@@ -321,6 +323,8 @@ class SandboxEngine(
                         .put("themeParams", JSONObject(SdkPolicy.checkThemeParams(config.themeParams)))
                         .put("locale", SdkPolicy.checkLocale(config.locale) ?: SdkPolicy.DEFAULT_LOCALE)
                         .put("contentSafeArea", config.contentSafeArea.json())
+                        .put("deviceSafeArea", config.safeArea.json())
+                        .put("surface", config.context.surface.wire)
                         .put("profile", SdkPolicy.PROFILE_VERSION)
                         // A preview has no message yet: no storage of its own (it lives in the sandbox for this run, never committed).
                         .put("storage", if (preview) JSONObject() else preload())
@@ -329,8 +333,9 @@ class SandboxEngine(
                         .put("canQuery", canQuery)
                         .put("isPreview", preview)
                         // No copy says where it was forwarded (a bot could learn it from the widget's 64-byte requests), nor does a
-                        // preview; the viewer only where the widget may send requests (canQuery, never in a preview).
-                        .put("chatType", (if (preview || copy) null else SdkPolicy.checkChatType(config.context.chatType)) ?: JSONObject.NULL)
+                        // preview, and a profile page is in no chat; the viewer only where the widget may send requests (canQuery,
+                        // never in a preview).
+                        .put("chatType", (if (preview || copy || config.context.surface == WidgetSurface.PROFILE) null else SdkPolicy.checkChatType(config.context.chatType)) ?: JSONObject.NULL)
                         .put("viewer", (if (hideViewer) null else viewer())?.let(::viewerJson) ?: JSONObject.NULL)
                         .put("wallet", wallet)
                         .put("features", JSONArray(config.features.intersect(RUNTIME_FEATURES).sorted())),
@@ -402,6 +407,17 @@ class SandboxEngine(
         if (dead) return@post
         if (js == null) { config.contentSafeArea = area; return@post }
         accept("safeArea", area.json().toString())
+    }
+
+    /**
+     * The device's edges over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.safeAreaInset` and
+     * `safeAreaChanged` in one task; the shim checks the values against the place (0 in a bubble). Before boot it only
+     * replaces the config's.
+     */
+    fun safeArea(area: WidgetSafeArea) = thread.post {
+        if (dead) return@post
+        if (js == null) { config.safeArea = area; return@post }
+        accept("deviceSafeArea", area.json().toString())
     }
 
     /**
@@ -646,7 +662,8 @@ class SandboxEngine(
         val checked = when (c) {
             // Not an action: the host keeps the latest anchor next to the height (no gesture, no visibility gate).
             is BridgeCall.SetResizeAnchor -> {
-                delegate?.onResizeAnchor(this, c.edge)
+                // A profile page never moves when its height changes: the call is checked and goes nowhere.
+                if (config.context.surface.keepsResizeAnchor) delegate?.onResizeAnchor(this, c.edge)
                 return
             }
             // Not an action either: the host keeps whether the widget watches its public_data and tells the client on a change.

@@ -23,9 +23,9 @@
   }
  },
  "coverage": {
-  "auto": 263,
+  "auto": 267,
   "visual": 129,
-  "catalogue": 279,
+  "catalogue": 284,
   "external": {
    "limit.nodes": "corpus/attacks (pnpm test:attacks): node flood",
    "limit.cpu": "corpus/attacks and tests/lifecycle.spec.ts: CPU quota, deferral, kill",
@@ -45,6 +45,7 @@
    "behaviour.time-corner": "visual/17-time-corner, sent without a caption (client behaviour)"
   },
   "notInAuto": [
+   "limit.nesting",
    "limit.animations",
    "limit.main-thread"
   ],
@@ -8764,6 +8765,327 @@
    "bytes": 4499,
    "zlib": 2270,
    "stops": "Node limit exceeded"
+  },
+  {
+   "id": "auto/46-profile-safe-area",
+   "set": "auto",
+   "file": "auto/46-profile-safe-area.html",
+   "title": "A bot's profile page: TelegramWidget.surface, the device's edges (safeAreaInset, --tg-safe-area-inset-*) and the client's chrome inside them (contentSafeAreaInset), no corners, env(safe-area-inset-*) as the sum of both, the UA layer's body padding on all four sides",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "css.value.env",
+    "tw.content-safe-area",
+    "tw.safe-area",
+    "tw.surface"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "tw.surface",
+     "name": "surface is 'profile'",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.safe-area",
+     "name": "safeAreaInset: a frozen object of four numbers, the same object on every read",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.safe-area",
+     "name": "the device's edges: finite numbers ≥ 0 (a page has no ranges)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.safe-area",
+     "name": "safeAreaChanged is an event a widget may listen to",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.content-safe-area",
+     "name": "the client's chrome: finite numbers ≥ 0 on every side, the corners 0",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.safe-area",
+     "name": "the root variables are its values",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.content-safe-area",
+     "name": "the root variables are its values, the corners 0",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.safe-area",
+     "name": "body: the sum of both layers as padding on all four sides (the UA layer)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.env",
+     "name": "env(safe-area-inset-top) is the device top plus the header",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.env",
+     "name": "env(safe-area-inset-bottom, 77px) is the sum, not the fallback",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.env",
+     "name": "env(safe-area-inset-left, 5px) is the sum on the left, not the fallback",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.env",
+     "name": "calc(10px + env(safe-area-inset-top, 0)): a unitless 0 fallback",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.env",
+     "name": "max(4px, env(safe-area-inset-right))",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.env",
+     "name": "var(--tg-safe-area-inset-top) is the device top alone",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.env",
+     "name": "var(--tg-safe-area-inset-bottom) is the device bottom alone",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.env",
+     "name": "var(--tg-content-safe-area-inset-top) is the header alone",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 7826,
+   "zlib": 3119,
+   "surface": "profile",
+   "message": [
+    {
+     "kind": "profile-prestart",
+     "view": "the bot's profile page before Start"
+    }
+   ]
+  },
+  {
+   "id": "auto/47-profile-page-height",
+   "set": "auto",
+   "file": "auto/47-profile-page-height.html",
+   "title": "A bot's profile page: --tg-viewport-height is the whole area edge to edge, a hero of that height fills the screen, the page scrolls past it, the resize anchor is ignored",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "behaviour.profile-page",
+    "tw.resize-anchor",
+    "tw.surface"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "tw.surface",
+     "name": "surface is 'profile'",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.surface",
+     "name": "--tg-viewport-height is a length in px over 0 and at most the page ceiling (4000)",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.surface",
+     "name": "a hero with min-height: var(--tg-viewport-height) is the viewport tall",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "behaviour.profile-page",
+     "name": "the document is taller than the viewport (it scrolls with the profile)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.resize-anchor",
+     "name": "setResizeAnchor('bottom') is accepted and does nothing on a page",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.resize-anchor",
+     "name": "setResizeAnchor still checks its argument",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 5536,
+   "zlib": 2682,
+   "surface": "profile",
+   "message": [
+    {
+     "kind": "profile-prestart",
+     "view": "the bot's profile page before Start: the hero fills the screen, the rest scrolls under the Start button"
+    }
+   ]
+  },
+  {
+   "id": "auto/48-profile-before-start",
+   "set": "auto",
+   "file": "auto/48-profile-before-start.html",
+   "title": "A bot's profile page before Start: the server sends no flags (no can_query), so no viewer, no request and no wallet, and a page has no chat (no chatType)",
+   "kind": [
+    "self",
+    "interactive"
+   ],
+   "covers": [
+    "behaviour.profile-start",
+    "tw.context",
+    "tw.request",
+    "tw.surface"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [
+    {
+     "tap": "ask",
+     "ids": [
+      "tw.request"
+     ]
+    }
+   ],
+   "host": [],
+   "checks": [
+    {
+     "id": "tw.request",
+     "name": "a request without a tap is refused with NOT_ALLOWED",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.request",
+     "name": "a request on a tap is refused with NOT_ALLOWED too",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.surface",
+     "name": "surface is 'profile'",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "behaviour.profile-start",
+     "name": "chatType is null (a profile page has no chat)",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.context",
+     "name": "isForward and isPreview are false",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.context",
+     "name": "viewer is null (no canQuery before Start)",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "behaviour.profile-start",
+     "name": "wallet is null (no canQuery before Start)",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 5906,
+   "zlib": 2810,
+   "surface": "profile",
+   "message": [
+    {
+     "kind": "profile-prestart",
+     "view": "the bot's profile page before Start"
+    }
+   ]
   },
   {
    "id": "visual/01-boxes",

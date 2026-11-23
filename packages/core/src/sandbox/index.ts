@@ -465,7 +465,9 @@ const handlers: Record<string, (arg: string) => string | void> = {
     if (webAnimationsEnabled()) Object.assign(G, webAnimations().globals);
     globals.setHidden(config.visible === false);
     globals.setTheme({ theme: config.theme, themeParams: config.themeParams }, false);
+    globals.setSurface(config.surface);
     globals.setContentSafeArea(config.contentSafeArea, false);
+    globals.setSafeArea(config.deviceSafeArea, false);
     globals.setLocale(config.locale);
     globals.preloadStorage(config.storage);
     globals.configureWidget(config);
@@ -521,6 +523,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
   resize(arg) { globals.fireResize(JSON.parse(arg), capture.nodeById); },
   theme(arg) { globals.setTheme(JSON.parse(arg), true); globals.mediaChanged(); },
   safeArea(arg) { globals.setContentSafeArea(JSON.parse(arg), true); },
+  deviceSafeArea(arg) { globals.setSafeArea(JSON.parse(arg), true); },
   bridge(arg) { globals.bridgeEvent(JSON.parse(arg)); },
   morph(arg) {
     if (!morphEnabled) return '';

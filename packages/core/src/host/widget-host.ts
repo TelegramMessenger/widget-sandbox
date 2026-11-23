@@ -13,10 +13,11 @@ import sandboxBundle from 'virtual:sandbox-bundle';
 import { IframeRenderer } from './iframe-renderer';
 import { GestureCounter, HostActivationGate } from './user-activation';
 import {
-  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, allowedInPreview, checkBridgeCall, checkChatType, checkContentSafeArea, checkLocale, checkRequestAnswer,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, allowedInPreview, checkBridgeCall, checkChatType, checkContentSafeArea, checkLocale, checkRequestAnswer, checkSafeArea, checkSurface,
+  checkViewportHeight, surfaceHeight, surfaceKeepsResizeAnchor,
   checkStorageCommit, checkViewer, checkWidgetData, requestFailure, requestRefusal, STORAGE_QUOTA_BYTES, toWidgetTheme, viewerUser, VIEWER_FIELD_RULES, walletFailure,
-  type ContentSafeArea, type RequestError, type RequestVerdict, type ResizeAnchor, type StorageCommit, type WalletCall, type WidgetAction, type WidgetContext, type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
-  type WidgetUser, type WidgetViewer,
+  type ContentSafeArea, type RequestError, type RequestVerdict, type ResizeAnchor, type SafeAreaInset, type StorageCommit, type WalletCall, type WidgetAction, type WidgetContext, type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
+  type WidgetSurface, type WidgetUser, type WidgetViewer,
 } from '../shared/sdk-policy';
 import { PROFILE_VERSION } from '../shared/profile-tables';
 import { checkPaintLimit, paintLimitMessage } from '../shared/paint-policy';
@@ -30,8 +31,8 @@ import {
 } from '../shared/protocol';
 
 export type {
-  ChatType, ContentSafeArea, RequestFailure, SignDataPayload, WalletCall, WalletFailure, WalletMessage, WalletTransaction, WidgetAction, WidgetContext, WidgetData, WidgetRequest,
-  WidgetRequestAnswer, WidgetTheme, WidgetUser, WidgetViewer,
+  ChatType, ContentSafeArea, RequestFailure, SafeAreaInset, SignDataPayload, WalletCall, WalletFailure, WalletMessage, WalletTransaction, WidgetAction, WidgetContext, WidgetData, WidgetRequest,
+  WidgetRequestAnswer, WidgetSurface, WidgetTheme, WidgetUser, WidgetViewer,
 } from '../shared/sdk-policy';
 export type { BubbleAction, Gesture, GestureClaim } from '../shared/gesture-policy';
 
@@ -55,9 +56,23 @@ export interface WidgetHostOptions {
    * `bottom` = the height of the band the message time is drawn in over its bottom corner and `cornerRight` (or
    * `cornerLeft` in a right-to-left interface) = the width of that corner; omitted fields and a widget with a caption below
    * are 0. Pass it here, before the first render, so the first height already has the band; later only with the
-   * bubble's layout (`setContentSafeArea`), never per frame. Out of range (insets 0–64, corners 0–200) is 0.
+   * bubble's layout (`setContentSafeArea`), never per frame. Out of range (insets 0–64, corners 0–200) is 0. On a
+   * profile page (`context.surface`): the native header over the top and the Start / Open App button over the bottom,
+   * measured inside `safeArea` (any finite value ≥ 0 on every side, no corners).
    */
   contentSafeArea?: Partial<ContentSafeArea>;
+  /**
+   * The device's edges over the widget, in CSS px (docs/sdk-v1.md §2.17): on a profile page the status bar and the
+   * cutout (`top`), the home indicator or the navigation bar (`bottom`), the sides in landscape (any finite value ≥ 0);
+   * always 0 in a bubble. Pass it before the first render; later only with the screen's layout
+   * (`setSafeArea`), never per frame.
+   */
+  safeArea?: Partial<SafeAreaInset>;
+  /**
+   * On a profile page: the widget's whole area edge to edge, in CSS px (the screen under the native header and button
+   * included): `--tg-viewport-height`, and the page is never shorter. Ignored in a bubble. Later: `setViewportHeight`.
+   */
+  viewportHeight?: number;
   /** Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`). */
   storage?: StorageCommit;
   /** The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`. */
@@ -130,7 +145,8 @@ export interface WidgetHostOptions {
   /**
    * The bubble's height (the content's, clamped to [50, 600]) on every size report, and the edge of the bubble that
    * stays put on screen when it changes (`TelegramWidget.setResizeAnchor`, docs/sdk-v1.md §2.12 and §5.6): `top` (the
-   * default: the content below moves) or `bottom` (the content above moves).
+   * default: the content below moves) or `bottom` (the content above moves). On a profile page the page's height (the
+   * content's, at least `viewportHeight`, at most the page ceiling) and always `top`.
    */
   onResize?: (height: number, anchor: ResizeAnchor) => void;
   /**
@@ -152,9 +168,6 @@ export interface WidgetHostOptions {
   features?: string[];
 }
 
-/** The shared bubble height bounds of v0.1.0 (docs/integration.md, "Bubble sizing"); the same on every client. */
-const MIN_HEIGHT = 50;
-const MAX_HEIGHT = 600;
 const encoder = new TextEncoder();
 const BUBBLE_ACTIONS = new Set<unknown>(['menu', 'swipe', 'scroll', 'back']);
 const REQUEST_REFUSED: Record<string, string> = {
@@ -181,7 +194,11 @@ export class WidgetHost {
   /** Whether the widget watches its shared `public_data` (its latest `watchPublicData` / `unwatchPublicData`), false until then. */
   get watchesPublicData(): boolean { return this.watching; }
   /** What the client draws over the widget as the widget sees it (checked: `contentSafeArea`, `setContentSafeArea`). */
-  get contentSafeArea(): ContentSafeArea { return { ...this.safeArea }; }
+  get contentSafeArea(): ContentSafeArea { return { ...this.contentArea }; }
+  /** The device's edges as the widget sees them (checked against the place: always 0 in a bubble). */
+  get safeArea(): SafeAreaInset { return { ...this.deviceArea }; }
+  /** Where the widget is shown (`context.surface`): fixed for the host's life. */
+  get surface(): WidgetSurface { return this.place; }
   private worker: Worker | null = null;
   private renderer: Renderer;
   private validator: Validator;
@@ -195,7 +212,10 @@ export class WidgetHost {
   private viewport: SandboxConfig['viewport'] | undefined;
   private theme: 'light' | 'dark';
   private widgetTheme: ReturnType<typeof toWidgetTheme>;
-  private safeArea: ContentSafeArea;
+  private contentArea: ContentSafeArea;
+  private deviceArea: SafeAreaInset;
+  private place: WidgetSurface;
+  private viewportHeight: number;
   private visible: boolean;
   private policy: SandboxPolicy;
   private gestures = new GestureCounter();
@@ -217,7 +237,10 @@ export class WidgetHost {
     const diag = (kind: string, detail: string) => opts.onDiag?.(kind, detail);
     this.widgetTheme = toWidgetTheme(opts.theme);
     this.theme = this.widgetTheme.colorScheme;
-    this.safeArea = checkContentSafeArea(opts.contentSafeArea);
+    this.place = checkSurface(opts.context?.surface);
+    this.contentArea = checkContentSafeArea(opts.contentSafeArea, this.place);
+    this.deviceArea = checkSafeArea(opts.safeArea, this.place);
+    this.viewportHeight = checkViewportHeight(this.place, opts.viewportHeight);
     this.visible = opts.visible ?? true;
     // A preview (an inline result not sent yet) asks nothing whatever the flags say (docs/sdk-v1.md §2.16).
     const preview = opts.context?.preview === true;
@@ -236,7 +259,10 @@ export class WidgetHost {
     this.renderer.onDiag = diag;
     this.renderer.load();
     this.toRenderer({ type: 'theme', theme: this.widgetTheme });
-    this.toRenderer({ type: 'safeArea', inset: this.safeArea });
+    // The place first: it bounds both safe-area layers and sets the page's viewport.
+    this.toRenderer({ type: 'surface', surface: this.place, viewportHeight: this.viewportHeight });
+    this.toRenderer({ type: 'safeArea', inset: this.contentArea });
+    this.toRenderer({ type: 'deviceSafeArea', inset: this.deviceArea });
     // Under strict the renderer counts heavy boxes and reports `limit` past them (paint-policy.ts); compat counts nothing.
     this.toRenderer({ type: 'policy', policy: this.policy });
     if (opts.bubbleGestures && !preview) this.setBubbleGestures(opts.bubbleGestures);
@@ -260,7 +286,9 @@ export class WidgetHost {
       theme: this.theme,
       themeParams: this.widgetTheme.params,
       locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE,
-      contentSafeArea: this.safeArea,
+      contentSafeArea: this.contentArea,
+      deviceSafeArea: this.deviceArea,
+      surface: this.place,
       profile: PROFILE_VERSION,
       // A preview has no message yet: no storage of its own (it lives in memory for this run and is never committed).
       storage: preview ? {} : this.preload(opts.storage),
@@ -268,10 +296,11 @@ export class WidgetHost {
       isCopy: this.context.isCopy,
       canQuery: this.context.canQuery,
       isPreview: preview,
-      // A copy is told nothing about the chat it is in (the bot must not learn where its widget was forwarded). The
-      // widget knows its viewer only where it may send requests (canQuery, never in a preview): a widget that may not
-      // talk to the bot cannot pass the id out through a link either, and the rule matches the network marker.
-      chatType: preview || this.context.isCopy ? null : checkChatType(opts.context?.chatType),
+      // A copy is told nothing about the chat it is in (the bot must not learn where its widget was forwarded), and a
+      // profile page has no chat. The widget knows its viewer only where it may send requests (canQuery, never in a
+      // preview): a widget that may not talk to the bot cannot pass the id out through a link either, and the rule
+      // matches the network marker.
+      chatType: preview || this.context.isCopy || this.place === 'profile' ? null : checkChatType(opts.context?.chatType),
       viewer: this.context.canQuery ? this.checkViewer(opts.context?.viewer) : null,
       wallet: this.context.wallet,
     };
@@ -315,9 +344,26 @@ export class WidgetHost {
    * widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from the same call; never per frame.
    */
   setContentSafeArea(area: Partial<ContentSafeArea>) {
-    this.safeArea = checkContentSafeArea(area);
-    this.toRenderer({ type: 'safeArea', inset: this.safeArea });
-    this.toWorker({ type: 'safeArea', inset: this.safeArea });
+    this.contentArea = checkContentSafeArea(area, this.place);
+    this.toRenderer({ type: 'safeArea', inset: this.contentArea });
+    this.toWorker({ type: 'safeArea', inset: this.contentArea });
+  }
+
+  /**
+   * The device's edges over the widget changed with the screen's layout (docs/sdk-v1.md §2.17): a rotation, a window
+   * resized. The renderer gets the `--tg-safe-area-inset-*` variables and the widget `safeAreaInset` and
+   * `safeAreaChanged`, from the same call; never per frame. Always 0 in a bubble.
+   */
+  setSafeArea(area: Partial<SafeAreaInset>) {
+    this.deviceArea = checkSafeArea(area, this.place);
+    this.toRenderer({ type: 'deviceSafeArea', inset: this.deviceArea });
+    this.toWorker({ type: 'deviceSafeArea', inset: this.deviceArea });
+  }
+
+  /** A profile page's viewport changed with the screen's layout: `--tg-viewport-height`, and the page's least height. Ignored in a bubble. */
+  setViewportHeight(height: number) {
+    this.viewportHeight = checkViewportHeight(this.place, height);
+    this.toRenderer({ type: 'surface', surface: this.place, viewportHeight: this.viewportHeight });
   }
 
   /** Turns the renderer's bubble on or off (`WidgetHostOptions.bubbleGestures`); a preview takes no input at all. */
@@ -555,7 +601,8 @@ export class WidgetHost {
         }
         // Not an action: the host keeps the latest anchor and reports it with the height (no gesture, no callback of its own).
         if (action.kind === 'setResizeAnchor') {
-          this.anchor = action.edge;
+          // A profile page never moves when its height changes: its anchor stays `top` whatever the widget says.
+          if (surfaceKeepsResizeAnchor(this.place)) this.anchor = action.edge;
           break;
         }
         // Not an action either: the host keeps whether the widget watches its public_data and tells the client on a change.
@@ -667,7 +714,7 @@ export class WidgetHost {
       case 'size': {
         const h = finiteNumber(msg.height), iw = finiteNumber(msg.innerWidth), ih = finiteNumber(msg.innerHeight), dpr = finiteNumber(msg.dpr);
         if (h === undefined || iw === undefined || ih === undefined || dpr === undefined) break;
-        const height = Math.min(Math.max(h, MIN_HEIGHT), MAX_HEIGHT);
+        const height = surfaceHeight(this.place, h, this.viewportHeight);
         this.element.style.height = height + 'px';
         this.opts.onResize?.(height, this.anchor);
         const vp = { innerWidth: iw, innerHeight: ih, dpr };

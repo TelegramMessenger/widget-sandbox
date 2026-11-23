@@ -48,9 +48,6 @@ std::optional<std::vector<uint8_t>> base64Decode(const std::string& text) {
     return out;
 }
 
-// The shared bubble height bounds of v0.1.0 (docs/integration.md, "Bubble sizing").
-constexpr double kMinHeight = 50, kMaxHeight = 600;
-
 /// The diagnostic of a client-mode engine whose renderer messages passed WidgetHost's backlog bounds (its death is `kBacklogLimitReason`).
 constexpr const char* kBacklogLimit = "backlog-limit";
 
@@ -89,6 +86,8 @@ constinit const WidgetHost::Glue WidgetHost::kGlue = {
     &WidgetHost::localStart,
     &WidgetHost::localSetTheme,
     &WidgetHost::localSafeArea,
+    &WidgetHost::localDeviceSafeArea,
+    &WidgetHost::localViewportHeight,
     &WidgetHost::localLoaded,
     &WidgetHost::localRenderAck,
     &WidgetHost::localDied,
@@ -120,7 +119,8 @@ WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, Widget
       renderer_(hosting_.hosted ? nullptr : rendererFactory(resources_, theme_, width)),
       engine_(hosting_.hosted ? SandboxEngine::hostedClient(html_, config_, std::move(hosting_.channel), std::move(intl))
                               : SandboxEngine::make(html_, config_, resources_, std::move(intl))),
-      viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio) {
+      viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio),
+      pageViewport_(surface::checkViewportHeight(config_.context.surface, options.viewportHeight)) {
     if (!hosting_.hosted) wire(*this);
 }
 
@@ -184,7 +184,10 @@ void WidgetHost::wire(SandboxEngineDelegate& engineDelegate) {
 void WidgetHost::localStart() {
     // Queued until the renderer is ready, so the variables are its first message, before any ops.
     toRenderer(themeMessage());
+    // The place first: it bounds both safe-area layers and sets a page's viewport.
+    toRenderer(surfaceMessage());
     toRenderer(safeAreaMessage(config_.contentSafeArea));
+    toRenderer(deviceSafeAreaMessage(config_.safeArea));
     // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
     toRenderer(std::string("{\"type\":\"policy\",\"policy\":\"") + (isStrictPolicy(config_.policy) ? "strict" : "compat") + "\"}");
     renderer_->load();
@@ -256,6 +259,30 @@ std::string WidgetHost::safeAreaMessage(const WidgetContentSafeArea& area) {
     Json msg = Json::object();
     msg.set("type", "safeArea");
     msg.set("inset", area.json());
+    return msg.dump();
+}
+
+void WidgetHost::localDeviceSafeArea(const WidgetSafeArea& area) {
+    if (started_) toRenderer(deviceSafeAreaMessage(area));
+}
+
+void WidgetHost::localViewportHeight() {
+    if (started_) toRenderer(surfaceMessage());
+}
+
+/// `{"type":"deviceSafeArea","inset":{…}}` (docs/sdk-v1.md §3.4): the renderer core checks the values against the place.
+std::string WidgetHost::deviceSafeAreaMessage(const WidgetSafeArea& area) {
+    Json msg = Json::object();
+    msg.set("type", "deviceSafeArea");
+    msg.set("inset", area.json());
+    return msg.dump();
+}
+
+std::string WidgetHost::surfaceMessage() const {
+    Json msg = Json::object();
+    msg.set("type", "surface");
+    msg.set("surface", surfaceName(config_.context.surface));
+    msg.set("viewportHeight", pageViewport_);
     return msg.dump();
 }
 
@@ -503,7 +530,8 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
         const Json* result = msg.find("result");
         resolveQuery(result ? result->dump() : "null", std::move(binary));
     } else if (type == "size") {
-        double height = std::min(std::max(msg["height"].asNumber(0), kMinHeight), kMaxHeight);
+        // A bubble's height is the content's in [50, 600], a profile page's at least its viewport (`surface::height`).
+        double height = surface::height(config_.context.surface, msg["height"].asNumber(0), pageViewport_);
         bool notify = false;
         {
             std::lock_guard<std::mutex> l(mutex_);

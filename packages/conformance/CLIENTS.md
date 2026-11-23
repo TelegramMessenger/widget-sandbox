@@ -100,6 +100,15 @@ passes; the manifest's numbers are the ones the reference picture was drawn with
 test runs with the safe area of a caption below the widget: all 0. Such a test is posted twice in the test group,
 without a caption and with its caption above the widget (`invert_media`): both get your band and corner.
 
+**The bot's profile page.** A test with `"surface": "profile"` in the manifest (`auto/46`–`48`; `docs/sdk-v1.md` §2.19,
+§5.15) runs on your profile screen, not in a chat: create its host with `context.surface` profile and the flags of its
+message `kind` (`profile-prestart` or `profile` in `WIDGET_MESSAGE_KINDS`: the server's flags before and after Start, no chat type), the screen's
+width, your viewport (`viewportHeight`), the device's edges (`safeArea`) and your header and Start button
+(`contentSafeArea`), and draw your chrome over it. Its checks compare with what your host passed, so any finite numbers
+≥ 0 pass, however large (only the page's corners are 0). The reference runner uses `REFERENCE_PROFILE` (390 × 844, device 47 / 34, chrome 56 / 64). Its height gate is
+the page's, 4000 px. No server call sets a bot's profile widget yet, so the test bot does not post it: open it through
+your profile screen's debug path.
+
 Write everything into one run file per renderer, following `run.schema.json`:
 
 ```json

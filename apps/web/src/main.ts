@@ -13,8 +13,8 @@ import { GESTURE_MODES, bubbleGestureLabel, bubbleGesturesOption, claimLabel, ge
 import type { FeedApi } from './feed';
 import { DEFAULT_PROFILE, MODES, MockBot, botOf, mountPanel, showCopied, showWalletWindow, type Mode, type RequestRecord } from './mock-bot';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
-import { CHAT_TYPES, DEFAULT_RESIZE_ANCHOR, DEFAULT_THEME_PARAMS, WIDGET_MESSAGE_KINDS, checkContentSafeArea, themeVariables, type ChatType, type ContentSafeArea, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetMessageKind } from '@telegram/widget-sandbox/shared/sdk-policy';
-import { REFERENCE_TIME_LABEL, referenceSafeArea, timeCornerStyle } from '@telegram/widget-sandbox/shared/reference';
+import { CHAT_TYPES, DEFAULT_RESIZE_ANCHOR, DEFAULT_THEME_PARAMS, WIDGET_MESSAGE_KINDS, checkContentSafeArea, surfaceHeight, themeVariables, type ChatType, type ContentSafeArea, type ResizeAnchor, type SafeAreaInset, type StorageCommit, type WidgetAction, type WidgetMessageKind } from '@telegram/widget-sandbox/shared/sdk-policy';
+import { REFERENCE_PROFILE, REFERENCE_TIME_LABEL, referenceSafeArea, timeCornerStyle } from '@telegram/widget-sandbox/shared/reference';
 import { sizeVerdict, type WidgetSize } from '@telegram/widget-sandbox/shared/widget-size';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -27,6 +27,7 @@ const el = {
   widgetError: $('#widget-error'), width: $<HTMLSelectElement>('#width'), widthValue: $('#width-value'), gestureMode: $<HTMLSelectElement>('#gesture-mode'),
   chatSandbox: $('#chat-sandbox'), bubble: $('#chat-sandbox .bubble'), gestures: $('#gestures'), botPanel: $('#bot-panel'),
   netMarker: $('#net-marker'), timeCorner: $<HTMLSelectElement>('#time-corner'), timeCornerView: $('#time-corner-view'), timeCornerRef: $('#time-corner-ref'),
+  surface: $<HTMLSelectElement>('#surface'), profileChrome: $('#profile-chrome'), profileStart: $<HTMLButtonElement>('#profile-start'), profileName: $('#profile-chrome .profile-name'),
 };
 
 export interface TwState {
@@ -88,6 +89,16 @@ let timeMode: TimeMode = 'caption';
 let customSafeArea: ContentSafeArea | null = null;
 /** What the hosts get as `contentSafeArea`. */
 const safeArea = (): ContentSafeArea => customSafeArea ?? (timeMode === 'caption' ? checkContentSafeArea(null) : referenceSafeArea(timeMode === 'corner-rtl'));
+/**
+ * The bot's profile page (docs/sdk-v1.md §2.19, `?surface=profile` or a profile message kind in the Bot panel): the
+ * widget full screen on a phone at the reference page's numbers, the client's chrome drawn over it here. The phase is
+ * the message kind: `profile-prestart` (before Start: no flags) or `profile` (after Start: the Start button re-creates
+ * the widget so, its storage kept). `__tw.setProfileLayers` passes other numbers.
+ */
+const isProfileKind = (kind: WidgetMessageKind) => (WIDGET_MESSAGE_KINDS[kind] as { surface?: string }).surface === 'profile';
+const profileLayers: { safeArea: SafeAreaInset; contentSafeArea: ContentSafeArea; viewportHeight: number } = {
+  safeArea: { ...REFERENCE_PROFILE.safeArea }, contentSafeArea: { ...REFERENCE_PROFILE.contentSafeArea }, viewportHeight: REFERENCE_PROFILE.viewportHeight,
+};
 /** `?locale=ru`: the client's UI language passed to the widget (navigator.language, the Intl default); en-US otherwise. */
 const LOCALE = new URLSearchParams(location.search).get('locale') ?? undefined;
 
@@ -273,6 +284,8 @@ new ResizeObserver(() => {
   el.sandboxWrap.replaceChildren();
   renderStatus(); renderStats(); renderDiags(); renderBridge(); renderConsole(); renderGestures(); renderBot();
   const context = bot.hostContext();
+  const profile = context.surface === 'profile';
+  applyPlace(profile);
   bot.loaded(name);
   // The network marker, as a client draws it: exactly when the message has can_query (a preview has no flags).
   el.netMarker.classList.toggle('hidden', !context.canQuery || !!context.preview);
@@ -281,7 +294,8 @@ new ResizeObserver(() => {
     features: WIDGET_FEATURES,
     theme: state.theme,
     locale: LOCALE,
-    contentSafeArea: safeArea(),
+    contentSafeArea: profile ? profileLayers.contentSafeArea : safeArea(),
+    ...(profile ? { safeArea: profileLayers.safeArea, viewportHeight: profileLayers.viewportHeight } : {}),
     storage: storageFor(name),
     data: bot.dataFor(name),
     context,
@@ -465,13 +479,15 @@ function updateReference() {
   f.style.colorScheme = state.theme;
   f.addEventListener('load', () => referenceScheme(f, state.theme));
   const a = safeArea();
-  f.src = '/reference/' + state.file + (a.bottom || a.cornerLeft || a.cornerRight ? `?safeArea=${a.bottom},${a.cornerRight},${a.cornerLeft}` : '');
+  const profile = isProfileKind(bot.context.message);
+  f.src = '/reference/' + state.file + (profile ? '?profile=1' : a.bottom || a.cornerLeft || a.cornerRight ? `?safeArea=${a.bottom},${a.cornerRight},${a.cornerLeft}` : '');
   el.referenceWrap.replaceChildren(f);
   referenceFrame = f;
   const size = () => {
     try {
       const d = f.contentDocument;
-      if (d?.documentElement) f.style.height = Math.min(Math.max(Math.ceil(d.documentElement.getBoundingClientRect().height), 50), 600) + 'px';
+      // A bubble's bounds, or a profile page's (at least the viewport, at most the page ceiling).
+      if (d?.documentElement) f.style.height = surfaceHeight(profile ? 'profile' : 'message', Math.ceil(d.documentElement.getBoundingClientRect().height), profileLayers.viewportHeight) + 'px';
     } catch {}
   };
   // Same-origin frame: size it from inside (ResizeObserver) plus a slow fallback poll.
@@ -561,8 +577,37 @@ function setTimeCorner(mode: TimeMode | null, area: Partial<ContentSafeArea> | n
   el.timeCornerRef.textContent = REFERENCE_TIME_LABEL;
   // The reference frame reads the band from its URL before its scripts run: a new one.
   if (referenceFrame) updateReference();
-  for (const h of [host, ...compareHosts]) h?.setContentSafeArea(safeArea());
+  // On a profile page the content layer is the native chrome, not the time (setProfileLayers).
+  if (!isProfileKind(bot.context.message)) for (const h of [host, ...compareHosts]) h?.setContentSafeArea(safeArea());
   syncUrl();
+}
+
+/** The phone frame and the client's chrome over a profile page, or the bubble; the Start button shows the phase. */
+function applyPlace(profile: boolean) {
+  for (const c of [el.chatSandbox, el.chatReference]) c.classList.toggle('profile-page', profile);
+  el.profileChrome.classList.toggle('hidden', !profile);
+  el.surface.value = profile ? 'profile' : 'message';
+  el.timeCorner.disabled = profile;
+  const started = bot.context.message === 'profile';
+  el.profileStart.textContent = started ? 'Open App' : 'Start';
+  el.profileStart.disabled = started;
+  el.profileName.textContent = bot.bot + '_bot';
+  const { safeArea: d, contentSafeArea: c } = profileLayers;
+  const box = (sel: string, css: Partial<CSSStyleDeclaration>) => Object.assign(el.profileChrome.querySelector<HTMLElement>(sel)!.style, css);
+  box('.profile-status', { height: d.top + 'px' });
+  box('.profile-header', { top: d.top + 'px', height: c.top + 'px', display: c.top ? '' : 'none' });
+  box('.profile-bottom', { bottom: d.bottom + 'px', height: c.bottom + 'px', display: c.bottom ? '' : 'none' });
+  box('.profile-home', { height: d.bottom + 'px' });
+}
+
+/** The place select: a profile page starts before Start (no bot flag); back to a bubble is the private chat's original. */
+function setSurface(surface: 'message' | 'profile') {
+  const profile = isProfileKind(bot.context.message);
+  if (surface === 'profile' && !profile) bot.context.message = 'profile-prestart';
+  else if (surface === 'message' && profile) bot.context.message = 'private';
+  else return;
+  renderBot();
+  if (state.html) load(state.html, state.file); else { applyPlace(surface === 'profile'); syncUrl(); }
 }
 
 /** The bubble's presses: `phone` (the mouse as a finger), `desktop` (as a mouse) or `off`; applied to the live hosts. */
@@ -612,6 +657,9 @@ async function init() {
   // The mock bot's context from the URL (`?message=group&chat=supergroup&viewer=42,Ann,Lee,ann_lee,premium&botmode=TIMEOUT`), before the first widget.
   const kind = params.get('message');
   if (kind && kind in WIDGET_MESSAGE_KINDS) bot.context.message = kind as WidgetMessageKind;
+  // ?surface=profile: the bot's profile page, before Start unless `message` names another profile phase.
+  if (params.get('surface') === 'profile' && !isProfileKind(bot.context.message)) bot.context.message = 'profile-prestart';
+  applyPlace(isProfileKind(bot.context.message));
   const chat = params.get('chat');
   if (chat) bot.context.chatType = (CHAT_TYPES as readonly string[]).includes(chat) ? (chat as ChatType) : null;
   const viewer = params.get('viewer');
@@ -645,6 +693,9 @@ el.gestureMode.replaceChildren(...GESTURE_MODES.map((g) => Object.assign(documen
 el.gestureMode.addEventListener('change', () => setGestures(gestureMode(el.gestureMode.value)));
 el.timeCorner.replaceChildren(...TIME_MODES.map((t) => Object.assign(document.createElement('option'), { value: t.mode, textContent: t.label, title: t.title })));
 el.timeCorner.addEventListener('change', () => setTimeCorner(el.timeCorner.value as TimeMode));
+el.surface.addEventListener('change', () => setSurface(el.surface.value === 'profile' ? 'profile' : 'message'));
+// Start: the client re-creates the widget as the private chat's (docs/sdk-v1.md §2.19); the dev app keeps its storage per file.
+el.profileStart.addEventListener('click', () => { bot.context.message = 'profile'; renderBot(); if (state.html) load(state.html, state.file); else { applyPlace(true); syncUrl(); } });
 el.reference.addEventListener('change', () => { updateReference(); syncUrl(); });
 el.compare.addEventListener('change', () => { updateCompare(); updateReference(); syncUrl(); });
 // The two native renderers are exclusive: ticking one unticks the other.
@@ -684,6 +735,20 @@ el.drop.addEventListener('drop', async (e) => {
   setTimeCorner: (mode: TimeMode) => setTimeCorner(mode),
   /** Any content safe area (docs/sdk-v1.md §2.17), drawn and passed as the time control's are; null = back to the control's. */
   setSafeArea: (area: Partial<ContentSafeArea> | null) => setTimeCorner(null, area),
+  /** Where the widget is shown: 'message' (a bubble) or 'profile' (the bot's profile page before Start); re-creates the widget. */
+  setSurface: (surface: 'message' | 'profile') => setSurface(surface),
+  /**
+   * A profile page's layers (docs/sdk-v1.md §2.17, §2.19): the device's edges, the client's chrome inside them and the
+   * viewport; omitted fields keep theirs, null = the reference page's. Live, and for the next widget.
+   */
+  setProfileLayers: (patch: Partial<typeof profileLayers> | null) => {
+    Object.assign(profileLayers, patch ?? { safeArea: { ...REFERENCE_PROFILE.safeArea }, contentSafeArea: { ...REFERENCE_PROFILE.contentSafeArea }, viewportHeight: REFERENCE_PROFILE.viewportHeight });
+    if (!isProfileKind(bot.context.message)) return;
+    applyPlace(true);
+    host?.setSafeArea(profileLayers.safeArea);
+    host?.setContentSafeArea(profileLayers.contentSafeArea);
+    host?.setViewportHeight(profileLayers.viewportHeight);
+  },
   /** Force the widget's visibility (null = back to the IntersectionObserver / page visibility). */
   setVisible: (v: boolean | null) => { forcedVisible = v; applyVisibility(); },
   /** The Web Storage the dev app keeps for a file (`local` survives a page reload), and forgetting it. */
