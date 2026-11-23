@@ -3,6 +3,11 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased validator optimization (2026-11-23)
+
+The shared validator skips the nesting-depth walk for batches that only update text, attributes or styles.
+Inserting or moving a subtree still checks the resulting document against the 1024-level limit.
+
 ## Unreleased: a hosted renderer that stops answering ends its stream, and each widget's death says what that end was (2026-11-20)
 
 C++, desktop core only, the hosted mode over a stream (no Swift or Kotlin twin: they have no hosted mode). Opt-in: a
