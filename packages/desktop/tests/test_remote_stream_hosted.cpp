@@ -119,23 +119,25 @@ static std::vector<std::pair<uint8_t, std::string>> hostedOnlyFrames(uint32_t ru
         {wire::HostedTheme, FrameBytes(runtime, wire::HostedTheme).str(SandboxRemoteCoding::encodeTheme(WidgetTheme{})).bytes()},
         {wire::Platform, FrameBytes(runtime, wire::Platform).str("say:x").bytes()},
         {wire::PlatformAnswer, FrameBytes(runtime, wire::PlatformAnswer).str("answer").bytes()},
+        {wire::HostedViewportHeight, FrameBytes(runtime, wire::HostedViewportHeight).f64(844).bytes()},
     };
 }
 
-/// The hosting stream's kinds are the documented table's: the eleven numbers, the host's below 64; the engine's end serving a hosting stream still reads 0, 22, 63, 88 and 255 as unknown and the engine's new kinds as the other side's; `HostingOpening`'s fields read back by hand in their order, and a hosted widget's validator is built from its fourth (a bundle of another stamp is refused at its build).
+/// The hosting stream's kinds are the documented table's: the twelve numbers, the host's below 64; the engine's end serving a hosting stream still reads 0, 23, 63, 88 and 255 as unknown and the engine's new kinds as the other side's; `HostingOpening`'s fields read back by hand in their order, and a hosted widget's validator is built from its fourth (a bundle of another stamp is refused at its build).
 TEST(remote_stream_hosted_wire_follows_the_documented_table) {
     using K = SandboxRemoteWire::Kind;
     const std::vector<std::pair<K, uint8_t>> kinds = {
         {K::HostingOpening, wire::HostingOpening}, {K::HostedStart, wire::HostedStart}, {K::HostedTheme, wire::HostedTheme}, {K::Platform, wire::Platform},
-        {K::PlatformAnswer, wire::PlatformAnswer}, {K::PlatformMessage, wire::PlatformMessage}, {K::PlatformRequest, wire::PlatformRequest},
-        {K::ValidatedOps, wire::ValidatedOps}, {K::RendererReady, wire::RendererReady}, {K::Rendered, wire::Rendered}, {K::Nodes, wire::Nodes},
+        {K::PlatformAnswer, wire::PlatformAnswer}, {K::HostedViewportHeight, wire::HostedViewportHeight}, {K::PlatformMessage, wire::PlatformMessage},
+        {K::PlatformRequest, wire::PlatformRequest}, {K::ValidatedOps, wire::ValidatedOps}, {K::RendererReady, wire::RendererReady}, {K::Rendered, wire::Rendered},
+        {K::Nodes, wire::Nodes},
     };
-    CHECK(kinds.size() == 11);
+    CHECK(kinds.size() == 12);
     for (const auto& [kind, number] : kinds) CHECK_MSG(uint8_t(kind) == number, "kind " + std::to_string(number) + " is " + std::to_string(uint8_t(kind)));
-    CHECK(std::count_if(kinds.begin(), kinds.end(), [](const auto& k) { return k.second < 64; }) == 5);
+    CHECK(std::count_if(kinds.begin(), kinds.end(), [](const auto& k) { return k.second < 64; }) == 6);
 
     std::vector<std::pair<std::string, std::string>> ends;
-    for (const int kind : {0, 22, 63, 88, 255}) ends.push_back({FrameBytes(1, uint8_t(kind)).bytes(), "an unknown kind " + std::to_string(kind)});
+    for (const int kind : {0, 23, 63, 88, 255}) ends.push_back({FrameBytes(1, uint8_t(kind)).bytes(), "an unknown kind " + std::to_string(kind)});
     for (const int kind : {96, 97, 98, 99, 100, 101}) ends.push_back({FrameBytes(1, uint8_t(kind)).bytes(), "kind " + std::to_string(kind) + " from the other side"});
     BuiltRenderers built;
     for (const auto& [bytes, reason] : ends) {

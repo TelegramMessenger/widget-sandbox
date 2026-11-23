@@ -85,6 +85,8 @@ struct SandboxRemoteWire {
         IntlAnswer = 20,
         /// The runtime closed: no fields.
         Close = 21,
+        /// str area, the device's edges (`SandboxRemoteCoding::encodeDeviceSafeArea`).
+        DeviceSafeArea = 22,
         /// On the connection, first, opening a hosting stream (its runtimes are hosted widgets): i64 version, str build, str sandboxBundle, str validatorBundle, str rendererStamp (the renderer bundle's first line, "" for none).
         HostingOpening = 32,
         /// str html, str config (`SandboxRemoteCoding::encodeConfig`), str hosted (`SandboxRemoteCoding::encodeHostedStart`).
@@ -95,6 +97,8 @@ struct SandboxRemoteWire {
         Platform = 35,
         /// str answer, to the runtime's `PlatformRequest`.
         PlatformAnswer = 36,
+        /// f64 height, a profile page's viewport for the engine process's glue (`SandboxHostedChannel::hostedViewportHeight`).
+        HostedViewportHeight = 37,
         /// On the connection, the answer to `Opening`: i64 version.
         Ready = 64,
         /// On the connection, the answer to `Opening`: str reason.

@@ -8,6 +8,8 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -27,11 +29,11 @@ namespace wire {
 enum : uint8_t {
     Opening = 1, Open = 2, Start = 3, Event = 4, Activation = 5, AnimationFrame = 6, Viewport = 7, Resize = 8, Theme = 9, SafeArea = 10, Data = 11,
     Visible = 12, PressBegan = 13, PressEnded = 14, ChargeValidator = 15, Stop = 16, Answer = 17, Probe = 18, QueryAnswer = 19, IntlAnswer = 20,
-    Close = 21,
+    Close = 21, DeviceSafeArea = 22,
     Ready = 64, Refused = 65, TaskStarted = 66, TaskCompleted = 67, Ops = 68, Query = 69, Intl = 70, Listen = 71, PreventDefault = 72, Anim = 73,
     RequestsFrame = 74, Log = 75, Diag = 76, Bridge = 77, CopyText = 78, Request = 79, Wallet = 80, Storage = 81, ResizeAnchor = 82,
     WatchesPublicData = 83, Loaded = 84, Stats = 85, Died = 86, ProbeAnswer = 87,
-    HostingOpening = 32, HostedStart = 33, HostedTheme = 34, Platform = 35, PlatformAnswer = 36,
+    HostingOpening = 32, HostedStart = 33, HostedTheme = 34, Platform = 35, PlatformAnswer = 36, HostedViewportHeight = 37,
     PlatformMessage = 96, PlatformRequest = 97, ValidatedOps = 98, RendererReady = 99, Rendered = 100, Nodes = 101,
 };
 
@@ -199,7 +201,17 @@ private:
     std::string pending_;
 };
 
-/// A host's frame as the tests read it, for the kinds they look at: its kind and its strings, a probe's code after its sequence.
+/// `v` in the fewest significant digits that read back as it, as `%g` writes them ("nan" and "inf" among them).
+inline std::string shortest(double v) {
+    char text[32] = {};
+    for (int digits = 1; digits <= 17; digits++) {
+        std::snprintf(text, sizeof(text), "%.*g", digits, v);
+        if (std::strtod(text, nullptr) == v) break;
+    }
+    return text;
+}
+
+/// A host's frame as the tests read it, for the kinds they look at: its kind and its strings, a probe's code after its sequence, a viewport's height in its shortest digits.
 inline std::string describeHost(const ParsedFrame& f) {
     FieldsOf in(f);
     const auto str = [&] { return in.str().value_or("?"); };
@@ -220,11 +232,16 @@ inline std::string describeHost(const ParsedFrame& f) {
         const int64_t id = in.i64().value_or(-1);
         return "answer:" + std::to_string(id) + ":" + str();
     }
+    case wire::DeviceSafeArea: return "device-safe-area:" + str();
     case wire::HostingOpening: return "hosting-opening";
     case wire::HostedStart: return "hosted-start";
     case wire::HostedTheme: return "hosted-theme";
     case wire::Platform: return "platform:" + str();
     case wire::PlatformAnswer: return "platform-answer:" + str();
+    case wire::HostedViewportHeight: {
+        const std::optional<double> height = in.f64();
+        return "hosted-viewport-height:" + (height ? shortest(*height) : std::string("?"));
+    }
     default: return "kind " + std::to_string(int(f.kind));
     }
 }

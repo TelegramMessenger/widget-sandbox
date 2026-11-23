@@ -57,16 +57,16 @@ TEST(remote_stream_wire_follows_the_documented_table) {
         {K::SafeArea, wire::SafeArea}, {K::Data, wire::Data}, {K::Visible, wire::Visible}, {K::PressBegan, wire::PressBegan},
         {K::PressEnded, wire::PressEnded}, {K::ChargeValidator, wire::ChargeValidator}, {K::Stop, wire::Stop}, {K::Answer, wire::Answer},
         {K::Probe, wire::Probe}, {K::QueryAnswer, wire::QueryAnswer}, {K::IntlAnswer, wire::IntlAnswer}, {K::Close, wire::Close},
-        {K::Ready, wire::Ready}, {K::Refused, wire::Refused}, {K::TaskStarted, wire::TaskStarted}, {K::TaskCompleted, wire::TaskCompleted},
-        {K::Ops, wire::Ops}, {K::Query, wire::Query}, {K::Intl, wire::Intl}, {K::Listen, wire::Listen}, {K::PreventDefault, wire::PreventDefault},
+        {K::DeviceSafeArea, wire::DeviceSafeArea}, {K::Ready, wire::Ready}, {K::Refused, wire::Refused}, {K::TaskStarted, wire::TaskStarted},
+        {K::TaskCompleted, wire::TaskCompleted}, {K::Ops, wire::Ops}, {K::Query, wire::Query}, {K::Intl, wire::Intl}, {K::Listen, wire::Listen}, {K::PreventDefault, wire::PreventDefault},
         {K::Anim, wire::Anim}, {K::RequestsFrame, wire::RequestsFrame}, {K::Log, wire::Log}, {K::Diag, wire::Diag}, {K::Bridge, wire::Bridge},
         {K::CopyText, wire::CopyText}, {K::Request, wire::Request}, {K::Wallet, wire::Wallet}, {K::Storage, wire::Storage},
         {K::ResizeAnchor, wire::ResizeAnchor}, {K::WatchesPublicData, wire::WatchesPublicData}, {K::Loaded, wire::Loaded}, {K::Stats, wire::Stats},
         {K::Died, wire::Died}, {K::ProbeAnswer, wire::ProbeAnswer},
     };
-    CHECK(kinds.size() == 45);
+    CHECK(kinds.size() == 46);
     for (const auto& [kind, number] : kinds) CHECK_MSG(uint8_t(kind) == number, "kind " + std::to_string(number) + " is " + std::to_string(uint8_t(kind)));
-    CHECK(std::count_if(kinds.begin(), kinds.end(), [](const auto& k) { return k.second < 64; }) == 21);
+    CHECK(std::count_if(kinds.begin(), kinds.end(), [](const auto& k) { return k.second < 64; }) == 22);
     CHECK(SandboxRemoteWire::kVersion == 1);
     CHECK(SandboxRemoteWire::kMaxFrameBytes == (size_t(32) << 20) + (size_t(64) << 10) && SandboxRemoteWire::kMaxFrameBytes == SandboxEngine::kRemoteOpsLimit + 65536);
     CHECK(SandboxRemoteWire::kMaxOpeningBytes == size_t(16) << 20 && SandboxRemoteWire::kMaxStampBytes == 4096);
@@ -1314,7 +1314,7 @@ static std::vector<Hostile> hostileInputs() {
         out.push_back({.name = "a size of " + std::to_string(size), .bytes = wire::u32(size), .reason = "a frame of " + std::to_string(size) + " bytes, less than its runtime and kind"});
     out.push_back({.name = "a size one past the bound, no body", .bytes = wire::u32(bound + 1), .reason = "a frame of " + std::to_string(bound + 1) + past, .bodiless = true});
     out.push_back({.name = "the largest size, no body", .bytes = wire::u32(UINT32_MAX), .reason = "a frame of 4294967295" + past, .bodiless = true});
-    for (const int kind : {0, 22, 63, 88, 255}) out.push_back({.name = "kind " + std::to_string(kind), .bytes = bare(1, uint8_t(kind)), .reason = "an unknown kind " + std::to_string(kind)});
+    for (const int kind : {0, 23, 63, 88, 255}) out.push_back({.name = "kind " + std::to_string(kind), .bytes = bare(1, uint8_t(kind)), .reason = "an unknown kind " + std::to_string(kind)});
     const std::vector<Hostile> rest = {
         {.name = "the host's event", .bytes = FrameBytes(1, wire::Event).str("{}").bytes(), .reason = "kind 4 from the other side"},
         {.name = "the host's close", .bytes = bare(1, wire::Close), .reason = "kind 21 from the other side"},

@@ -88,11 +88,13 @@ struct Codec {
         case Kind::QueryAnswer: return {true, H, false, "sbs"};
         case Kind::IntlAnswer: return {true, H, false, "s"};
         case Kind::Close: return {true, H, false, ""};
+        case Kind::DeviceSafeArea: return {true, H, false, "s"};
         case Kind::HostingOpening: return {true, H, true, "issss"};
         case Kind::HostedStart: return {true, H, false, "sss"};
         case Kind::HostedTheme: return {true, H, false, "s"};
         case Kind::Platform: return {true, H, false, "s"};
         case Kind::PlatformAnswer: return {true, H, false, "s"};
+        case Kind::HostedViewportHeight: return {true, H, false, "f"};
         case Kind::Ready: return {true, E, true, "i"};
         case Kind::Refused: return {true, E, true, "s"};
         case Kind::TaskStarted: return {true, E, false, ""};

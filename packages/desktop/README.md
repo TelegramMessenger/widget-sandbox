@@ -579,11 +579,13 @@ a lost stream is told to the clients by the host's end itself.
 | 19 | `QueryAnswer` | id | str json, bool hasBinary, str binary ("" unless hasBinary) | what the sink's `remoteQuery` returned |
 | 20 | `IntlAnswer` | id | str text | what the sink's `remoteIntl` returned |
 | 21 | `Close` | id | none | `close` |
+| 22 | `DeviceSafeArea` | id | str area (`encodeDeviceSafeArea`) | `safeArea` |
 | 32 | `HostingOpening` | 0 | i64 version, str build, str sandboxBundle, str validatorBundle, str rendererStamp | `SandboxRemoteHostEnd::startHosting` |
 | 33 | `HostedStart` | id | str html, str config (`encodeConfig`), str hosted (`encodeHostedStart`) | `startHosted` |
 | 34 | `HostedTheme` | id | str theme (`encodeTheme`) | `hostedTheme` |
 | 35 | `Platform` | id | str message | `platform` |
 | 36 | `PlatformAnswer` | id | str answer | what the sink's `remotePlatformRequest` returned |
+| 37 | `HostedViewportHeight` | id | f64 height | `hostedViewportHeight` |
 
 | # | Engine to host | Runtime | Fields | Sink call |
 | --- | --- | --- | --- | --- |
@@ -618,9 +620,19 @@ a lost stream is told to the clients by the host's end itself.
 | 100 | `Rendered` | id | none | `remoteRendered` |
 | 101 | `Nodes` | id | i64 nodes | `remoteNodes` |
 
-Kinds 32 to 36 and 96 to 101 belong to a hosting stream, one `startHosting`
+Kinds 32 to 37 and 96 to 101 belong to a hosting stream, one `startHosting`
 opened with `HostingOpening`: the opening decides what every `Open` of the
 stream is, an engine after `Opening`, a hosted widget after `HostingOpening`.
+
+A bot's profile page has two inputs of its own. `DeviceSafeArea` carries the
+device's edges (`WidgetHost::setSafeArea`, the layer under the content's) on
+either stream, as `SafeArea` carries the content's: `encodeDeviceSafeArea`'s
+object of `top`, `right`, `bottom` and `left`, read as the content's form is,
+so a form that is not an object does not decode and a side that is not a
+finite number is 0. `HostedViewportHeight` carries a page's viewport
+(`WidgetHost::setViewportHeight`, the number the host checked) to the engine
+process's glue, which only a hosted widget has there, so only a hosting stream
+takes it; the engine's own inner size stays `Viewport`'s three numbers.
 
 Both ends read exactly. A frame is malformed when its size is below 5 or past
 its bound, the stream ends inside it, its kind is unknown or the other
@@ -982,8 +994,9 @@ twidget::SandboxRemoteEngineEnd::serveHosting(stream, "build-1", lockDown,
 ### What crosses and what stays inside
 
 - Host to engine on a hosting stream: `HostingOpening`, `Open`, `HostedStart`,
-  `HostedTheme`, `Platform`, `PlatformAnswer`, and as for an engine `SafeArea`,
-  `Data`, `Visible`, `Stop`, `Answer`, `Probe`, `IntlAnswer`, `Close`.
+  `HostedTheme`, `Platform`, `PlatformAnswer`, `HostedViewportHeight`, and as
+  for an engine `SafeArea`, `DeviceSafeArea`, `Data`, `Visible`, `Stop`,
+  `Answer`, `Probe`, `IntlAnswer`, `Close`.
 - Engine to host: `Ready` or `Refused`, `PlatformMessage`, `PlatformRequest`,
   `ValidatedOps`, `RendererReady`, `Rendered`, `Nodes`, and as for an engine
   `Intl` (the host's `IntlProvider` still formats), `Log`, `Diag`, `Bridge`,

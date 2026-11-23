@@ -1,7 +1,7 @@
 //! The Rust frame reader and codec against remote_wire.h's (`oracle/stream_oracle`): runs of valid frames
-//! of every kind and their random changes, read from either side under several bounds and read sizes, and
-//! encodes of fields that match their kind's shape and of fields that do not. Skipped without
-//! `TWIDGET_ORACLE_DIR`; `tools/gate.py` sets it.
+//! of every kind and their random changes, read from either side under several bounds and read sizes,
+//! encodes of fields that match their kind's shape and of fields that do not, and the profile page's two
+//! kinds by name. Skipped without `TWIDGET_ORACLE_DIR`; `tools/gate.py` sets it.
 
 mod stream;
 
@@ -134,12 +134,10 @@ fn encodes_alike() {
     let mut random = Lcg::new(0x57_0002);
     let mut c = Comparison::new();
     let letters = [b's', b'i', b'f', b'b'];
+    // Every known kind, the last ones too, however long the table grows.
+    let known: Vec<u8> = (0..=255u8).filter(|k| shape(*k).is_some()).collect();
     for i in 0..20000 {
-        let kind = if random.chance(20) {
-            random.next() as u8
-        } else {
-            (0..=255u8).filter(|k| shape(*k).is_some()).nth(random.below(56)).unwrap()
-        };
+        let kind = if random.chance(20) { random.next() as u8 } else { known[random.below(known.len())] };
         let shaped = shape(kind).map(|s| s.fields.as_bytes().to_vec()).unwrap_or_default();
         let mut types: Vec<u8> = shaped.clone();
         if random.chance(5) {
@@ -190,5 +188,132 @@ fn encodes_alike() {
     }
     let tally = c.check(&oracle);
     eprintln!("encodes: {} refused, {} encoded alike", tally[0], tally[1]);
+    assert!(tally[0] > 0 && tally[1] > 0);
+}
+
+/// The oracle's 'e' record of `fields` for `kind` on `runtime` under `bound`, with the Rust codec's answer.
+fn encode_case(c: &mut Comparison, runtime: u32, kind: u8, bound: usize, fields: &[Field], what: String) {
+    let mut input = runtime.to_le_bytes().to_vec();
+    input.push(kind);
+    put_u64(&mut input, bound as u64);
+    input.push(fields.len() as u8);
+    for f in fields {
+        match *f {
+            Field::Str(s) => {
+                input.push(b's');
+                put_str(&mut input, s);
+            }
+            Field::I64(v) => {
+                input.push(b'i');
+                put_u64(&mut input, v as u64);
+            }
+            Field::F64(v) => {
+                input.push(b'f');
+                put_u64(&mut input, v.to_bits());
+            }
+            Field::Bool(v) => {
+                input.push(b'b');
+                input.push(u8::from(v));
+            }
+        }
+    }
+    let rust = match Kind::from_u8(kind).and_then(|k| encode(runtime, k, bound, fields)) {
+        Some(bytes) => (1, bytes),
+        None => (0, Vec::new()),
+    };
+    c.case(&framed(b'e', &input), rust, what);
+}
+
+/// The failure the Rust reader ends `bytes` with, read from `side`.
+fn read_failure(side: Side, bytes: &[u8]) -> String {
+    let stream = Chunks::new(bytes.to_vec(), 64);
+    let mut reader = FrameReader::new(&stream, side);
+    loop {
+        match reader.next(MAX_FRAME_BYTES) {
+            Ok(Some(_)) => continue,
+            Ok(None) => return String::new(),
+            Err(e) => return e,
+        }
+    }
+}
+
+/// The profile page's two kinds by name: the device's edges (22, one string, the coded object) and a page's
+/// viewport (37, one f64, nonfinite and signed zeros among them) encoded with their own fields and with fields
+/// of another type or count, under bounds at, one below and past their size, on a runtime and on the
+/// connection; then read alone and in a run with older kinds from either side under the same bounds, on the
+/// connection, cut short, with a byte after them, and kind 23 next to them, still unknown.
+#[test]
+fn profile_page_kinds_encode_and_read_alike() {
+    let device: &[u8] = br#"{"top":120,"right":0,"bottom":34,"left":-5}"#;
+    let heights =
+        [844.0, 700.12, 0.5, 0.0, -0.0, 4000.0, 4000.01, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY, f64::MIN_POSITIVE, f64::MAX];
+    let area = encode(1, Kind::DeviceSafeArea, MAX_FRAME_BYTES, &[Field::Str(device)]).unwrap();
+    let viewport = encode(1, Kind::HostedViewportHeight, MAX_FRAME_BYTES, &[Field::F64(700.12)]).unwrap();
+    assert_eq!(read_failure(Side::Host, &[area.clone(), viewport.clone()].concat()), "");
+    assert_eq!(read_failure(Side::Engine, &area), "kind 22 from the other side");
+    assert_eq!(read_failure(Side::Engine, &viewport), "kind 37 from the other side");
+    assert_eq!(read_failure(Side::Host, b"\x05\0\0\0\x01\0\0\0\x17"), "an unknown kind 23");
+
+    let Some(oracle) = Oracle::find("stream_oracle") else { return };
+    let mut c = Comparison::new();
+    let strings: [&[u8]; 4] = [device, b"", b"[]", b"\xFF\0{\"top\":1e999}"];
+    let mut kept = Vec::new();
+    for (i, s) in strings.iter().enumerate() {
+        for runtime in [1, 0, u32::MAX] {
+            let size = 5 + 4 + s.len();
+            for bound in [MAX_FRAME_BYTES, size, size - 1, 5, 4, usize::MAX] {
+                encode_case(&mut c, runtime, 22, bound, &[Field::Str(s)], format!("device {i} on {runtime} under {bound}"));
+            }
+        }
+        kept.push(encode(1 + i as u32, Kind::DeviceSafeArea, MAX_FRAME_BYTES, &[Field::Str(s)]).unwrap());
+    }
+    for (i, h) in heights.iter().enumerate() {
+        for runtime in [1, 0, u32::MAX] {
+            for bound in [MAX_FRAME_BYTES, 13, 12, 5, 4, usize::MAX] {
+                encode_case(&mut c, runtime, 37, bound, &[Field::F64(*h)], format!("viewport {h} on {runtime} under {bound}"));
+            }
+        }
+        kept.push(encode(1 + i as u32, Kind::HostedViewportHeight, MAX_FRAME_BYTES, &[Field::F64(*h)]).unwrap());
+    }
+    let others: [&[Field]; 6] =
+        [&[], &[Field::F64(1.0)], &[Field::I64(1)], &[Field::Bool(true)], &[Field::Str(b"844")], &[Field::Str(b"{}"), Field::F64(1.0)]];
+    for kind in [22, 37, 23] {
+        for (i, fields) in others.iter().enumerate() {
+            encode_case(&mut c, 1, kind, MAX_FRAME_BYTES, fields, format!("kind {kind} with fields {i}"));
+        }
+    }
+
+    let content = encode(1, Kind::SafeArea, MAX_FRAME_BYTES, &[Field::Str(b"{\"bottom\":24}")]).unwrap();
+    let close = encode(1, Kind::Close, MAX_FRAME_BYTES, &[]).unwrap();
+    let log = encode(1, Kind::Log, MAX_FRAME_BYTES, &[Field::Str(b"info"), Field::Str(b"x")]).unwrap();
+    let mut runs = kept;
+    runs.push([content, area.clone(), viewport.clone(), close].concat());
+    runs.push([area.clone(), log, viewport.clone()].concat());
+    runs.push([area.clone(), b"\x05\0\0\0\x01\0\0\0\x17".to_vec(), viewport.clone()].concat());
+    for frame in [&area, &viewport] {
+        let mut on_connection = frame.clone();
+        on_connection[4..8].copy_from_slice(&0u32.to_le_bytes());
+        let mut after = frame.clone();
+        after[0] += 1;
+        after.push(b'x');
+        let mut short = frame.clone();
+        short[0] -= 1;
+        short.pop();
+        runs.extend([on_connection, after, short, frame[..frame.len() - 1].to_vec()]);
+    }
+    let mut long_string = area.clone();
+    long_string[9..13].copy_from_slice(&(device.len() as u32 + 1).to_le_bytes());
+    runs.push(long_string);
+    for (i, run) in runs.iter().enumerate() {
+        for side in [Side::Host, Side::Engine] {
+            for bound in [MAX_FRAME_BYTES, run.len() - 4, run.len() - 5, 12, 5] {
+                for chunk in [1, 3, 65536] {
+                    read_case(&mut c, side, bound, chunk, run, format!("run {i} from {side:?} under {bound} in {chunk}"));
+                }
+            }
+        }
+    }
+    let tally = c.check(&oracle);
+    eprintln!("the profile page's kinds: {} refused, {} encoded or read alike", tally[0], tally[1]);
     assert!(tally[0] > 0 && tally[1] > 0);
 }

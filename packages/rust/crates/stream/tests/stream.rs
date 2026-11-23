@@ -1,5 +1,6 @@
-//! test_remote_stream.cpp's checks of the wire itself, ported: the documented table and the documented
-//! frame layout, read back whole from a run of frames and from pieces; and the reader's refusals.
+//! test_remote_stream.cpp's checks of the wire itself, ported: the documented table (with
+//! test_remote_stream_hosted.cpp's kinds of a hosting stream) and the documented frame layout, read back whole
+//! from a run of frames and from pieces; and the reader's refusals.
 
 use std::sync::Mutex;
 
@@ -57,6 +58,7 @@ fn the_documented_table() {
         (Kind::QueryAnswer, 19),
         (Kind::IntlAnswer, 20),
         (Kind::Close, 21),
+        (Kind::DeviceSafeArea, 22),
         (Kind::Ready, 64),
         (Kind::Refused, 65),
         (Kind::TaskStarted, 66),
@@ -82,17 +84,44 @@ fn the_documented_table() {
         (Kind::Died, 86),
         (Kind::ProbeAnswer, 87),
     ];
-    for (kind, number) in kinds {
+    // test_remote_stream_hosted.cpp's table: the kinds of a hosting stream alone.
+    let hosted = [
+        (Kind::HostingOpening, 32),
+        (Kind::HostedStart, 33),
+        (Kind::HostedTheme, 34),
+        (Kind::Platform, 35),
+        (Kind::PlatformAnswer, 36),
+        (Kind::HostedViewportHeight, 37),
+        (Kind::PlatformMessage, 96),
+        (Kind::PlatformRequest, 97),
+        (Kind::ValidatedOps, 98),
+        (Kind::RendererReady, 99),
+        (Kind::Rendered, 100),
+        (Kind::Nodes, 101),
+    ];
+    for (kind, number) in kinds.into_iter().chain(hosted) {
         assert_eq!(kind as u8, number);
         assert_eq!(Kind::from_u8(number), Some(kind));
     }
-    assert_eq!(kinds.iter().filter(|(_, n)| *n < 64).count(), 21);
+    assert_eq!(kinds.iter().filter(|(_, n)| *n < 64).count(), 22);
+    assert_eq!(hosted.iter().filter(|(_, n)| *n < 64).count(), 6);
     assert_eq!(VERSION, 1);
     assert_eq!(MAX_FRAME_BYTES, (32 << 20) + (64 << 10));
     assert_eq!(MAX_OPENING_BYTES, 16 << 20);
     assert_eq!(MAX_STAMP_BYTES, 4096);
-    let known = (0..=255u8).filter(|k| shape(*k).is_some()).count();
-    assert_eq!(known, 56, "45 kinds of an engine stream and 11 of a hosting one");
+    let known: Vec<u8> = (0..=255u8).filter(|k| shape(*k).is_some()).collect();
+    assert_eq!(known.len(), 58, "46 kinds of an engine stream and 12 of a hosting one");
+    let mut listed: Vec<u8> = kinds.iter().chain(&hosted).map(|(_, n)| *n).collect();
+    listed.sort_unstable();
+    assert_eq!(listed, known, "every known kind is in one of the two tables");
+    // The profile page's two inputs: the device's edges as one coded object, the page's viewport as one number,
+    // both the host's on a runtime; kind 23 stays unknown.
+    assert_eq!(shape(22), Some(Shape { from: Side::Host, connection: false, fields: "s" }));
+    assert_eq!(shape(37), Some(Shape { from: Side::Host, connection: false, fields: "f" }));
+    assert_eq!(shape(23), None);
+    assert_eq!(Kind::from_u8(23), None);
+    assert_eq!(frame(1, Kind::DeviceSafeArea, &[Field::Str(b"{}")]), b"\x0B\0\0\0\x01\0\0\0\x16\x02\0\0\0{}".to_vec());
+    assert_eq!(frame(1, Kind::HostedViewportHeight, &[Field::F64(1.5)]), b"\x0D\0\0\0\x01\0\0\0\x25\0\0\0\0\0\0\xF8\x3F".to_vec());
     for k in 0..=255u8 {
         let Some(s) = shape(k) else { continue };
         assert_eq!(s.from == Side::Engine, k >= 64, "kind {k}'s side");
