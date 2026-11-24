@@ -246,7 +246,7 @@ add_executable(twidget-host-only harness/host_only.cpp)
 target_link_libraries(twidget-host-only PRIVATE twidget-sandbox-host)
 target_compile_definitions(twidget-host-only PRIVATE TW_WIDGET_JS="${TW_WIDGET_JS}")
 
-add_executable(twidget-tests tests/test_main.cpp tests/test_render_ops.cpp tests/test_remote.cpp tests/test_remote_bridge.cpp tests/test_remote_stream.cpp tests/test_remote_stream_hosted.cpp tests/test_remote_stream_hosted_stop.cpp tests/test_hosted.cpp)
+add_executable(twidget-tests tests/test_main.cpp tests/test_profile_surface.cpp tests/test_render_ops.cpp tests/test_remote.cpp tests/test_remote_bridge.cpp tests/test_remote_stream.cpp tests/test_remote_stream_hosted.cpp tests/test_remote_stream_hosted_stop.cpp tests/test_hosted.cpp)
 target_link_libraries(twidget-tests PRIVATE twidget-sandbox)
 target_compile_definitions(twidget-tests PRIVATE TW_WIDGET_JS="${TW_WIDGET_JS}" TW_CORPUS="${TW_CORPUS}" TW_FIXTURES="${TW_FIXTURES}")
 

@@ -1,7 +1,8 @@
 //! The engine in process on the real sandbox bundle (packages/desktop/WidgetJS), a few of
 //! packages/desktop/tests/test_main.cpp's engine tests ported by name; the rest run through the C++ suite against
 //! this engine over the stream (`TW_ENGINE_STREAM=rust`). The places (`surface`) are also compared with the compiled
-//! C++ (`oracle/sdk_policy_oracle`).
+//! C++ (`oracle/sdk_policy_oracle`), and the engine's own chat type and resize anchor of a page, which the shim would
+//! hide, are read at the native boundary.
 
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -121,12 +122,35 @@ const RECORD_DEVICE_INPUTS: &str = concat!(
     " Object.defineProperty(g, 'deviceInputs', { value: seen }); })(globalThis);\n"
 );
 
-/// test_main.cpp's `recordingDeviceInputs`: the shipped bundles, the sandbox's dispatcher wrapped so that the realm
-/// keeps `deviceInputs`, the device's edges of the boot record (`boot:`) and each `deviceSafeArea` input (`input:`), as
-/// the engine wrote them for the widget.
+/// test_profile_surface.cpp's `recordingDeviceInputs`: the shipped bundles, the sandbox's dispatcher wrapped so that
+/// the realm keeps `deviceInputs`, the device's edges of the boot record (`boot:`) and each `deviceSafeArea` input
+/// (`input:`), as the engine wrote them for the widget.
 fn recording_device_inputs() -> Arc<SandboxResources> {
+    sandbox_bundle_with(RECORD_DEVICE_INPUTS)
+}
+
+/// What `native_boundary` appends to the sandbox bundle.
+const NATIVE_BOUNDARY: &str = concat!(
+    "\n(function (g) { var host = g.__host, dispatch = g.__twDispatch, seen = [];",
+    " Object.defineProperty(g, '__twDispatch', { configurable: true, value: function (kind, arg) {",
+    " if (kind === 'boot') seen.push(JSON.stringify(JSON.parse(arg).config.chatType));",
+    " return dispatch(kind, arg); } });",
+    " Object.defineProperty(g, 'bootChatType', { value: seen });",
+    " Object.defineProperty(g, 'nativeBridge', { value: function (call) { return host('bridge', call); } }); })(globalThis);\n"
+);
+
+/// The shipped bundles with the engine's own decisions in view, past the shim's: the realm keeps `bootChatType`, the
+/// boot record's `chatType` as the engine wrote it, and widget code gets `nativeBridge(call)`, the host's bridge call
+/// with `call` as it is, which the shim would have checked and kept first.
+fn native_boundary() -> Arc<SandboxResources> {
+    sandbox_bundle_with(NATIVE_BOUNDARY)
+}
+
+/// The shipped bundles with `script` after the sandbox bundle's last line, where it runs before the engine captures the
+/// dispatcher and hides the host's globals.
+fn sandbox_bundle_with(script: &str) -> Arc<SandboxResources> {
     let mut res = (*resources()).clone();
-    res.sandbox_bundle.extend_from_slice(RECORD_DEVICE_INPUTS.as_bytes());
+    res.sandbox_bundle.extend_from_slice(script.as_bytes());
     Arc::new(res)
 }
 
@@ -235,12 +259,13 @@ fn probe_until(engine: &SandboxEngine, code: &str, empty: &str) -> String {
     }
 }
 
-/// The bot's profile page (docs/sdk-v1.md §2.19), the engine's half of test_main.cpp's test: the place and both layers
-/// reach the widget from its first line (no corners and no chat type on a page), two equal device updates fire one
-/// safeAreaChanged, the geometry of each place, and the widget's resize anchor goes nowhere on a page (the shim keeps
-/// it there, and the engine drops one that reaches it all the same). In a bubble the engine gives the widget's realm
-/// four zeros for the device's edges, at boot and on every change (a page's realm gets them as passed), and the anchor
-/// reaches the delegate (the bubble's script adds the page's call to the C++ one).
+/// The bot's profile page (docs/sdk-v1.md §2.19), the engine's half of test_main.cpp's test and of the realm's readings
+/// in test_profile_surface.cpp's: the place and both layers reach the widget from its first line (no corners and no
+/// chat type on a page), two equal device updates fire one safeAreaChanged, the geometry of each place, and the
+/// widget's resize anchor goes nowhere on a page (the shim keeps it there, and the engine drops one that reaches it all
+/// the same). In a bubble the engine gives the widget's realm four zeros for the device's edges, at boot and on every
+/// change (a page's realm gets them as passed), and the anchor reaches the delegate (the bubble's script adds the
+/// page's call to the C++ one).
 #[test]
 fn sdk_profile_surface_layers_height_and_anchor() {
     use WidgetSurface::{Message, Profile};
@@ -333,6 +358,32 @@ fn sdk_profile_surface_layers_height_and_anchor() {
     // The edges never reach a bubble's realm, at boot or later.
     bubble.safe_area(turned);
     assert_eq!(probe_until(&bubble, "deviceInputs.length > 1 ? deviceInputs.join(' ') : ''", ""), format!("boot:{none} input:{none}"));
+}
+
+/// The engine's own half of the place's chat type and resize anchor, which the shim would hide (it nulls a page's
+/// chat type and keeps a page's anchor from the host): with a private chat supplied outside a copy and a preview, the
+/// boot record has no chat type on a page and the supplied one in a bubble, and a checked bottom anchor that reaches
+/// the native bridge goes nowhere on a page and to the delegate once in a bubble.
+#[test]
+fn sdk_profile_surface_chat_type_and_anchor_at_the_native_boundary() {
+    for (surface, chat_type, anchors) in
+        [(WidgetSurface::Profile, "null", &[][..]), (WidgetSurface::Message, "\"private\"", &["bottom"][..])]
+    {
+        let context = WidgetContext { surface, chat_type: b"private".to_vec(), ..WidgetContext::default() };
+        let (engine, r) = engine_on(
+            "<p>x</p><script>var sent = 'sent:' + nativeBridge(JSON.stringify(['setResizeAnchor', ['bottom']]));</script>",
+            SandboxConfig { context, ..SandboxConfig::default() },
+            native_boundary(),
+        );
+        r.wait("the widget loaded", |s| s.loaded || s.died.is_some());
+        assert_eq!(text(&engine.probe(b"bootChatType.join(' ')")), chat_type, "{surface:?}'s boot record");
+        // The call came back from the native bridge, which took it as a valid one (no bridge-rejected below).
+        assert_eq!(text(&engine.probe(b"sent")), "sent:undefined", "{surface:?}");
+        let seen = r.seen.lock().unwrap();
+        assert!(seen.died.is_none(), "{surface:?}: {:?}", seen.died);
+        assert!(!seen.diags.iter().any(|(k, _)| k == "bridge-rejected"), "{surface:?}: {:?}", seen.diags);
+        assert_eq!(seen.anchors, anchors, "{surface:?}'s anchors at the delegate");
+    }
 }
 
 /// The places against the compiled C++ (`oracle/sdk_policy_oracle`, record 'P'): each place's wire name, whether its

@@ -128,69 +128,6 @@ fn frame_runs_read_alike() {
     eprintln!("frame runs: {} read alike", tally[1]);
 }
 
-#[test]
-fn encodes_alike() {
-    let Some(oracle) = Oracle::find("stream_oracle") else { return };
-    let mut random = Lcg::new(0x57_0002);
-    let mut c = Comparison::new();
-    let letters = [b's', b'i', b'f', b'b'];
-    // Every known kind, the last ones too, however long the table grows.
-    let known: Vec<u8> = (0..=255u8).filter(|k| shape(*k).is_some()).collect();
-    for i in 0..20000 {
-        let kind = if random.chance(20) { random.next() as u8 } else { known[random.below(known.len())] };
-        let shaped = shape(kind).map(|s| s.fields.as_bytes().to_vec()).unwrap_or_default();
-        let mut types: Vec<u8> = shaped.clone();
-        if random.chance(5) {
-            types = (0..random.below(5)).map(|_| letters[random.below(4)]).collect();
-        }
-        let runtime = random.next();
-        let bound = [MAX_FRAME_BYTES, 4, 5, 9, 13, 30, 100, usize::MAX][random.below(8)];
-        let mut input = runtime.to_le_bytes().to_vec();
-        input.push(kind);
-        put_u64(&mut input, bound as u64);
-        input.push(types.len() as u8);
-        let mut keep = Vec::new();
-        let mut fields_bits = Vec::new();
-        for &t in &types {
-            input.push(t);
-            match t {
-                b's' => {
-                    let at = any_field(&mut random, b's', &mut keep);
-                    put_str(&mut input, &keep[at]);
-                    fields_bits.push((t, at as u64));
-                }
-                b'b' => {
-                    let v = random.chance(2);
-                    input.push(u8::from(v));
-                    fields_bits.push((t, u64::from(v)));
-                }
-                _ => {
-                    let v = (u64::from(random.next()) << 32) | u64::from(random.next());
-                    put_u64(&mut input, v);
-                    fields_bits.push((t, v));
-                }
-            }
-        }
-        let fields: Vec<Field> = fields_bits
-            .iter()
-            .map(|(t, v)| match t {
-                b's' => Field::Str(&keep[*v as usize]),
-                b'b' => Field::Bool(*v != 0),
-                b'i' => Field::I64(*v as i64),
-                _ => Field::F64(f64::from_bits(*v)),
-            })
-            .collect();
-        let rust = match Kind::from_u8(kind).and_then(|k| encode(runtime, k, bound, &fields)) {
-            Some(bytes) => (1, bytes),
-            None => (0, Vec::new()),
-        };
-        c.case(&framed(b'e', &input), rust, format!("encode {i} of kind {kind}"));
-    }
-    let tally = c.check(&oracle);
-    eprintln!("encodes: {} refused, {} encoded alike", tally[0], tally[1]);
-    assert!(tally[0] > 0 && tally[1] > 0);
-}
-
 /// The oracle's 'e' record of `fields` for `kind` on `runtime` under `bound`, with the Rust codec's answer.
 fn encode_case(c: &mut Comparison, runtime: u32, kind: u8, bound: usize, fields: &[Field], what: String) {
     let mut input = runtime.to_le_bytes().to_vec();
@@ -222,6 +159,49 @@ fn encode_case(c: &mut Comparison, runtime: u32, kind: u8, bound: usize, fields:
         None => (0, Vec::new()),
     };
     c.case(&framed(b'e', &input), rust, what);
+}
+
+#[test]
+fn encodes_alike() {
+    let Some(oracle) = Oracle::find("stream_oracle") else { return };
+    let mut random = Lcg::new(0x57_0002);
+    let mut c = Comparison::new();
+    let letters = [b's', b'i', b'f', b'b'];
+    // Every known kind, the last ones too, however long the table grows.
+    let known: Vec<u8> = (0..=255u8).filter(|k| shape(*k).is_some()).collect();
+    for i in 0..20000 {
+        let kind = if random.chance(20) { random.next() as u8 } else { known[random.below(known.len())] };
+        let shaped = shape(kind).map(|s| s.fields.as_bytes().to_vec()).unwrap_or_default();
+        let mut types: Vec<u8> = shaped.clone();
+        if random.chance(5) {
+            types = (0..random.below(5)).map(|_| letters[random.below(4)]).collect();
+        }
+        let runtime = random.next();
+        let bound = [MAX_FRAME_BYTES, 4, 5, 9, 13, 30, 100, usize::MAX][random.below(8)];
+        let mut keep = Vec::new();
+        let mut fields_bits = Vec::new();
+        for &t in &types {
+            let v = match t {
+                b's' => any_field(&mut random, b's', &mut keep) as u64,
+                b'b' => u64::from(random.chance(2)),
+                _ => (u64::from(random.next()) << 32) | u64::from(random.next()),
+            };
+            fields_bits.push((t, v));
+        }
+        let fields: Vec<Field> = fields_bits
+            .iter()
+            .map(|(t, v)| match t {
+                b's' => Field::Str(&keep[*v as usize]),
+                b'b' => Field::Bool(*v != 0),
+                b'i' => Field::I64(*v as i64),
+                _ => Field::F64(f64::from_bits(*v)),
+            })
+            .collect();
+        encode_case(&mut c, runtime, kind, bound, &fields, format!("encode {i} of kind {kind}"));
+    }
+    let tally = c.check(&oracle);
+    eprintln!("encodes: {} refused, {} encoded alike", tally[0], tally[1]);
+    assert!(tally[0] > 0 && tally[1] > 0);
 }
 
 /// The failure the Rust reader ends `bytes` with, read from `side`.

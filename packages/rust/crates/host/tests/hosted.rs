@@ -1,8 +1,8 @@
 //! `serve_hosting` end to end on the shipped bundles (packages/desktop/WidgetJS) over an in-memory stream, with a
 //! renderer of the test's: what the C++ suite cannot reach of the hosted end in Rust (the Rust renderer seam, the
 //! hosting refusals of either opening, the factory's failures as the reasons the host reads), the engine process's
-//! half of a C++ test ported by name, and the glue's small helpers. The rest runs through the C++ suite against this
-//! end (`TW_ENGINE_HOSTED=stream TW_ENGINE_END=rust`).
+//! half of the C++ profile page's two cases ported under the first one's name, and the glue's small helpers. The rest
+//! runs through the C++ suite against this end (`TW_ENGINE_HOSTED=stream TW_ENGINE_END=rust`).
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -283,14 +283,46 @@ fn serving(engine: Arc<End>, renderers: Option<HostedRendererFactory>) -> std::t
     std::thread::spawn(move || serve_hosting(engine, BUILD, None, Arc::new(TestPlatform), renderers))
 }
 
-/// A hosting stream of its own past its `Ready`, its renderers' messages in `sent`.
-fn hosting(res: &SandboxResources, sent: &Arc<Mutex<Vec<String>>>) -> (Host, std::thread::JoinHandle<Vec<u8>>) {
-    let (host_end, engine_end) = pair();
-    let served = serving(engine_end, Some(test_renderers(Arc::clone(sent), Arc::new(AtomicUsize::new(0)))));
-    let host = Host::new(host_end);
-    host.opening(Kind::HostingOpening, res);
-    host.wait("Ready", |s| s.kind == Kind::Ready);
-    (host, served)
+/// A hosting stream of its own, the host's side and the serving thread owned together from before the opening:
+/// `finish` ends the pair and gives what serving ended with; dropped without it (a failed assertion unwinding past
+/// it), it ends the pair too, which wakes the host's reader and the serving loop, and joins both, whatever they ended
+/// with.
+struct Hosting {
+    host: Host,
+    served: Option<std::thread::JoinHandle<Vec<u8>>>,
+}
+
+impl Hosting {
+    /// Past its `Ready`, its renderers' messages in `sent`.
+    fn new(res: &SandboxResources, sent: &Arc<Mutex<Vec<String>>>) -> Hosting {
+        let (host_end, engine_end) = pair();
+        let served = serving(engine_end, Some(test_renderers(Arc::clone(sent), Arc::new(AtomicUsize::new(0)))));
+        let hosting = Hosting { host: Host::new(host_end), served: Some(served) };
+        hosting.host.opening(Kind::HostingOpening, res);
+        hosting.host.wait("Ready", |s| s.kind == Kind::Ready);
+        hosting
+    }
+
+    fn finish(mut self) -> Vec<u8> {
+        self.host.end.shutdown();
+        if let Some(reader) = self.host.reader.take() {
+            reader.join().unwrap();
+        }
+        self.served.take().expect("served").join().unwrap()
+    }
+}
+
+impl Drop for Hosting {
+    fn drop(&mut self) {
+        self.host.end.shutdown();
+        // No second panic while a failed assertion unwinds: a worker that ended in one is joined all the same.
+        if let Some(reader) = self.host.reader.take() {
+            let _ = reader.join();
+        }
+        if let Some(served) = self.served.take() {
+            let _ = served.join();
+        }
+    }
 }
 
 /// A renderer message's `type`.
@@ -363,8 +395,8 @@ fn serves_a_hosted_widget_and_keeps_its_renderer_past_its_death() {
     assert_eq!(served.join().unwrap(), b"");
 }
 
-/// The page of test_main.cpp's profile case: the place and both layers read from its first line, each layer's event
-/// logged.
+/// The page of test_profile_surface.cpp's profile case: the place and both layers read from its first line, each
+/// layer's event logged.
 const PROFILE_PAGE: &str = concat!(
     "<p>x</p><script>var log = [], clog = [], d = TelegramWidget.safeAreaInset, c = TelegramWidget.contentSafeAreaInset;",
     "var place = [TelegramWidget.surface, d.top, d.bottom, d.left, c.top, c.bottom, c.left, c.cornerRight, String(TelegramWidget.chatType)].join(':');",
@@ -384,26 +416,27 @@ const RECORD_DEVICE_INPUTS: &str = concat!(
     " Object.defineProperty(g, 'deviceInputs', { value: seen }); })(globalThis);\n"
 );
 
-/// test_main.cpp's `recordingDeviceInputs`: the shipped bundles, the sandbox's dispatcher wrapped so that the realm
-/// keeps `deviceInputs`, the device's edges of the boot record (`boot:`) and each `deviceSafeArea` input (`input:`), as
-/// the engine wrote them for the widget.
+/// test_profile_surface.cpp's `recordingDeviceInputs`: the shipped bundles, the sandbox's dispatcher wrapped so that
+/// the realm keeps `deviceInputs`, the device's edges of the boot record (`boot:`) and each `deviceSafeArea` input
+/// (`input:`), as the engine wrote them for the widget.
 fn recording_device_inputs() -> SandboxResources {
     let mut res = resources();
     res.sandbox_bundle.extend_from_slice(RECORD_DEVICE_INPUTS.as_bytes());
     res
 }
 
-/// test_main.cpp's `sdk_profile_surface_layers_height_and_anchor`, the engine process's half: a page and a bubble,
-/// each on a hosting stream of its own as `TW_ENGINE_HOSTED=stream` serves the C++ case, the renderer's messages read
-/// behind the probe barrier. The page's place and both layers reach the widget from its first line (no corners and no
-/// chat on a page) and its resize anchor never crosses; a theme, a device layer and a viewport sent before the start
-/// win over the start's own; the renderer gets the theme, the place, the content's layer, the device's and the policy
-/// before any op, an empty batch counted; after the start each device, content and viewport change is resent to it as
-/// it comes (two equal device ones twice, the widget hearing one), the viewport checked to two decimals, one that is
-/// not finite as 0. In a bubble the engine gives the widget's realm four zeros for the device's edges, at boot and on
-/// every change, its renderer gets them as passed and no viewport, and its anchor crosses; a page's realm gets them as
-/// passed. The height is the glue's own state, which no frame carries: `surface::height`'s twins and the C++ case in
-/// process check it.
+/// test_main.cpp's `sdk_profile_surface_layers_height_and_anchor` and test_profile_surface.cpp's
+/// `sdk_profile_surface_start_and_changes_reach_the_renderer_and_the_widget`, the engine process's half: a page and a
+/// bubble, each on a hosting stream of its own as `TW_ENGINE_HOSTED=stream` serves the C++ cases, the renderer's
+/// messages read behind the probe barrier. The page's place and both layers reach the widget from its first line (no
+/// corners and no chat on a page) and its resize anchor never crosses; a theme, a device layer and a viewport sent
+/// before the start win over the start's own; the renderer gets the theme, the place, the content's layer, the device's
+/// and the policy before any op, an empty batch counted; after the start each device, content and viewport change is
+/// resent to it as it comes (two equal device ones twice, the widget hearing one), the viewport checked to two
+/// decimals, one that is not finite as 0. In a bubble the engine gives the widget's realm four zeros for the device's
+/// edges, at boot and on every change, its renderer gets them as passed and no viewport, and its anchor crosses; a
+/// page's realm gets them as passed. The height is the glue's own state, which no frame carries: `surface::height`'s
+/// twins and the C++ cases in process check it.
 #[test]
 fn sdk_profile_surface_layers_height_and_anchor() {
     let res = recording_device_inputs();
@@ -415,7 +448,8 @@ fn sdk_profile_surface_layers_height_and_anchor() {
     let first_ops = |sent: &[String]| sent.iter().position(|m| type_of(m) == "ops");
 
     let page_sent = Arc::new(Mutex::new(Vec::new()));
-    let (host, served) = hosting(&res, &page_sent);
+    let page_hosting = Hosting::new(&res, &page_sent);
+    let host = &page_hosting.host;
     let mut config = SandboxConfig { inner_width: 300.0, ..SandboxConfig::default() };
     config.context.surface = WidgetSurface::Profile;
     config.context.chat_type = b"private".to_vec(); // a page has no chat: null for the widget
@@ -488,11 +522,11 @@ fn sdk_profile_surface_layers_height_and_anchor() {
     assert_eq!(host.probe(1, 6, "log.length + ':' + clog.length"), "1:1");
     assert_eq!(layers(&page_sent)[resent.len()..], ["{\"type\":\"surface\",\"surface\":\"profile\",\"viewportHeight\":0}"]);
     host.send(1, Kind::Close, &[]);
-    host.finish();
-    assert_eq!(served.join().unwrap(), b"");
+    assert_eq!(page_hosting.finish(), b"");
 
     let bubble_sent = Arc::new(Mutex::new(Vec::new()));
-    let (host, served) = hosting(&res, &bubble_sent);
+    let bubble_hosting = Hosting::new(&res, &bubble_sent);
+    let host = &bubble_hosting.host;
     let mut bubble = SandboxConfig { inner_width: 300.0, ..SandboxConfig::default() };
     bubble.safe_area.top = 47.0;
     let start = SandboxHostedStart { viewport_height: 844.0, ..SandboxHostedStart::default() }; // a bubble has none
@@ -520,8 +554,7 @@ fn sdk_profile_surface_layers_height_and_anchor() {
     // The control of the page's: a bubble's anchor reaches the client.
     assert_eq!(host.wait("ResizeAnchor", |s| s.runtime == 1 && s.kind == Kind::ResizeAnchor).first(), "bottom");
     host.send(1, Kind::Close, &[]);
-    host.finish();
-    assert_eq!(served.join().unwrap(), b"");
+    assert_eq!(bubble_hosting.finish(), b"");
 }
 
 #[test]

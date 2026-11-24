@@ -39,8 +39,8 @@ nova-safe c6d4896 (Windows x64 RelWithDebInfo, 2026-11-21) both modes, in proces
 each give 247 tests and 0 failures on either end, each test's result and the checks the C++ end's; the desktop core's
 README has the rest. With the bot's profile page followed (this task's widget-sandbox commit on the owner's merge
 df6c66e, at which this end failed the merged profile case and the renderer's start messages) and nova-safe a0d05ea
-(Windows x64 RelWithDebInfo, 2026-11-24): 249 tests and 0 failures in each mode on either end, each test's result
-the C++ end's: `TW_ENGINE_STREAM=1` 15354 checks on both, `TW_ENGINE_HOSTED=stream` 15353 on both (the frame tallies
-the C++ end's but for Stats and Rendered, which timing decides), in process and `TW_ENGINE_HOSTED=loopback` 15352.
+(Windows x64 RelWithDebInfo, 2026-11-24): 250 tests and 0 failures in each mode on either end, each test's result
+the C++ end's: `TW_ENGINE_STREAM=1` 15367 checks on both, `TW_ENGINE_HOSTED=stream` 15365 on both (the frame tallies
+the C++ end's but for those timing decides); the Win32 Debug C++ end gives the same 250 in process and in each mode.
 
 Fixtures come from `packages/core/tests/fixtures`, as every other port reads them.

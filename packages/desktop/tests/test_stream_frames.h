@@ -2,14 +2,13 @@
 #pragma once
 
 #include "../harness/memory_stream.h"
+#include "twidget/json.h"
 #include "twidget/remote_stream.h"
 
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -201,17 +200,7 @@ private:
     std::string pending_;
 };
 
-/// `v` in the fewest significant digits that read back as it, as `%g` writes them ("nan" and "inf" among them).
-inline std::string shortest(double v) {
-    char text[32] = {};
-    for (int digits = 1; digits <= 17; digits++) {
-        std::snprintf(text, sizeof(text), "%.*g", digits, v);
-        if (std::strtod(text, nullptr) == v) break;
-    }
-    return text;
-}
-
-/// A host's frame as the tests read it, for the kinds they look at: its kind and its strings, a probe's code after its sequence, a viewport's height in its shortest digits.
+/// A host's frame as the tests read it, for the kinds they look at: its kind and its strings, a probe's code after its sequence, a viewport's height as `Json::number` writes it.
 inline std::string describeHost(const ParsedFrame& f) {
     FieldsOf in(f);
     const auto str = [&] { return in.str().value_or("?"); };
@@ -240,7 +229,7 @@ inline std::string describeHost(const ParsedFrame& f) {
     case wire::PlatformAnswer: return "platform-answer:" + str();
     case wire::HostedViewportHeight: {
         const std::optional<double> height = in.f64();
-        return "hosted-viewport-height:" + (height ? shortest(*height) : std::string("?"));
+        return "hosted-viewport-height:" + (height ? Json::number(*height) : std::string("?"));
     }
     default: return "kind " + std::to_string(int(f.kind));
     }
