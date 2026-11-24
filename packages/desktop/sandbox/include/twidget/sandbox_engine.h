@@ -388,8 +388,8 @@ public:
     /// `contentSafeAreaChanged` in one task; the shim checks the values. Before boot it only replaces the config's.
     void contentSafeArea(const WidgetContentSafeArea& area);
     /// The device's edges over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.safeAreaInset` and
-    /// `safeAreaChanged` in one task; the shim checks the values against the place (0 in a bubble). Before boot it only
-    /// replaces the config's.
+    /// `safeAreaChanged` in one task; the shim checks a page's values, and a bubble's widget gets four zeros, at boot too.
+    /// Before boot it only replaces the config's.
     void safeArea(const WidgetSafeArea& area);
     /// The host knows whether the widget is on screen; the sandbox does not.
     void setVisible(bool visible);

@@ -75,6 +75,12 @@ static int countCanvasCommands(const std::string& json) {
 
 static std::string truncate(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n); }
 
+/// The device's edges as the widget's realm gets them, at boot and on every change: a page's as the host passed them
+/// (the shim checks them), four zeros in a bubble whatever was passed (its renderer, the host's glue, gets them as passed).
+static Json widgetSafeArea(WidgetSurface surface, const WidgetSafeArea& area) {
+    return (surface == WidgetSurface::Profile ? area : WidgetSafeArea{}).json();
+}
+
 /// `js_`'s deleter, which `boot` sets with the context: only this source frees one.
 static void freeContext(NovaContext* js) { delete js; }
 
@@ -234,7 +240,7 @@ void SandboxEngine::boot() {
         config.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(config_.themeParams)));
         config.set("locale", sdk::checkLocale(config_.locale).value_or(std::string(sdk::DEFAULT_LOCALE)));
         config.set("contentSafeArea", config_.contentSafeArea.json());
-        config.set("deviceSafeArea", config_.safeArea.json());
+        config.set("deviceSafeArea", widgetSafeArea(config_.context.surface, config_.safeArea));
         config.set("surface", surfaceName(config_.context.surface));
         config.set("profile", sdk::PROFILE_VERSION);
         // A preview has no message yet: no storage of its own (it lives in memory for this run and is never committed).
@@ -315,7 +321,7 @@ void SandboxEngine::inProcessSafeArea(const WidgetSafeArea& area) {
     thread_.async([this, area] {
         if (dead_) return;
         if (!js_) { config_.safeArea = area; return; }
-        input("deviceSafeArea", area.json().dump());
+        input("deviceSafeArea", widgetSafeArea(config_.context.surface, area).dump());
     });
 }
 

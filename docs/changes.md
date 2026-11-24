@@ -868,7 +868,10 @@ client that shows widgets only in messages passes nothing new and keeps v0.6.5's
   zero edges. After the start `setSafeArea` crosses as kind 22 (`DeviceSafeArea`, on either stream) and a page's
   `setViewportHeight` as kind 37 (`HostedViewportHeight`, a hosting stream only), with the stream's version still 1.
   The safe-Rust desktop core (`packages/rust`, which Telegram Desktop's widget helper runs) follows the same glue: its
-  engine, wire forms, serving loop and served host.
+  engine, wire forms, serving loop and served host. In both desktop cores, in process too, the engine gives a
+  bubble's widget four zeros for the device's edges in its boot record and in every change, so the edges never reach
+  its realm (its renderer gets them as passed), and a theme set before `start()` reaches the renderer only as the
+  start's theme message, ahead of the place, both layers, the policy and the first batch.
 
 ## v0.6.5 — release notes (2026-11-12)
 

@@ -258,8 +258,8 @@ impl SandboxEngine {
     }
 
     /// The device's edges over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.safeAreaInset` and
-    /// `safeAreaChanged` in one task; the shim checks the values against the place (0 in a bubble). Before boot it
-    /// only replaces the config's.
+    /// `safeAreaChanged` in one task; the shim checks a page's values, and a bubble's widget gets four zeros, at boot
+    /// too. Before boot it only replaces the config's.
     pub fn safe_area(&self, area: WidgetSafeArea) {
         self.post(move |e| {
             if e.dead() {
@@ -269,7 +269,7 @@ impl SandboxEngine {
                 *e.device_safe_area.borrow_mut() = area;
                 return;
             }
-            e.input(b"deviceSafeArea", &area.json().dump());
+            e.input(b"deviceSafeArea", &widget_safe_area(e.config().context.surface, &area).dump());
         });
     }
 
@@ -503,6 +503,13 @@ fn count_canvas_commands(json: &[u8]) -> i32 {
 
 fn truncate(s: &[u8], n: usize) -> &[u8] {
     &s[..s.len().min(n)]
+}
+
+/// The device's edges as the widget's realm gets them, at boot and on every change: a page's as the host passed them
+/// (the shim checks them), four zeros in a bubble whatever was passed (its renderer, the host's glue, gets them as
+/// passed).
+fn widget_safe_area(surface: WidgetSurface, area: &WidgetSafeArea) -> Json {
+    if surface == WidgetSurface::Profile { area.json() } else { WidgetSafeArea::default().json() }
 }
 
 /// C's `strtol(s, &end, 10)`: the value and the bytes it read (0 when there is no number); `long` saturates.
@@ -828,7 +835,7 @@ impl Engine {
         config.set("themeParams", sdk::theme_params_json(&sdk::check_theme_params_map(&c.theme_params)));
         config.set("locale", sdk::check_locale(&c.locale).unwrap_or_else(|| sdk::DEFAULT_LOCALE.as_bytes().to_vec()));
         config.set("contentSafeArea", self.safe_area.borrow().json());
-        config.set("deviceSafeArea", self.device_safe_area.borrow().json());
+        config.set("deviceSafeArea", widget_safe_area(c.context.surface, &self.device_safe_area.borrow()));
         config.set("surface", sdk::surface_name(c.context.surface));
         config.set("profile", sdk::PROFILE_VERSION);
         // A preview has no message yet: no storage of its own.

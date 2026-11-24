@@ -111,9 +111,32 @@ fn resources() -> Arc<SandboxResources> {
     Arc::new(SandboxResources::from_directory(dir).expect("the desktop bundles (pnpm build:desktop)"))
 }
 
+/// What `recording_device_inputs` appends to the sandbox bundle.
+const RECORD_DEVICE_INPUTS: &str = concat!(
+    "\n(function (g) { var dispatch = g.__twDispatch, seen = [];",
+    " Object.defineProperty(g, '__twDispatch', { configurable: true, value: function (kind, arg) {",
+    " if (kind === 'boot') seen.push('boot:' + JSON.stringify(JSON.parse(arg).config.deviceSafeArea));",
+    " if (kind === 'deviceSafeArea') seen.push('input:' + arg);",
+    " return dispatch(kind, arg); } });",
+    " Object.defineProperty(g, 'deviceInputs', { value: seen }); })(globalThis);\n"
+);
+
+/// test_main.cpp's `recordingDeviceInputs`: the shipped bundles, the sandbox's dispatcher wrapped so that the realm
+/// keeps `deviceInputs`, the device's edges of the boot record (`boot:`) and each `deviceSafeArea` input (`input:`), as
+/// the engine wrote them for the widget.
+fn recording_device_inputs() -> Arc<SandboxResources> {
+    let mut res = (*resources()).clone();
+    res.sandbox_bundle.extend_from_slice(RECORD_DEVICE_INPUTS.as_bytes());
+    Arc::new(res)
+}
+
 fn engine(html: &str, config: SandboxConfig) -> (SandboxEngine, Arc<Recorder>) {
+    engine_on(html, config, resources())
+}
+
+fn engine_on(html: &str, config: SandboxConfig, resources: Arc<SandboxResources>) -> (SandboxEngine, Arc<Recorder>) {
     let recorder = Arc::new(Recorder::default());
-    let engine = SandboxEngine::new(html.as_bytes().to_vec(), config, resources(), Arc::new(NoIntl), Arc::new(TestPlatform)).unwrap();
+    let engine = SandboxEngine::new(html.as_bytes().to_vec(), config, resources, Arc::new(NoIntl), Arc::new(TestPlatform)).unwrap();
     engine.set_delegate(recorder.clone());
     engine.start();
     (engine, recorder)
@@ -215,8 +238,9 @@ fn probe_until(engine: &SandboxEngine, code: &str, empty: &str) -> String {
 /// The bot's profile page (docs/sdk-v1.md §2.19), the engine's half of test_main.cpp's test: the place and both layers
 /// reach the widget from its first line (no corners and no chat type on a page), two equal device updates fire one
 /// safeAreaChanged, the geometry of each place, and the widget's resize anchor goes nowhere on a page (the shim keeps
-/// it there, and the engine drops one that reaches it all the same). In a bubble the device's edges are 0 and the
-/// anchor reaches the delegate (the bubble's script adds the page's call to the C++ one).
+/// it there, and the engine drops one that reaches it all the same). In a bubble the engine gives the widget's realm
+/// four zeros for the device's edges, at boot and on every change (a page's realm gets them as passed), and the anchor
+/// reaches the delegate (the bubble's script adds the page's call to the C++ one).
 #[test]
 fn sdk_profile_surface_layers_height_and_anchor() {
     use WidgetSurface::{Message, Profile};
@@ -263,7 +287,7 @@ fn sdk_profile_surface_layers_height_and_anchor() {
     // No corners on a page: 0 for the widget.
     page_config.content_safe_area =
         WidgetContentSafeArea { top: 90.0, bottom: 150.0, left: 40.0, corner_right: 64.0, ..WidgetContentSafeArea::default() };
-    let (page, r) = engine(
+    let (page, r) = engine_on(
         concat!(
             "<p>x</p><script>var log = [], d = TelegramWidget.safeAreaInset, c = TelegramWidget.contentSafeAreaInset;",
             "var place = [TelegramWidget.surface, d.top, d.bottom, d.left, c.top, c.bottom, c.left, c.cornerRight, String(TelegramWidget.chatType)].join(':');",
@@ -271,9 +295,13 @@ fn sdk_profile_surface_layers_height_and_anchor() {
             "TelegramWidget.setResizeAnchor('bottom');</script>"
         ),
         page_config,
+        recording_device_inputs(),
     );
     r.wait("the page loaded", |s| s.loaded || s.died.is_some());
     assert_eq!(text(&page.probe(b"place")), "profile:120:34:0:90:150:40:0:null");
+    // A page's realm gets the edges as passed, at boot and on every change (the shim checks them).
+    let edges_given = r#"{"top":120,"right":0,"bottom":34,"left":-5}"#;
+    assert_eq!(text(&page.probe(b"deviceInputs.join(' ')")), format!("boot:{edges_given}"));
     {
         let seen = r.seen.lock().unwrap();
         assert!(seen.died.is_none(), "{:?}", seen.died);
@@ -284,17 +312,27 @@ fn sdk_profile_surface_layers_height_and_anchor() {
     page.safe_area(turned);
     page.safe_area(turned);
     assert_eq!(probe_until(&page, "log.join('|')", ""), "0:59:59:21:true:true");
+    let turned_given = r#"{"top":0,"right":59,"bottom":21,"left":59}"#;
+    assert_eq!(
+        probe_until(&page, "deviceInputs.length > 2 ? deviceInputs.join(' ') : ''", ""),
+        format!("boot:{edges_given} input:{turned_given} input:{turned_given}")
+    );
     assert!(r.seen.lock().unwrap().anchors.is_empty());
     drop(page);
 
     let bubble_config = SandboxConfig { safe_area: WidgetSafeArea { top: 47.0, ..WidgetSafeArea::default() }, ..SandboxConfig::default() };
-    let (bubble, r) = engine(
+    let (bubble, r) = engine_on(
         "<script>var s = TelegramWidget.surface + ':' + JSON.stringify(TelegramWidget.safeAreaInset);TelegramWidget.setResizeAnchor('bottom');</script>",
         bubble_config,
+        recording_device_inputs(),
     );
     r.wait("the bubble's anchor", |s| !s.anchors.is_empty() || s.died.is_some());
     assert_eq!(r.seen.lock().unwrap().anchors, ["bottom"]);
-    assert_eq!(text(&bubble.probe(b"s")), r#"message:{"top":0,"right":0,"bottom":0,"left":0}"#);
+    let none = r#"{"top":0,"right":0,"bottom":0,"left":0}"#;
+    assert_eq!(text(&bubble.probe(b"s")), format!("message:{none}"));
+    // The edges never reach a bubble's realm, at boot or later.
+    bubble.safe_area(turned);
+    assert_eq!(probe_until(&bubble, "deviceInputs.length > 1 ? deviceInputs.join(' ') : ''", ""), format!("boot:{none} input:{none}"));
 }
 
 /// The places against the compiled C++ (`oracle/sdk_policy_oracle`, record 'P'): each place's wire name, whether its

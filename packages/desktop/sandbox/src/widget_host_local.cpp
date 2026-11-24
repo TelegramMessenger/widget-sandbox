@@ -239,13 +239,16 @@ void WidgetHost::localSetTheme() {
     // A served host kept for its renderer alone has no validator or engine to re-theme.
     if (rendererOnly_) return;
     renderer_->setTheme(theme_);
-    toRenderer(themeMessage());
+    // Before the start no message goes ahead of the start's: its theme message is this theme, and no node is there to re-theme yet.
+    if (started_) toRenderer(themeMessage());
     // Past the cut the renderer never gets the nodes the re-themed stylesheets would name.
     if (!engineCut_) {
         // A validated batch too: `onRenderOps` (the harness's leak scan) sees every batch the renderer gets.
         const std::string clean = validator_->setTheme(theme_);
-        toRenderer("{\"type\":\"ops\",\"ops\":" + clean + "}");
-        if (clean != "[]" && onRenderOps) onRenderOps(clean);
+        if (started_) {
+            toRenderer("{\"type\":\"ops\",\"ops\":" + clean + "}");
+            if (clean != "[]" && onRenderOps) onRenderOps(clean);
+        }
     }
     engine_->theme(theme_, widgetTheme_.params);
 }

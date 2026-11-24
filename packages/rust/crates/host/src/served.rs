@@ -1000,16 +1000,23 @@ impl Served {
         if let Some(renderer) = st.renderer() {
             renderer.set_theme(&theme);
         }
-        self.to_renderer(st, Self::theme_message(st));
+        // Before the start no message goes ahead of the start's: its theme message is this theme, and no node is
+        // there to re-theme yet.
+        let started = st.started.get();
+        if started {
+            self.to_renderer(st, Self::theme_message(st));
+        }
         // Past the cut the renderer never gets the nodes the re-themed stylesheets would name.
         if !st.engine_cut.get() {
             // A validated batch too: the asked-for batches see every batch the renderer gets.
             let clean = self.validator().map_or_else(|| b"[]".to_vec(), |v| v.set_theme(&theme));
-            self.to_renderer(st, [&b"{\"type\":\"ops\",\"ops\":"[..], &clean, b"}"].concat());
-            if clean != b"[]"
-                && let Some(f) = self.on_render_ops.get()
-            {
-                f(&clean);
+            if started {
+                self.to_renderer(st, [&b"{\"type\":\"ops\",\"ops\":"[..], &clean, b"}"].concat());
+                if clean != b"[]"
+                    && let Some(f) = self.on_render_ops.get()
+                {
+                    f(&clean);
+                }
             }
         }
         let params = st.widget_theme.borrow().params.clone();
