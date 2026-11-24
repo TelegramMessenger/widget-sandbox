@@ -731,6 +731,50 @@ TEST(stack_check_follows_the_calling_thread) {
     t.sync([&] { js.reset(); });
 }
 
+/// A thread of the reserve (JSThread::reserve, made ahead for a process that may not start threads later): the same
+/// stack and recursion depth as a thread of its own, and back in the reserve once its JSThread stops, for the next.
+#ifndef _WIN32
+TEST(a_reserved_thread_runs_a_jsthread_and_comes_back) {
+    auto waitFor = [](size_t count) {
+        for (int i = 0; i < 200 && JSThread::reserved() != count; i++) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        return JSThread::reserved();
+    };
+    size_t before = JSThread::reserved();
+    JSThread::reserve(2);
+    CHECK(waitFor(before + 2) == before + 2);
+    std::thread::id first;
+    {
+        JSThread t("reserved.a");
+        CHECK(JSThread::reserved() == before + 1);
+        first = t.sync([&] { return std::this_thread::get_id(); });
+        CHECK(first != std::this_thread::get_id());
+        if (quickjsAvailable()) {
+            double depth = t.sync([&] {
+                QuickJSContext js(size_t(16) << 20, JSThread::kJSStackLimit);
+                return js.evaluate(kDepthProbe, "t.js").number.value_or(-1);
+            });
+            CHECK(depth > 300);
+        }
+        std::promise<bool> fired;
+        t.after(0.01, [&] { fired.set_value(t.isCurrent()); });
+        auto f = fired.get_future();
+        CHECK(f.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+        CHECK(f.get());
+    }
+    CHECK(waitFor(before + 2) == before + 2);
+    // Taken again: one of the two threads, the one that ran `reserved.a` among them.
+    {
+        JSThread a("reserved.b"), b("reserved.c");
+        CHECK(JSThread::reserved() == before);
+        auto ida = a.sync([] { return std::this_thread::get_id(); });
+        auto idb = b.sync([] { return std::this_thread::get_id(); });
+        CHECK(ida != idb);
+        CHECK(ida == first || idb == first);
+    }
+    CHECK(waitFor(before + 2) == before + 2);
+}
+#endif
+
 /// QuickJSBackend::Nova behind the same QuickJSContext: values in and out, host functions, the limits, promise jobs,
 /// a bundle from code compiled once. A build without Nova (no -DTW_NOVA=ON) checks that such a context fails closed.
 /// A build without quickjs-ng (-DTW_QUICKJS=OFF, Android): a Native context fails closed, and what names no

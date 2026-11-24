@@ -1,6 +1,7 @@
 #include "twidget/js_thread.h"
 
 #include <cstring>
+#include <system_error>
 
 #ifdef _WIN32
 #include <process.h>
@@ -11,9 +12,110 @@
 
 namespace twidget {
 
+// A thread of the reserve tells the JSThread it ran that its loop is over here: the JSThread may be destroyed as soon
+// as its join() sees it, so the thread keeps this alive (not the JSThread) for the last thing it touches.
+struct JSThread::Done {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool finished = false;
+};
+
+#ifndef _WIN32
+namespace {
+void nameThisThread(const std::string& name) {
+#if defined(__APPLE__)
+    pthread_setname_np(name.c_str());
+#elif defined(__linux__)
+    pthread_setname_np(pthread_self(), name.substr(0, 15).c_str());
+#endif
+}
+
+// The threads that wait to be taken, and the JSThreads handed to them. Never destroyed: its threads live as long as
+// the process.
+struct Reserve {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::deque<JSThread*> handed;
+    size_t waiting = 0;
+};
+Reserve& reserveState() {
+    static Reserve* state = new Reserve;
+    return *state;
+}
+} // namespace
+
+void JSThread::reserve(size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, kStackSize);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_t thread;
+        int error = pthread_create(&thread, &attr, &JSThread::parked, nullptr);
+        pthread_attr_destroy(&attr);
+        if (error != 0) break;
+    }
+}
+
+size_t JSThread::reserved() {
+    Reserve& r = reserveState();
+    std::lock_guard<std::mutex> lock(r.mutex);
+    return r.waiting;
+}
+
+void* JSThread::parked(void*) {
+    Reserve& r = reserveState();
+    for (;;) {
+        nameThisThread("widget-spare");
+        JSThread* self;
+        {
+            std::unique_lock<std::mutex> lock(r.mutex);
+            r.waiting++;
+            r.cv.wait(lock, [&] { return !r.handed.empty(); });
+            self = r.handed.front();
+            r.handed.pop_front();
+        }
+        self->adopt();
+    }
+    return nullptr;
+}
+
+void JSThread::adopt() {
+    nameThisThread(name_);
+    id_.store(std::this_thread::get_id());
+    std::shared_ptr<Done> done = done_;
+    started_->set_value();
+    run();
+    std::lock_guard<std::mutex> lock(done->mutex);
+    done->finished = true;
+    done->cv.notify_all();
+}
+#else
+void JSThread::reserve(size_t) {}
+size_t JSThread::reserved() { return 0; }
+void* JSThread::parked(void*) { return nullptr; }
+void JSThread::adopt() {}
+#endif
+
 JSThread::JSThread(std::string name) : name_(std::move(name)) {
     std::promise<void> started;
     auto startedFuture = started.get_future();
+#ifndef _WIN32
+    {
+        Reserve& r = reserveState();
+        std::unique_lock<std::mutex> lock(r.mutex);
+        if (r.waiting > 0) {
+            r.waiting--;
+            started_ = &started;
+            done_ = std::make_shared<Done>();
+            r.handed.push_back(this);
+            lock.unlock();
+            r.cv.notify_all();
+            startedFuture.wait();
+            return;
+        }
+    }
+#endif
     struct Boot { JSThread* self; std::promise<void>* started; };
     auto* boot = new Boot{this, &started};
 #ifdef _WIN32
@@ -33,8 +135,13 @@ JSThread::JSThread(std::string name) : name_(std::move(name)) {
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, kStackSize);
     auto* t = new pthread_t;
-    pthread_create(t, &attr, &JSThread::entry, boot);
+    int error = pthread_create(t, &attr, &JSThread::entry, boot);
     pthread_attr_destroy(&attr);
+    if (error != 0) {
+        delete t;
+        delete boot;
+        throw std::system_error(error, std::generic_category(), "JSThread " + name_ + ": no thread");
+    }
     handle_ = t;
 #endif
     startedFuture.wait();
@@ -58,6 +165,7 @@ void* JSThread::entry(void* p) {
 
 JSThread::~JSThread() {
     join();
+    if (!handle_) return;
 #ifdef _WIN32
     delete static_cast<HANDLE*>(handle_);
 #else
@@ -114,6 +222,11 @@ void JSThread::join() {
         std::lock_guard<std::mutex> lock(mutex_);
         if (joined_) return;
         joined_ = true;
+    }
+    if (done_) {
+        std::unique_lock<std::mutex> lock(done_->mutex);
+        done_->cv.wait(lock, [&] { return done_->finished; });
+        return;
     }
 #ifdef _WIN32
     HANDLE h = *static_cast<HANDLE*>(handle_);

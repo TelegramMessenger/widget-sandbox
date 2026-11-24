@@ -32,6 +32,8 @@ public:
     /// Safe QuickJS limit for a context that only ever runs on a JSThread.
     static constexpr size_t kJSStackLimit = size_t(6) << 20;
 
+    /// Takes a thread from the reserve (reserve()) when one waits there, else starts one. Throws std::system_error when
+    /// neither can be had (no thread left in the reserve of a process that may not start threads).
     explicit JSThread(std::string name);
     ~JSThread();
     JSThread(const JSThread&) = delete;
@@ -79,6 +81,13 @@ public:
     /// stop() + wait for the thread to exit (no-op from the thread itself).
     void join();
 
+    /// POSIX: starts `count` threads with the JSThread stack that wait to be taken by a JSThread made later, and go back
+    /// to waiting once it stops. For a process that starts its threads before it gives up the right to (a seccomp
+    /// filter without clone): every JSThread it will run at one time must come from here.
+    static void reserve(size_t count);
+    /// Threads waiting in the reserve (tests, logs).
+    static size_t reserved();
+
 private:
     struct Timer {
         std::shared_ptr<Scheduled> handle;
@@ -87,6 +96,9 @@ private:
     bool post(std::function<void()> fn);
     void run();
     static void* entry(void* self);
+    static void* parked(void*);
+    void adopt();
+    struct Done;
 
     std::string name_;
     std::mutex mutex_;
@@ -98,7 +110,9 @@ private:
     bool stopping_ = false;      // no more work accepted
     bool joined_ = false;
     std::atomic<std::thread::id> id_{};
-    void* handle_ = nullptr; // pthread_t* / HANDLE
+    void* handle_ = nullptr; // pthread_t* / HANDLE; null for a thread of the reserve
+    std::promise<void>* started_ = nullptr; // a thread of the reserve: set once it runs this JSThread
+    std::shared_ptr<Done> done_;             // a thread of the reserve: set when this JSThread's loop has ended
 };
 
 } // namespace twidget

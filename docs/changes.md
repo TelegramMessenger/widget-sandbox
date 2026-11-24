@@ -3,6 +3,14 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: threads started ahead (2026-11-24)
+
+- `twidget::JSThread::reserve(n)` starts `n` parked threads, and a `JSThread` made later takes one of them instead of
+  starting its own; it goes back to the reserve when that `JSThread` stops. `reserved()` is how many wait. For a
+  process that refuses to start threads once its sandbox is on (Telegram Android's engine process, its seccomp
+  filter): every thread its sessions use is started before. Without `reserve` nothing changes. A `JSThread` made
+  when none waits starts its own thread as before, and throws `std::system_error` if that fails.
+
 ## Unreleased: id lookups, unchanged writes and the validator's depth walk (2026-11-23)
 
 Costs that a widget paid on every frame, found on a widget that redraws its texts while a slider
