@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use twidget_bundle_stamp::SandboxResources;
 use twidget_engine::{
     Engine, EngineDelegate, IntlProvider, QueryAnswer, SandboxConfig, SandboxEngine, SandboxStats, WidgetContentSafeArea,
-    WidgetRequestResponder,
+    WidgetRequestResponder, WidgetSafeArea,
 };
 use twidget_js::Platform;
 use twidget_json::Json;
@@ -318,6 +318,9 @@ impl SandboxRemoteServer {
     }
     pub fn content_safe_area(&self, area: WidgetContentSafeArea) {
         self.input(move |e| e.content_safe_area(area));
+    }
+    pub fn safe_area(&self, area: WidgetSafeArea) {
+        self.input(move |e| e.safe_area(area));
     }
     pub fn set_data(&self, data: WidgetData) {
         self.input(move |e| e.set_data(&data));

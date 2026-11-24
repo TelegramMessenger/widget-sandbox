@@ -1,7 +1,8 @@
 //! `serve_hosting` end to end on the shipped bundles (packages/desktop/WidgetJS) over an in-memory stream, with a
 //! renderer of the test's: what the C++ suite cannot reach of the hosted end in Rust (the Rust renderer seam, the
-//! hosting refusals of either opening, the factory's failures as the reasons the host reads), and the glue's small
-//! helpers. The rest runs through the C++ suite against this end (`TW_ENGINE_HOSTED=stream TW_ENGINE_END=rust`).
+//! hosting refusals of either opening, the factory's failures as the reasons the host reads), the engine process's
+//! half of a C++ test ported by name, and the glue's small helpers. The rest runs through the C++ suite against this
+//! end (`TW_ENGINE_HOSTED=stream TW_ENGINE_END=rust`).
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -9,11 +10,12 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use twidget_bundle_stamp::SandboxResources;
-use twidget_engine::{SandboxConfig, SandboxHostedStart};
+use twidget_engine::{SandboxConfig, SandboxHostedStart, WidgetContentSafeArea, WidgetSafeArea};
 use twidget_host::*;
 use twidget_js::{Platform, now};
 use twidget_json::Json;
-use twidget_server::coding::{encode_config, encode_hosted_start};
+use twidget_sdk_policy::WidgetSurface;
+use twidget_server::coding::{encode_config, encode_device_safe_area, encode_hosted_start, encode_safe_area};
 use twidget_stream::{Field, FrameReader, Kind, MAX_FRAME_BYTES, Side, Stream, VERSION, encode};
 
 const BUILD: &[u8] = b"rust-hosted-tests";
@@ -211,6 +213,12 @@ impl Host {
         self.all().iter().filter(|s| s.runtime == runtime && s.kind == kind).count()
     }
 
+    /// Probe `seq` on `runtime` and its answer, matched by both.
+    fn probe(&self, runtime: u32, seq: i64, code: &str) -> String {
+        self.send(runtime, Kind::Probe, &[Field::I64(seq), Field::Str(code.as_bytes())]);
+        self.wait("the probe's answer", |s| s.runtime == runtime && s.kind == Kind::ProbeAnswer && s.number == seq).first()
+    }
+
     fn finish(mut self) {
         self.end.shutdown();
         if let Some(reader) = self.reader.take() {
@@ -273,6 +281,21 @@ fn test_renderers(sent: Arc<Mutex<Vec<String>>>, built: Arc<AtomicUsize>) -> Hos
 
 fn serving(engine: Arc<End>, renderers: Option<HostedRendererFactory>) -> std::thread::JoinHandle<Vec<u8>> {
     std::thread::spawn(move || serve_hosting(engine, BUILD, None, Arc::new(TestPlatform), renderers))
+}
+
+/// A hosting stream of its own past its `Ready`, its renderers' messages in `sent`.
+fn hosting(res: &SandboxResources, sent: &Arc<Mutex<Vec<String>>>) -> (Host, std::thread::JoinHandle<Vec<u8>>) {
+    let (host_end, engine_end) = pair();
+    let served = serving(engine_end, Some(test_renderers(Arc::clone(sent), Arc::new(AtomicUsize::new(0)))));
+    let host = Host::new(host_end);
+    host.opening(Kind::HostingOpening, res);
+    host.wait("Ready", |s| s.kind == Kind::Ready);
+    (host, served)
+}
+
+/// A renderer message's `type`.
+fn type_of(message: &str) -> String {
+    Json::parse(message.as_bytes()).map_or_else(String::new, |m| String::from_utf8_lossy(m.get("type").as_str()).into_owned())
 }
 
 #[test]
@@ -340,6 +363,121 @@ fn serves_a_hosted_widget_and_keeps_its_renderer_past_its_death() {
     assert_eq!(served.join().unwrap(), b"");
 }
 
+/// The page of test_main.cpp's profile case: the place and both layers read from its first line, each layer's event
+/// logged.
+const PROFILE_PAGE: &str = concat!(
+    "<p>x</p><script>var log = [], clog = [], d = TelegramWidget.safeAreaInset, c = TelegramWidget.contentSafeAreaInset;",
+    "var place = [TelegramWidget.surface, d.top, d.bottom, d.left, c.top, c.bottom, c.left, c.cornerRight, String(TelegramWidget.chatType)].join(':');",
+    "TelegramWidget.onEvent('safeAreaChanged', function () { var a = TelegramWidget.safeAreaInset; log.push([a.top, a.left, a.right, a.bottom, Object.isFrozen(a), a !== d].join(':')); });",
+    "TelegramWidget.onEvent('contentSafeAreaChanged', function () { var a = TelegramWidget.contentSafeAreaInset;",
+    " clog.push([a.top, a.right, a.bottom, a.left, a.cornerLeft, a.cornerRight].join(':')); });",
+    "TelegramWidget.setResizeAnchor('bottom');</script>"
+);
+
+/// test_main.cpp's `sdk_profile_surface_layers_height_and_anchor`, the engine process's half: a page and a bubble,
+/// each on a hosting stream of its own as `TW_ENGINE_HOSTED=stream` serves the C++ case, the renderer's messages read
+/// behind the probe barrier. The page's place and both layers reach the widget from its first line (no corners and no
+/// chat on a page) and its resize anchor never crosses; a device layer and a viewport sent before the start win over
+/// the start's own; the renderer gets the theme, the place, the content's layer, the device's and the policy before
+/// any op; after the start each device, content and viewport change is resent to it as it comes (two equal device
+/// ones twice, the widget hearing one), the viewport checked to two decimals, one that is not finite as 0. In a bubble
+/// the device's edges are 0 for the widget, its renderer gets them as passed and no viewport, and its anchor crosses.
+/// The height is the glue's own state, which no frame carries: `surface::height`'s twins and the C++ case in process
+/// check it.
+#[test]
+fn sdk_profile_surface_layers_height_and_anchor() {
+    let res = resources();
+    let layers = |sent: &Mutex<Vec<String>>| -> Vec<String> {
+        let sent = sent.lock().unwrap();
+        sent.iter().filter(|m| matches!(type_of(m).as_str(), "surface" | "safeArea" | "deviceSafeArea")).cloned().collect()
+    };
+    let starts = |sent: &[String]| -> Vec<String> { sent.iter().take(5).map(|m| type_of(m)).collect() };
+    let first_ops = |sent: &[String]| sent.iter().position(|m| type_of(m) == "ops");
+
+    let page_sent = Arc::new(Mutex::new(Vec::new()));
+    let (host, served) = hosting(&res, &page_sent);
+    let mut config = SandboxConfig { inner_width: 300.0, ..SandboxConfig::default() };
+    config.context.surface = WidgetSurface::Profile;
+    config.context.chat_type = b"private".to_vec(); // a page has no chat: null for the widget
+    config.safe_area.top = 47.0; // replaced before the start
+    // No corners on a page: 0 for the widget.
+    config.content_safe_area =
+        WidgetContentSafeArea { top: 90.0, bottom: 150.0, left: 40.0, corner_right: 64.0, ..WidgetContentSafeArea::default() };
+    let start = SandboxHostedStart { viewport_height: 600.0, ..SandboxHostedStart::default() }; // replaced before the start
+    // Past the old ranges, as passed on a page; the negative side 0 for the widget.
+    let device = WidgetSafeArea { top: 120.0, bottom: 34.0, left: -5.0, ..WidgetSafeArea::default() };
+    // Kept by the runtime until its start, then applied after the start's own values.
+    host.send(1, Kind::Open, &[]);
+    host.send(1, Kind::DeviceSafeArea, &[Field::Str(&encode_device_safe_area(&device))]);
+    host.send(1, Kind::HostedViewportHeight, &[Field::F64(844.0)]);
+    host.send(
+        1,
+        Kind::HostedStart,
+        &[Field::Str(PROFILE_PAGE.as_bytes()), Field::Str(&encode_config(&config)), Field::Str(&encode_hosted_start(&start))],
+    );
+    host.wait("Rendered", |s| s.runtime == 1 && s.kind == Kind::Rendered);
+    assert_eq!(host.probe(1, 1, "place"), "profile:120:34:0:90:150:40:0:null");
+    let placed = "{\"type\":\"surface\",\"surface\":\"profile\",\"viewportHeight\":844}";
+    let content =
+        "{\"type\":\"safeArea\",\"inset\":{\"top\":90,\"right\":0,\"bottom\":150,\"left\":40,\"cornerLeft\":0,\"cornerRight\":64}}";
+    let edges = "{\"type\":\"deviceSafeArea\",\"inset\":{\"top\":120,\"right\":0,\"bottom\":34,\"left\":-5}}";
+    {
+        let sent = page_sent.lock().unwrap().clone();
+        assert_eq!(starts(&sent), ["theme", "surface", "safeArea", "deviceSafeArea", "policy"], "{sent:?}");
+        assert!(first_ops(&sent).is_some_and(|at| at >= 5), "{sent:?}");
+    }
+    assert_eq!(layers(&page_sent), [placed, content, edges]);
+    // The widget's `bottom` stopped in the engine process: the client's anchor stays `top`.
+    assert_eq!(host.count(1, Kind::ResizeAnchor), 0);
+    let turned = WidgetSafeArea { left: 59.0, right: 59.0, bottom: 21.0, ..WidgetSafeArea::default() };
+    host.send(1, Kind::DeviceSafeArea, &[Field::Str(&encode_device_safe_area(&turned))]);
+    host.send(1, Kind::DeviceSafeArea, &[Field::Str(&encode_device_safe_area(&turned))]);
+    let chrome = WidgetContentSafeArea { top: 80.0, bottom: 100.0, corner_right: 64.0, ..WidgetContentSafeArea::default() };
+    host.send(1, Kind::SafeArea, &[Field::Str(&encode_safe_area(&chrome))]);
+    host.send(1, Kind::HostedViewportHeight, &[Field::F64(700.123)]);
+    assert_eq!(host.probe(1, 2, "log.join('|') + '#' + clog.join('|')"), "0:59:59:21:true:true#80:0:100:0:0:0");
+    let turned_edges = "{\"type\":\"deviceSafeArea\",\"inset\":{\"top\":0,\"right\":59,\"bottom\":21,\"left\":59}}";
+    let resent = [
+        placed,
+        content,
+        edges,
+        turned_edges,
+        turned_edges,
+        "{\"type\":\"safeArea\",\"inset\":{\"top\":80,\"right\":0,\"bottom\":100,\"left\":0,\"cornerLeft\":0,\"cornerRight\":64}}",
+        "{\"type\":\"surface\",\"surface\":\"profile\",\"viewportHeight\":700.12}",
+    ];
+    assert_eq!(layers(&page_sent), resent);
+    // A viewport that is not finite crosses as it is, and the served check makes it 0.
+    host.send(1, Kind::HostedViewportHeight, &[Field::F64(f64::NAN)]);
+    assert_eq!(host.probe(1, 3, "log.length + ':' + clog.length"), "1:1");
+    assert_eq!(layers(&page_sent)[resent.len()..], ["{\"type\":\"surface\",\"surface\":\"profile\",\"viewportHeight\":0}"]);
+    host.send(1, Kind::Close, &[]);
+    host.finish();
+    assert_eq!(served.join().unwrap(), b"");
+
+    let bubble_sent = Arc::new(Mutex::new(Vec::new()));
+    let (host, served) = hosting(&res, &bubble_sent);
+    let mut bubble = SandboxConfig { inner_width: 300.0, ..SandboxConfig::default() };
+    bubble.safe_area.top = 47.0;
+    let start = SandboxHostedStart { viewport_height: 844.0, ..SandboxHostedStart::default() }; // a bubble has none
+    let html = "<script>var s = TelegramWidget.surface + ':' + JSON.stringify(TelegramWidget.safeAreaInset); TelegramWidget.setResizeAnchor('bottom');</script>";
+    host.hosted_start_forms(1, html, &encode_config(&bubble), &encode_hosted_start(&start));
+    host.wait("Loaded", |s| s.runtime == 1 && s.kind == Kind::Loaded);
+    assert_eq!(host.probe(1, 1, "s"), "message:{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}");
+    {
+        let sent = bubble_sent.lock().unwrap().clone();
+        assert_eq!(starts(&sent), ["theme", "surface", "safeArea", "deviceSafeArea", "policy"], "{sent:?}");
+        assert_eq!(sent[1], "{\"type\":\"surface\",\"surface\":\"message\",\"viewportHeight\":0}");
+        assert_eq!(sent[3], "{\"type\":\"deviceSafeArea\",\"inset\":{\"top\":47,\"right\":0,\"bottom\":0,\"left\":0}}");
+        assert!(first_ops(&sent).is_none_or(|at| at >= 5), "{sent:?}");
+    }
+    // The control of the page's: a bubble's anchor reaches the client.
+    assert_eq!(host.wait("ResizeAnchor", |s| s.runtime == 1 && s.kind == Kind::ResizeAnchor).first(), "bottom");
+    host.send(1, Kind::Close, &[]);
+    host.finish();
+    assert_eq!(served.join().unwrap(), b"");
+}
+
 #[test]
 fn a_hosting_stream_takes_only_its_kinds_and_an_engine_stream_none_of_them() {
     let res = resources();
@@ -354,6 +492,19 @@ fn a_hosting_stream_takes_only_its_kinds_and_an_engine_stream_none_of_them() {
     assert_eq!(String::from_utf8_lossy(&served.join().unwrap()), "kind 3 on runtime 1, which a hosting stream does not take");
     host.finish();
 
+    // A hosting stream takes the device's edges, but a form that is not an object ends serving, as the content's does.
+    // The host's end closes after its frames, so an end that took them all ends with no reason instead of waiting.
+    let (host_end, engine_end) = pair();
+    let served = serving(engine_end, None);
+    let host = Host::new(host_end);
+    host.opening(Kind::HostingOpening, &res);
+    host.wait("Ready", |s| s.kind == Kind::Ready);
+    host.send(1, Kind::Open, &[]);
+    host.send(1, Kind::DeviceSafeArea, &[Field::Str(b"[]")]);
+    host.end.shutdown();
+    assert_eq!(String::from_utf8_lossy(&served.join().unwrap()), "kind 22 on runtime 1 with a form that does not decode");
+    host.finish();
+
     // An engine opening on the hosting end: an engine stream, where a hosted start ends serving.
     let (host_end, engine_end) = pair();
     let served = serving(engine_end, None);
@@ -362,6 +513,19 @@ fn a_hosting_stream_takes_only_its_kinds_and_an_engine_stream_none_of_them() {
     host.wait("Ready", |s| s.kind == Kind::Ready);
     host.hosted_start(1, "<p>x</p>", false);
     assert_eq!(String::from_utf8_lossy(&served.join().unwrap()), "kind 33 on runtime 1, which only a hosting stream takes");
+    host.finish();
+
+    // An engine stream takes the device's edges too, never a page's viewport: that is the hosted glue's.
+    let (host_end, engine_end) = pair();
+    let served = serving(engine_end, None);
+    let host = Host::new(host_end);
+    host.opening(Kind::Opening, &res);
+    host.wait("Ready", |s| s.kind == Kind::Ready);
+    host.send(1, Kind::Open, &[]);
+    host.send(1, Kind::DeviceSafeArea, &[Field::Str(&encode_device_safe_area(&WidgetSafeArea { top: 47.0, ..WidgetSafeArea::default() }))]);
+    host.send(1, Kind::HostedViewportHeight, &[Field::F64(844.0)]);
+    host.end.shutdown();
+    assert_eq!(String::from_utf8_lossy(&served.join().unwrap()), "kind 37 on runtime 1, which only a hosting stream takes");
     host.finish();
 
     // The engine-only end refuses a hosting opening as another first kind.

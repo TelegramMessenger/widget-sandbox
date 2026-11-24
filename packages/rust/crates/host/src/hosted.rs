@@ -9,7 +9,8 @@ use std::thread::ThreadId;
 
 use twidget_bundle_stamp::SandboxResources;
 use twidget_engine::{
-    Engine, EngineDelegate, QueryAnswer, SandboxConfig, SandboxHostedStart, SandboxStats, WidgetContentSafeArea, WidgetTheme,
+    Engine, EngineDelegate, QueryAnswer, SandboxConfig, SandboxHostedStart, SandboxStats, WidgetContentSafeArea, WidgetSafeArea,
+    WidgetTheme,
 };
 use twidget_engine::{IntlProvider, WidgetRequestResponder};
 use twidget_js::Platform;
@@ -471,6 +472,14 @@ impl HostedRuntime for SandboxHostedRuntime {
 
     fn content_safe_area(&self, area: WidgetContentSafeArea) {
         self.input(move |host| host.set_content_safe_area(area), false);
+    }
+
+    fn safe_area(&self, area: WidgetSafeArea) {
+        self.input(move |host| host.set_safe_area(area), false);
+    }
+
+    fn viewport_height(&self, height: f64) {
+        self.input(move |host| host.set_viewport_height(height), false);
     }
 
     fn set_data(&self, data: WidgetData) {

@@ -1196,6 +1196,24 @@ impl ServedHost {
         });
     }
 
+    /// The device's edges over the widget changed with the screen's layout: the renderer gets the
+    /// `--tg-safe-area-inset-*` variables and the widget `safeAreaInset` and `safeAreaChanged`, from this one call.
+    /// Always 0 in a bubble (the renderer core and the shim check the values against the place).
+    pub(crate) fn set_safe_area(&self, area: WidgetSafeArea) {
+        self.served.host(move |s, st| {
+            if s.destroyed.load(Ordering::SeqCst) || s.renderer_only.load(Ordering::SeqCst) {
+                return;
+            }
+            st.config.borrow_mut().safe_area = area;
+            if st.started.get() {
+                s.to_renderer(st, Served::device_safe_area_message(&area));
+            }
+            if let Some(engine) = s.engine() {
+                engine.safe_area(area);
+            }
+        });
+    }
+
     /// A profile page's viewport changed with the screen's layout: `--tg-viewport-height`, and the page's least
     /// height; ignored (0) in a bubble. The renderer gets the place again once started.
     pub(crate) fn set_viewport_height(&self, height: f64) {

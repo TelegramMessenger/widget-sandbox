@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use twidget_bundle_stamp::SandboxResources;
-use twidget_engine::{QueryAnswer, SandboxConfig, SandboxHostedStart, SandboxStats, WidgetContentSafeArea, WidgetTheme};
+use twidget_engine::{QueryAnswer, SandboxConfig, SandboxHostedStart, SandboxStats, WidgetContentSafeArea, WidgetSafeArea, WidgetTheme};
 use twidget_js::{JsThread, Platform};
 use twidget_sdk_policy::WidgetData;
 use twidget_stream::{
@@ -16,8 +16,8 @@ use twidget_stream::{
 };
 
 use crate::coding::{
-    SandboxRemoteOutcome, decode_config, decode_data, decode_hosted_start, decode_outcome, decode_safe_area, decode_theme,
-    decode_theme_params, encode_stats,
+    SandboxRemoteOutcome, decode_config, decode_data, decode_device_safe_area, decode_hosted_start, decode_outcome, decode_safe_area,
+    decode_theme, decode_theme_params, encode_stats,
 };
 use crate::server::{SandboxRemoteServer, SandboxRemoteSink};
 
@@ -31,6 +31,10 @@ pub trait HostedRuntime: Send + Sync {
     fn start(&self, html: &[u8], config: SandboxConfig, start: SandboxHostedStart);
     fn theme(&self, theme: WidgetTheme);
     fn content_safe_area(&self, area: WidgetContentSafeArea);
+    /// The device's edges (the served host's `set_safe_area`).
+    fn safe_area(&self, area: WidgetSafeArea);
+    /// A profile page's viewport as the host checked it (the served host's `set_viewport_height`).
+    fn viewport_height(&self, height: f64);
     fn set_data(&self, data: WidgetData);
     fn set_visible(&self, visible: bool);
     /// The host stopped the widget: its engine dies with `reason`.
@@ -112,10 +116,10 @@ fn resources_of(f: &Frame) -> SandboxResources {
     SandboxResources { sandbox_bundle: f.str[1].to_vec(), validator_bundle: f.str[2].to_vec(), renderer_bundle: f.str[3].to_vec() }
 }
 
-/// The host kinds only a hosting stream takes: a hosted widget's start, its whole theme and its renderer's
-/// platform traffic.
+/// The host kinds only a hosting stream takes: a hosted widget's start, its whole theme, its renderer's platform
+/// traffic and a profile page's viewport (the glue's, which only a hosted widget has in the engine process).
 fn hosted_kind(kind: Kind) -> bool {
-    matches!(kind, Kind::HostedStart | Kind::HostedTheme | Kind::Platform | Kind::PlatformAnswer)
+    matches!(kind, Kind::HostedStart | Kind::HostedTheme | Kind::Platform | Kind::PlatformAnswer | Kind::HostedViewportHeight)
 }
 
 /// The host kinds a hosting stream takes on a runtime: its own and those a hosted widget shares with an engine;
@@ -125,6 +129,7 @@ fn hosting_takes(kind: Kind) -> bool {
     match kind {
         Kind::Open
         | Kind::SafeArea
+        | Kind::DeviceSafeArea
         | Kind::Data
         | Kind::Visible
         | Kind::Stop
@@ -572,6 +577,10 @@ impl Serving<'_> {
                 Some(area) => server.content_safe_area(area),
                 None => return undecodable(f),
             },
+            Kind::DeviceSafeArea => match decode_device_safe_area(f.str[0]) {
+                Some(area) => server.safe_area(area),
+                None => return undecodable(f),
+            },
             Kind::Data => match decode_data(f.str[0]) {
                 Some(data) => server.set_data(data),
                 None => return undecodable(f),
@@ -615,6 +624,11 @@ impl Serving<'_> {
                 Some(area) => runtime.content_safe_area(area),
                 None => return undecodable(f),
             },
+            Kind::DeviceSafeArea => match decode_device_safe_area(f.str[0]) {
+                Some(area) => runtime.safe_area(area),
+                None => return undecodable(f),
+            },
+            Kind::HostedViewportHeight => runtime.viewport_height(f.f64[0]),
             Kind::Data => match decode_data(f.str[0]) {
                 Some(data) => runtime.set_data(data),
                 None => return undecodable(f),

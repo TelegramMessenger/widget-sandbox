@@ -861,9 +861,14 @@ client that shows widgets only in messages passes nothing new and keeps v0.6.5's
   (no chatType, viewer, request or wallet). A profile case says `"surface": "profile"` in its header with a profile
   message kind. Its height gate is the page's (4000 px at 390 px wide), and the test bot cannot post it.
 - **Not done here.** The stress kit at screen size (a page's paint and layout cost) was skipped: the page has the
-  counted caps of a message, so the kit's ladders apply as they are. Telegram's clients have not built the screen. On the desktop core's line with the engine process (this branch: the remote, stream and hosted modes), the
-  place, the device layer and the viewport do not cross the process boundary yet: they reach the widget and the renderer
-  in process only, and a client-mode engine's widget is a bubble.
+  counted caps of a message, so the kit's ladders apply as they are. Telegram's clients have not built the screen.
+- **Across the engine process** (the desktop core's remote, stream and hosted modes). The place and the device layer
+  travel in the config (`encodeConfig`: `"surface"` inside `"context"`, `"safeArea"` beside `"contentSafeArea"`), a
+  page's viewport in the hosted start (`encodeHostedStart`'s `"viewportHeight"`); a form without them is a bubble with
+  zero edges. After the start `setSafeArea` crosses as kind 22 (`DeviceSafeArea`, on either stream) and a page's
+  `setViewportHeight` as kind 37 (`HostedViewportHeight`, a hosting stream only), with the stream's version still 1.
+  The safe-Rust desktop core (`packages/rust`, which Telegram Desktop's widget helper runs) follows the same glue: its
+  engine, wire forms, serving loop and served host.
 
 ## v0.6.5 — release notes (2026-11-12)
 
