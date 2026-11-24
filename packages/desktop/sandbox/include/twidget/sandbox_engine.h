@@ -407,6 +407,8 @@ public:
     void startHosted(SandboxHostedStart start, bool keepAtDeath = false);
     /// The chat's whole theme changed: for the engine process's renderer and the widget.
     void hostedTheme(const WidgetTheme& theme);
+    /// A profile page's viewport changed (`WidgetHost::setViewportHeight`, the number the host checked): for the engine process's glue, which resends it to its renderer.
+    void hostedViewportHeight(double height);
     /// An opaque message of the host's platform for the engine process's renderer, in order, while the route is open (a kept one too).
     void platform(std::string message);
     /// Hosted only, from any thread but one the dispatch thread waits for: hands the route over to `kept`, which must outlive the engine, in one step on the dispatch thread. False, with nothing changed, when the widget was never started, its renderer never announced itself (`onHostedRendererReady`), the route ended (the transport, a flood, an unanswered platform request, a reported death without `keepAtDeath`, `terminate` / `stop`, a counted `stop` that yielded to the transport's end included) or it was kept already. Else a live widget dies "terminated" through the delegate so far and the engine's side hears `stop("terminated")`, then `kept` is the delegate, every grant goes, the channel hears `kept()`, and from then on only the renderer's platform traffic is carried (`platform`, `onHostedMessage`, `onHostedRequest`; every other call of the engine's side has no effect) until the route ends: the engine's side's own death reports change nothing, and an end the host did not ask for reaches `kept` as `onHostedEnded`; the destructor ends it without that call.

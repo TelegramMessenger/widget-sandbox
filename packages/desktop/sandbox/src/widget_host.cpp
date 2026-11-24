@@ -130,7 +130,11 @@ void WidgetHost::setViewportHeight(double height) {
     host([this, height] {
         if (destroyed_ || rendererOnly_) return;
         pageViewport_ = surface::checkViewportHeight(config_.context.surface, height);
-        // A hosted widget's renderer is the engine process's, and no channel carries the viewport there yet.
+        // A hosted widget's glue is the engine process's: `start` carries the number as it is then, a later change goes there as it comes.
+        if (hosting_.hosted) {
+            if (started_) engine_->hostedViewportHeight(pageViewport_);
+            return;
+        }
         if (glue_) (this->*glue_->viewportHeight)();
     });
 }

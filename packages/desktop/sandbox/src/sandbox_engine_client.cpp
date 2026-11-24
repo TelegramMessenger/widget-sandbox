@@ -365,7 +365,10 @@ public:
         std::optional<std::string> anchor = sdk::checkResizeAnchor(edge);
         if (!anchor) return violation("resize anchor " + edge.substr(0, 16));
         if (Admitted admitted = admit(anchor->size())) {
-            deliver(std::move(admitted), [anchor = std::move(*anchor)](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onResizeAnchor(engine, anchor); });
+            // A profile page never moves when its height changes, whatever the engine's side reports: the host's own place decides, as the engine's check does in process.
+            deliver(std::move(admitted), [anchor = std::move(*anchor)](SandboxEngine& engine, SandboxEngineDelegate& delegate) {
+                if (surface::keepsResizeAnchor(engine.config_.context.surface)) delegate.onResizeAnchor(engine, anchor);
+            });
         }
     }
 
@@ -864,6 +867,13 @@ void SandboxEngine::hostedTheme(const WidgetTheme& theme) {
     if (!hosted_) return;
     thread_.async([this, theme] {
         if (!dead_) hosted_->hostedTheme(theme);
+    });
+}
+
+void SandboxEngine::hostedViewportHeight(double height) {
+    if (!hosted_) return;
+    thread_.async([this, height] {
+        if (!dead_) hosted_->hostedViewportHeight(height);
     });
 }
 

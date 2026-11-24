@@ -26,7 +26,7 @@ public:
     virtual bool decided() const = 0;
 };
 
-/// Host → engine for a hosted client, with `SandboxRemoteChannel`'s rules (its dispatch thread, the host's order, no call but `probe` waits) and four calls of its own: a hosted client makes `attach`, `startHosted`, `hostedTheme`, `platform`, `kept`, `contentSafeArea`, `setData`, `setVisible`, `stop`, `answer`, `probe` and `close`, never `start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`, `pressBegan`, `pressEnded` or `chargeValidator` (the widget's own glue makes those inside the engine process); only inline virtuals are declared (no key function), so no translation unit depends on another for its vtable.
+/// Host → engine for a hosted client, with `SandboxRemoteChannel`'s rules (its dispatch thread, the host's order, no call but `probe` waits) and five calls of its own: a hosted client makes `attach`, `startHosted`, `hostedTheme`, `hostedViewportHeight`, `platform`, `kept`, `contentSafeArea`, `safeArea`, `setData`, `setVisible`, `stop`, `answer`, `probe` and `close`, never `start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`, `pressBegan`, `pressEnded` or `chargeValidator` (the widget's own glue makes those inside the engine process); only inline virtuals are declared (no key function), so no translation unit depends on another for its vtable.
 class SandboxHostedChannel : public SandboxRemoteChannel {
 public:
     /// What the first death its hosted client reported of the widget was to the transport (`death()`): only a hosting stream with its owner's SandboxHostedAnswers (remote_stream.h) decides one other than `Ordinary`, for the death its end brought, and only when that end was the widget's first death.
@@ -43,6 +43,8 @@ public:
     virtual void startHosted(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) = 0;
     /// The chat's whole theme changed (WidgetHost's `setTheme`), for the renderer and the widget in the engine process.
     virtual void hostedTheme(const WidgetTheme& theme) = 0;
+    /// A profile page's viewport changed (WidgetHost's `setViewportHeight`, the number it checked), for the widget's glue in the engine process, which resends it to the renderer.
+    virtual void hostedViewportHeight(double height) = 0;
     /// An opaque message of the host's platform for the widget's renderer, in order (`SandboxHostedPlatform::onMessage`): whether the transport's writer admitted it for this live route (a stream's queue took its frame); false, and it never goes out, once the route is not live, closed or not yet attached, the stream ends, or the writer refuses it. A hosted client grants a press only on true (`SandboxEngine::platformPress`).
     virtual bool platform(const std::string& message) = 0;
     /// The host kept the widget's renderer (the client's `keepHosted`, once, after the widget died): from now on only the renderer's platform traffic crosses on this route, until `close`; a transport may count the route out of its live runtimes. The default does nothing.
@@ -106,8 +108,10 @@ public:
     void attach(std::shared_ptr<SandboxRemoteSink> sink) override;
     void startHosted(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) override;
     void hostedTheme(const WidgetTheme& theme) override;
+    void hostedViewportHeight(double height) override;
     bool platform(const std::string& message) override;
     void contentSafeArea(const WidgetContentSafeArea& area) override;
+    void safeArea(const WidgetSafeArea& area) override;
     void setData(const WidgetData& data) override;
     void setVisible(bool visible) override;
     void stop(const std::string& reason) override;

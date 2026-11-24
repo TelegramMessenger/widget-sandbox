@@ -136,6 +136,12 @@ public:
     void contentSafeArea(const WidgetContentSafeArea& area) override {
         input([area](WidgetHost& host) { host.setContentSafeArea(area); });
     }
+    void safeArea(const WidgetSafeArea& area) override {
+        input([area](WidgetHost& host) { host.setSafeArea(area); });
+    }
+    void viewportHeight(double height) override {
+        input([height](WidgetHost& host) { host.setViewportHeight(height); });
+    }
     void setData(const WidgetData& data) override {
         input([data](WidgetHost& host) { host.setData(data); });
     }
@@ -381,6 +387,7 @@ void SandboxHostedLoopbackChannel::hostedTheme(const WidgetTheme& theme) {
     if (std::optional<WidgetTheme> coded = SandboxRemoteCoding::decodeTheme(SandboxRemoteCoding::encodeTheme(theme))) runtime_->theme(*coded);
     else client_->remoteDisconnected();
 }
+void SandboxHostedLoopbackChannel::hostedViewportHeight(double height) { runtime_->viewportHeight(height); }
 bool SandboxHostedLoopbackChannel::platform(const std::string& message) {
     if (closed_ || !runtime_) return false;
     runtime_->platform(message);
@@ -388,6 +395,10 @@ bool SandboxHostedLoopbackChannel::platform(const std::string& message) {
 }
 void SandboxHostedLoopbackChannel::contentSafeArea(const WidgetContentSafeArea& area) {
     if (std::optional<WidgetContentSafeArea> coded = SandboxRemoteCoding::decodeSafeArea(SandboxRemoteCoding::encodeSafeArea(area))) runtime_->contentSafeArea(*coded);
+    else client_->remoteDisconnected();
+}
+void SandboxHostedLoopbackChannel::safeArea(const WidgetSafeArea& area) {
+    if (std::optional<WidgetSafeArea> coded = SandboxRemoteCoding::decodeDeviceSafeArea(SandboxRemoteCoding::encodeDeviceSafeArea(area))) runtime_->safeArea(*coded);
     else client_->remoteDisconnected();
 }
 void SandboxHostedLoopbackChannel::setData(const WidgetData& data) {

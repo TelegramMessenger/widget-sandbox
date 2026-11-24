@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-/// Swift's RemoteEngineTests.Channel: the test is the engine's side; each call with its arguments and its thread, under a lock. A hosted channel too (`hostedStart:`, `hostedTheme:`, `platform:`, `kept`), calls an engine-mode client never makes.
+/// Swift's RemoteEngineTests.Channel: the test is the engine's side; each call with its arguments and its thread, under a lock. A hosted channel too (`hostedStart:`, `hostedTheme:`, `viewportHeight:`, `platform:`, `kept`), calls an engine-mode client never makes.
 class FakeRemoteChannel final : public SandboxHostedChannel {
 public:
     /// Called on the calling thread after a call is recorded, outside the lock; set it while no input is on its way.
@@ -61,6 +61,7 @@ public:
         record(call);
     }
     void contentSafeArea(const WidgetContentSafeArea& area) override { record("safeArea:" + SandboxRemoteCoding::encodeSafeArea(area)); }
+    void safeArea(const WidgetSafeArea& area) override { record("deviceSafeArea:" + SandboxRemoteCoding::encodeDeviceSafeArea(area)); }
     void setData(const WidgetData& data) override { record("data:" + SandboxRemoteCoding::encodeData(data)); }
     void setVisible(bool visible) override { record(visible ? "visible:true" : "visible:false"); }
     void pressBegan() override { record("press"); }
@@ -79,6 +80,7 @@ public:
         record("hostedStart:" + html + ":" + SandboxRemoteCoding::encodeConfig(config) + ":" + SandboxRemoteCoding::encodeHostedStart(start));
     }
     void hostedTheme(const WidgetTheme& theme) override { record("hostedTheme:" + SandboxRemoteCoding::encodeTheme(theme)); }
+    void hostedViewportHeight(double height) override { record("viewportHeight:" + Json::number(height)); }
     bool platform(const std::string& message) override {
         record("platform:" + message);
         return admitsPlatform;

@@ -52,11 +52,13 @@ inline std::string hostedKindName(uint8_t kind) {
     case K::QueryAnswer: return "QueryAnswer";
     case K::IntlAnswer: return "IntlAnswer";
     case K::Close: return "Close";
+    case K::DeviceSafeArea: return "DeviceSafeArea";
     case K::HostingOpening: return "HostingOpening";
     case K::HostedStart: return "HostedStart";
     case K::HostedTheme: return "HostedTheme";
     case K::Platform: return "Platform";
     case K::PlatformAnswer: return "PlatformAnswer";
+    case K::HostedViewportHeight: return "HostedViewportHeight";
     case K::Ready: return "Ready";
     case K::Refused: return "Refused";
     case K::TaskStarted: return "TaskStarted";
@@ -438,6 +440,7 @@ private:
             inner_->startHosted(html, config, start);
         }
         void hostedTheme(const WidgetTheme& theme) override { inner_->hostedTheme(theme); }
+        void hostedViewportHeight(double height) override { inner_->hostedViewportHeight(height); }
         bool platform(const std::string& message) override { return inner_->platform(message); }
         // The client is the kept renderer's from now on and its WidgetHost may go first: no fixture input reaches that host any more.
         void kept() override {
@@ -452,6 +455,7 @@ private:
         void resize(const std::string& entriesJson) override { inner_->resize(entriesJson); }
         void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) override { inner_->theme(colorScheme, themeParams); }
         void contentSafeArea(const WidgetContentSafeArea& area) override { inner_->contentSafeArea(area); }
+        void safeArea(const WidgetSafeArea& area) override { inner_->safeArea(area); }
         void setData(const WidgetData& data) override { inner_->setData(data); }
         void setVisible(bool visible) override { inner_->setVisible(visible); }
         void pressBegan() override { inner_->pressBegan(); }

@@ -289,6 +289,7 @@ TEST(remote_stream_hosted_engine_opening_and_lockdown) {
     std::string dropped = open1 + close1;
     for (const auto& [kind, bytes] : hostedOnlyFrames(1)) dropped += bytes;
     dropped += FrameBytes(1, wire::SafeArea).str(SandboxRemoteCoding::encodeSafeArea(WidgetContentSafeArea{})).bytes() +
+               FrameBytes(1, wire::DeviceSafeArea).str(SandboxRemoteCoding::encodeDeviceSafeArea(WidgetSafeArea{})).bytes() +
                FrameBytes(1, wire::Data).str(SandboxRemoteCoding::encodeData(WidgetData{})).bytes() + FrameBytes(1, wire::Visible).boolean(1).bytes() +
                FrameBytes(1, wire::Stop).str("why").bytes() + FrameBytes(1, wire::Answer).i64(1).str(SandboxRemoteCoding::encodeOutcome(SandboxRemoteOutcome{})).bytes() +
                FrameBytes(1, wire::Probe).i64(1).str("1").bytes() + FrameBytes(1, wire::IntlAnswer).str("late").bytes();
@@ -308,6 +309,7 @@ TEST(remote_stream_hosted_engine_opening_and_lockdown) {
         {"a hosted start that does not decode", open1 + FrameBytes(1, wire::HostedStart).str("<p>x</p>").str(config).str("{}").bytes(), false, "kind 33 on runtime 1 with a form that does not decode"},
         {"a theme that does not decode", open1 + FrameBytes(1, wire::HostedTheme).str("{\"params\":{}}").bytes(), false, "kind 34 on runtime 1 with a form that does not decode"},
         {"a safe area that does not decode", open1 + FrameBytes(1, wire::SafeArea).str("[]").bytes(), false, "kind 10 on runtime 1 with a form that does not decode"},
+        {"a device safe area that does not decode", open1 + FrameBytes(1, wire::DeviceSafeArea).str("[]").bytes(), false, "kind 22 on runtime 1 with a form that does not decode"},
         {"data that does not decode", open1 + FrameBytes(1, wire::Data).str("null").bytes(), false, "kind 11 on runtime 1 with a form that does not decode"},
         {"an outcome that does not decode", open1 + FrameBytes(1, wire::Answer).i64(1).str("{}").bytes(), false, "kind 17 on runtime 1 with a form that does not decode"},
         {"a hosted start with a field missing", open1 + FrameBytes(1, wire::HostedStart).str("<p>x</p>").str(config).bytes(), false, "kind 33 with a field past the frame's end"},
@@ -1270,6 +1272,7 @@ public:
     }
     void startHosted(const std::string&, const SandboxConfig&, const SandboxHostedStart&) override {}
     void hostedTheme(const WidgetTheme&) override {}
+    void hostedViewportHeight(double) override {}
     bool platform(const std::string&) override { return false; }
     void start(const std::string&, const SandboxConfig&) override {}
     void event(const std::string&) override {}
@@ -1279,6 +1282,7 @@ public:
     void resize(const std::string&) override {}
     void theme(const std::string&, const std::map<std::string, std::string>&) override {}
     void contentSafeArea(const WidgetContentSafeArea&) override {}
+    void safeArea(const WidgetSafeArea&) override {}
     void setData(const WidgetData&) override {}
     void setVisible(bool) override {}
     void pressBegan() override {}
@@ -1433,6 +1437,7 @@ public:
     }
     void startHosted(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) override { inner_->startHosted(html, config, start); }
     void hostedTheme(const WidgetTheme& theme) override { inner_->hostedTheme(theme); }
+    void hostedViewportHeight(double height) override { inner_->hostedViewportHeight(height); }
     bool platform(const std::string& message) override { return inner_->platform(message); }
     void kept() override { inner_->kept(); }
     void start(const std::string& html, const SandboxConfig& config) override { inner_->start(html, config); }
@@ -1443,6 +1448,7 @@ public:
     void resize(const std::string& entriesJson) override { inner_->resize(entriesJson); }
     void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) override { inner_->theme(colorScheme, themeParams); }
     void contentSafeArea(const WidgetContentSafeArea& area) override { inner_->contentSafeArea(area); }
+    void safeArea(const WidgetSafeArea& area) override { inner_->safeArea(area); }
     void setData(const WidgetData& data) override { inner_->setData(data); }
     void setVisible(bool visible) override { inner_->setVisible(visible); }
     void pressBegan() override { inner_->pressBegan(); }

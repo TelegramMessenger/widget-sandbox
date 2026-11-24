@@ -97,6 +97,9 @@ void SandboxRemoteServer::theme(const std::string& colorScheme, const std::map<s
 void SandboxRemoteServer::contentSafeArea(const WidgetContentSafeArea& area) {
     input([area](SandboxEngine& engine) { engine.contentSafeArea(area); });
 }
+void SandboxRemoteServer::safeArea(const WidgetSafeArea& area) {
+    input([area](SandboxEngine& engine) { engine.safeArea(area); });
+}
 void SandboxRemoteServer::setData(const WidgetData& data) {
     input([data](SandboxEngine& engine) { engine.setData(data); });
 }
@@ -269,6 +272,10 @@ void SandboxLoopbackChannel::resize(const std::string& entriesJson) { server_->r
 void SandboxLoopbackChannel::theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) { server_->theme(colorScheme, themeParams); }
 void SandboxLoopbackChannel::contentSafeArea(const WidgetContentSafeArea& area) {
     if (std::optional<WidgetContentSafeArea> coded = SandboxRemoteCoding::decodeSafeArea(SandboxRemoteCoding::encodeSafeArea(area))) server_->contentSafeArea(*coded);
+    else client_->remoteDisconnected();
+}
+void SandboxLoopbackChannel::safeArea(const WidgetSafeArea& area) {
+    if (std::optional<WidgetSafeArea> coded = SandboxRemoteCoding::decodeDeviceSafeArea(SandboxRemoteCoding::encodeDeviceSafeArea(area))) server_->safeArea(*coded);
     else client_->remoteDisconnected();
 }
 void SandboxLoopbackChannel::setData(const WidgetData& data) {

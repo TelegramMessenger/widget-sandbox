@@ -74,14 +74,17 @@ std::shared_ptr<SandboxResources> resourcesOf(const Frame& f) {
     return resources;
 }
 
-/// The host kinds only a hosting stream takes: a hosted widget's start, its whole theme and its renderer's platform traffic.
-bool hostedKind(Kind kind) { return kind == Kind::HostedStart || kind == Kind::HostedTheme || kind == Kind::Platform || kind == Kind::PlatformAnswer; }
+/// The host kinds only a hosting stream takes: a hosted widget's start, its whole theme, its renderer's platform traffic and a profile page's viewport (the glue's, which only a hosted widget has in the engine process).
+bool hostedKind(Kind kind) {
+    return kind == Kind::HostedStart || kind == Kind::HostedTheme || kind == Kind::Platform || kind == Kind::PlatformAnswer || kind == Kind::HostedViewportHeight;
+}
 
 /// The host kinds a hosting stream takes on a runtime: its own and those a hosted widget shares with an engine; the engine's start, input, theme, presses, validator time and query answers are made inside the engine process.
 bool hostingTakes(Kind kind) {
     switch (kind) {
     case Kind::Open:
     case Kind::SafeArea:
+    case Kind::DeviceSafeArea:
     case Kind::Data:
     case Kind::Visible:
     case Kind::Stop:
@@ -350,6 +353,10 @@ private:
             if (std::optional<WidgetContentSafeArea> area = SandboxRemoteCoding::decodeSafeArea(f.str[0])) server.contentSafeArea(*area);
             else return undecodable(f);
             break;
+        case Kind::DeviceSafeArea:
+            if (std::optional<WidgetSafeArea> area = SandboxRemoteCoding::decodeDeviceSafeArea(f.str[0])) server.safeArea(*area);
+            else return undecodable(f);
+            break;
         case Kind::Data:
             if (std::optional<WidgetData> data = SandboxRemoteCoding::decodeData(f.str[0])) server.setData(*data);
             else return undecodable(f);
@@ -396,6 +403,11 @@ private:
             if (std::optional<WidgetContentSafeArea> area = SandboxRemoteCoding::decodeSafeArea(f.str[0])) runtime.contentSafeArea(*area);
             else return undecodable(f);
             break;
+        case Kind::DeviceSafeArea:
+            if (std::optional<WidgetSafeArea> area = SandboxRemoteCoding::decodeDeviceSafeArea(f.str[0])) runtime.safeArea(*area);
+            else return undecodable(f);
+            break;
+        case Kind::HostedViewportHeight: runtime.viewportHeight(f.f64[0]); break;
         case Kind::Data:
             if (std::optional<WidgetData> data = SandboxRemoteCoding::decodeData(f.str[0])) runtime.setData(*data);
             else return undecodable(f);

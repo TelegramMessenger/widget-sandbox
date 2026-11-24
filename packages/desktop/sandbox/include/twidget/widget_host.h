@@ -250,7 +250,7 @@ public:
     /// `safeAreaChanged`, from this one call; never per frame. Always 0 in a bubble.
     void setSafeArea(const WidgetSafeArea& area);
     /// A profile page's viewport changed with the screen's layout: `--tg-viewport-height`, and the page's least height.
-    /// Ignored in a bubble.
+    /// Ignored in a bubble. A hosted widget's start carries the latest one before it, the engine process's glue each later one.
     void setViewportHeight(double height);
     /// A DOM event for the widget that did not come from the renderer (the harness's `--events`); nothing in hosted mode, whose input is the engine process's renderer's.
     void event(const std::string& json);

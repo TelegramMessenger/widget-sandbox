@@ -36,6 +36,10 @@ public:
     virtual void start(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) = 0;
     virtual void theme(const WidgetTheme& theme) = 0;
     virtual void contentSafeArea(const WidgetContentSafeArea& area) = 0;
+    /// The device's edges (the served host's `setSafeArea`).
+    virtual void safeArea(const WidgetSafeArea& area) = 0;
+    /// A profile page's viewport as the host checked it (the served host's `setViewportHeight`).
+    virtual void viewportHeight(double height) = 0;
     virtual void setData(const WidgetData& data) = 0;
     virtual void setVisible(bool visible) = 0;
     /// The host stopped the widget: its engine dies with `reason`.

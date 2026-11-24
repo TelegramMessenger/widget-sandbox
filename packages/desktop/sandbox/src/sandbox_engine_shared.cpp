@@ -203,8 +203,7 @@ void SandboxEngine::contentSafeArea(const WidgetContentSafeArea& area) {
 }
 
 void SandboxEngine::safeArea(const WidgetSafeArea& area) {
-    // Neither the config's wire form nor a remote channel carries the device's edges yet: a client-mode engine's widget has none.
-    if (client_) return;
+    if (client_) return forward([area](SandboxRemoteChannel& remote) { remote.safeArea(area); });
     (this->*inProcess_->safeArea)(area);
 }
 

@@ -301,7 +301,8 @@ TEST(remote_stream_engine_opening) {
 
     const std::string open1 = FrameBytes(1, wire::Open).bytes(), open2 = FrameBytes(2, wire::Open).bytes(), event1 = FrameBytes(1, wire::Event).str("{}").bytes();
     const std::string dropped = open1 + FrameBytes(1, wire::Close).bytes() + event1 + FrameBytes(1, wire::QueryAnswer).str("{}").boolean(1).str("b").bytes() +
-                                FrameBytes(1, wire::IntlAnswer).str("late").bytes() + FrameBytes(1, wire::Probe).i64(1).str("1").bytes() + FrameBytes(1, wire::Start).str("<p>x</p>").str("{}").bytes();
+                                FrameBytes(1, wire::IntlAnswer).str("late").bytes() + FrameBytes(1, wire::Probe).i64(1).str("1").bytes() + FrameBytes(1, wire::Start).str("<p>x</p>").str("{}").bytes() +
+                                FrameBytes(1, wire::DeviceSafeArea).str("[]").bytes();
     struct After {
         const char* name;
         std::string bytes;
@@ -324,6 +325,7 @@ TEST(remote_stream_engine_opening) {
         {"a config that does not decode", open1 + FrameBytes(1, wire::Start).str("<p>x</p>").str("{}").bytes(), false, "kind 3 on runtime 1 with a form that does not decode"},
         {"a palette that does not decode", open1 + FrameBytes(1, wire::Theme).str("dark").str("{\"bg_color\":1}").bytes(), false, "kind 9 on runtime 1 with a form that does not decode"},
         {"a safe area that does not decode", open1 + FrameBytes(1, wire::SafeArea).str("[]").bytes(), false, "kind 10 on runtime 1 with a form that does not decode"},
+        {"a device safe area that does not decode", open1 + FrameBytes(1, wire::DeviceSafeArea).str("[]").bytes(), false, "kind 22 on runtime 1 with a form that does not decode"},
         {"data that does not decode", open1 + FrameBytes(1, wire::Data).str("null").bytes(), false, "kind 11 on runtime 1 with a form that does not decode"},
         {"an outcome that does not decode", open1 + FrameBytes(1, wire::Answer).i64(1).str("{}").bytes(), false, "kind 17 on runtime 1 with a form that does not decode"},
         {"a closed runtime's frames", dropped, true, ""},

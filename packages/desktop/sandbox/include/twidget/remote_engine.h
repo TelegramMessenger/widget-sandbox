@@ -61,6 +61,8 @@ public:
     virtual void resize(const std::string& entriesJson) = 0;
     virtual void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) = 0;
     virtual void contentSafeArea(const WidgetContentSafeArea& area) = 0;
+    /// The device's edges (`SandboxEngine::safeArea`), the layer under the content's.
+    virtual void safeArea(const WidgetSafeArea& area) = 0;
     virtual void setData(const WidgetData& data) = 0;
     virtual void setVisible(bool visible) = 0;
     virtual void pressBegan() = 0;
@@ -147,6 +149,7 @@ public:
     void resize(const std::string& entriesJson);
     void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams);
     void contentSafeArea(const WidgetContentSafeArea& area);
+    void safeArea(const WidgetSafeArea& area);
     void setData(const WidgetData& data);
     void setVisible(bool visible);
     void pressBegan();
@@ -214,6 +217,7 @@ public:
     void resize(const std::string& entriesJson) override;
     void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) override;
     void contentSafeArea(const WidgetContentSafeArea& area) override;
+    void safeArea(const WidgetSafeArea& area) override;
     void setData(const WidgetData& data) override;
     void setVisible(bool visible) override;
     void pressBegan() override;

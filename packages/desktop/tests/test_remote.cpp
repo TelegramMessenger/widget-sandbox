@@ -563,6 +563,7 @@ TEST(remote_inputs_reach_the_channel_in_order) {
     CHECK(engine.isRemote() && channel->sink());
     engine.setDelegate(&recorder);
     engine.contentSafeArea(WidgetContentSafeArea{1, 2, 3, 4, 5, 6});
+    engine.safeArea(WidgetSafeArea{7, 8.5, -9, 0});
     engine.setData(WidgetData{std::string("chat"), std::nullopt});
     engine.start();
     engine.start();
@@ -582,6 +583,7 @@ TEST(remote_inputs_reach_the_channel_in_order) {
     engine.thread().sync([] {});
     const std::vector<std::string> expected = {
         "safeArea:{\"top\":1,\"right\":2,\"bottom\":3,\"left\":4,\"cornerLeft\":5,\"cornerRight\":6}",
+        "deviceSafeArea:{\"top\":7,\"right\":8.5,\"bottom\":-9,\"left\":0}",
         "data:{\"chatData\":\"chat\",\"publicData\":null}",
         startCall("<p>x</p>", config),
         "event:{\"type\":\"keydown\"}",
@@ -1396,7 +1398,7 @@ TEST(remote_a_synchronous_call_gives_its_place_back_before_it_answers) {
     CHECK_MSG(counted == 0, std::to_string(counted) + " of 5000 answers came with their call still counted, the first " + firstCounted);
 }
 
-/// Resize anchors pass `checkResizeAnchor` (also in a preview), a public-data watch reaches no preview, stats come bounded as the wire's numbers are whatever struct arrives, and after a death nothing more comes.
+/// Resize anchors pass `checkResizeAnchor` (also in a preview) and reach the delegate only where the host's own place keeps one (a page's valid edge is admitted and goes nowhere, its invalid one is still a violation; the bubble beside it hears the same edge), a public-data watch reaches no preview, stats come bounded as the wire's numbers are whatever struct arrives, and after a death nothing more comes.
 TEST(remote_anchors_watches_stats_and_loaded_follow_the_hosts_rules) {
     {
         RemoteRun r;
@@ -1468,6 +1470,24 @@ TEST(remote_anchors_watches_stats_and_loaded_follow_the_hosts_rules) {
         r.sink().remoteLoaded();
         r.settle();
         CHECK_MSG((r.recorder.events() == std::vector<std::string>{"anchor:bottom", "loaded"}), joined(r.recorder.events()));
+    }
+    {
+        SandboxConfig page = remoteConfig();
+        page.context.surface = WidgetSurface::Profile;
+        RemoteRun profile(page), message;
+        for (RemoteRun* r : {&profile, &message}) {
+            r->sink().remoteResizeAnchor("bottom");
+            r->sink().remoteResizeAnchor("left");
+            r->sink().remoteResizeAnchor("top");
+            r->sink().remoteLoaded();
+            r->settle();
+            const SandboxEngine::RemoteBacklog b = r->engine.remoteBacklog();
+            CHECK_MSG(b.bytes == 0 && b.calls == 0, std::to_string(b.bytes) + " bytes, " + std::to_string(b.calls) + " calls still counted");
+        }
+        CHECK_MSG((profile.recorder.events() == std::vector<std::string>{"diag:protocol-violation", "loaded"}), joined(profile.recorder.events()));
+        CHECK_MSG((message.recorder.events() == std::vector<std::string>{"anchor:bottom", "diag:protocol-violation", "anchor:top", "loaded"}), joined(message.recorder.events()));
+        const std::vector<std::pair<std::string, std::string>> diags = profile.recorder.diags();
+        CHECK(diags.size() == 1 && diags[0].second == "resize anchor left");
     }
 }
 
@@ -2576,6 +2596,7 @@ public:
     void resize(const std::string& entriesJson) override { loopback_.resize(entriesJson); }
     void theme(const std::string& scheme, const std::map<std::string, std::string>& params) override { loopback_.theme(scheme, params); }
     void contentSafeArea(const WidgetContentSafeArea& area) override { loopback_.contentSafeArea(area); }
+    void safeArea(const WidgetSafeArea& area) override { loopback_.safeArea(area); }
     void setData(const WidgetData& data) override { loopback_.setData(data); }
     void setVisible(bool visible) override { loopback_.setVisible(visible); }
     void pressBegan() override { loopback_.pressBegan(); }

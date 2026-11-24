@@ -899,7 +899,9 @@ mode, the one its opening names.
   renderer factory, the scheme and the width the host would have built its
   renderer with. `isHosted()` says which mode a host is in.
 - What an embedder uses stays as it is: `start`, `setTheme` (the whole theme
-  crosses), `setVisible`, `setData`, `setContentSafeArea`, `probe`, `destroy`,
+  crosses), `setVisible`, `setData`, `setContentSafeArea`, `setSafeArea`,
+  `setViewportHeight` (a page's: the hosted start carries the latest, each
+  later one crosses), `probe`, `destroy`,
   the observers, `stoppedLabel` (it travels in the hosted start), the
   diagnostics, the waits, `onHostThread`, `remoteBacklog`. New: `sendPlatform`
   (an opaque message for the engine process's renderer, in order with the

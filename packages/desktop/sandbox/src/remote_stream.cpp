@@ -280,6 +280,7 @@ public:
     }
     void startHosted(const std::string&, const SandboxConfig&, const SandboxHostedStart&) override {}
     void hostedTheme(const WidgetTheme&) override {}
+    void hostedViewportHeight(double) override {}
     bool platform(const std::string&) override { return false; }
     void start(const std::string&, const SandboxConfig&) override {}
     void event(const std::string&) override {}
@@ -289,6 +290,7 @@ public:
     void resize(const std::string&) override {}
     void theme(const std::string&, const std::map<std::string, std::string>&) override {}
     void contentSafeArea(const WidgetContentSafeArea&) override {}
+    void safeArea(const WidgetSafeArea&) override {}
     void setData(const WidgetData&) override {}
     void setVisible(bool) override {}
     void pressBegan() override {}
@@ -1111,6 +1113,11 @@ public:
         if (SandboxRemoteCoding::decodeSafeArea(coded)) send(Kind::SafeArea, {coded});
         else connection_->lose(route_);
     }
+    void safeArea(const WidgetSafeArea& area) override {
+        const std::string coded = SandboxRemoteCoding::encodeDeviceSafeArea(area);
+        if (SandboxRemoteCoding::decodeDeviceSafeArea(coded)) send(Kind::DeviceSafeArea, {coded});
+        else connection_->lose(route_);
+    }
     void setData(const WidgetData& data) override {
         const std::string coded = SandboxRemoteCoding::encodeData(data);
         if (SandboxRemoteCoding::decodeData(coded)) send(Kind::Data, {coded});
@@ -1138,6 +1145,7 @@ public:
         if (SandboxRemoteCoding::decodeTheme(coded)) send(Kind::HostedTheme, {coded});
         else connection_->lose(route_);
     }
+    void hostedViewportHeight(double height) override { send(Kind::HostedViewportHeight, {height}); }
     bool platform(const std::string& message) override {
         Sent sent;
         if (const SandboxHostedAnswers::Reading reading = connection_->readOf(message); reading.role == SandboxHostedAnswers::Role::Expects) sent.expects = reading;
