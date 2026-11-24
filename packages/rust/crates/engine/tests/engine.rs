@@ -112,21 +112,17 @@ fn resources() -> Arc<SandboxResources> {
     Arc::new(SandboxResources::from_directory(dir).expect("the desktop bundles (pnpm build:desktop)"))
 }
 
-/// What `recording_device_inputs` appends to the sandbox bundle.
-const RECORD_DEVICE_INPUTS: &str = concat!(
-    "\n(function (g) { var dispatch = g.__twDispatch, seen = [];",
-    " Object.defineProperty(g, '__twDispatch', { configurable: true, value: function (kind, arg) {",
-    " if (kind === 'boot') seen.push('boot:' + JSON.stringify(JSON.parse(arg).config.deviceSafeArea));",
-    " if (kind === 'deviceSafeArea') seen.push('input:' + arg);",
-    " return dispatch(kind, arg); } });",
-    " Object.defineProperty(g, 'deviceInputs', { value: seen }); })(globalThis);\n"
-);
+/// What `recording_device_inputs` appends to the sandbox bundle: the C++ suite's fixture, which
+/// test_profile_surface.cpp and crates/host/tests/hosted.rs read too, its leading newline parting it from the bundle's
+/// last line; its line ends as a checkout made them (core.autocrlf), which `recording_device_inputs` makes LF.
+const RECORD_DEVICE_INPUTS: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../desktop/tests/fixtures/record-device-inputs.js"));
 
 /// test_profile_surface.cpp's `recordingDeviceInputs`: the shipped bundles, the sandbox's dispatcher wrapped so that
 /// the realm keeps `deviceInputs`, the device's edges of the boot record (`boot:`) and each `deviceSafeArea` input
 /// (`input:`), as the engine wrote them for the widget.
 fn recording_device_inputs() -> Arc<SandboxResources> {
-    sandbox_bundle_with(RECORD_DEVICE_INPUTS)
+    sandbox_bundle_with(&RECORD_DEVICE_INPUTS.replace('\r', ""))
 }
 
 /// What `native_boundary` appends to the sandbox bundle.

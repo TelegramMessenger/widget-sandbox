@@ -1,7 +1,7 @@
 //! `serve_hosting` end to end on the shipped bundles (packages/desktop/WidgetJS) over an in-memory stream, with a
 //! renderer of the test's: what the C++ suite cannot reach of the hosted end in Rust (the Rust renderer seam, the
 //! hosting refusals of either opening, the factory's failures as the reasons the host reads), the engine process's
-//! half of the C++ profile page's two cases ported under the first one's name, and the glue's small helpers. The rest
+//! half of the C++ profile page's two cases ported under their names, and the glue's small helpers. The rest
 //! runs through the C++ suite against this end (`TW_ENGINE_HOSTED=stream TW_ENGINE_END=rust`).
 
 use std::collections::VecDeque;
@@ -395,8 +395,9 @@ fn serves_a_hosted_widget_and_keeps_its_renderer_past_its_death() {
     assert_eq!(served.join().unwrap(), b"");
 }
 
-/// The page of test_profile_surface.cpp's profile case: the place and both layers read from its first line, each
-/// layer's event logged.
+/// The page of test_profile_surface.cpp's profile case, which the twin of test_main.cpp's loads too (the page there
+/// logs no content layer's event, which that case never reads): the place and both layers read from its first line,
+/// each layer's event logged.
 const PROFILE_PAGE: &str = concat!(
     "<p>x</p><script>var log = [], clog = [], d = TelegramWidget.safeAreaInset, c = TelegramWidget.contentSafeAreaInset;",
     "var place = [TelegramWidget.surface, d.top, d.bottom, d.left, c.top, c.bottom, c.left, c.cornerRight, String(TelegramWidget.chatType)].join(':');",
@@ -406,39 +407,80 @@ const PROFILE_PAGE: &str = concat!(
     "TelegramWidget.setResizeAnchor('bottom');</script>"
 );
 
-/// What `recording_device_inputs` appends to the sandbox bundle.
-const RECORD_DEVICE_INPUTS: &str = concat!(
-    "\n(function (g) { var dispatch = g.__twDispatch, seen = [];",
-    " Object.defineProperty(g, '__twDispatch', { configurable: true, value: function (kind, arg) {",
-    " if (kind === 'boot') seen.push('boot:' + JSON.stringify(JSON.parse(arg).config.deviceSafeArea));",
-    " if (kind === 'deviceSafeArea') seen.push('input:' + arg);",
-    " return dispatch(kind, arg); } });",
-    " Object.defineProperty(g, 'deviceInputs', { value: seen }); })(globalThis);\n"
-);
+/// What `recording_device_inputs` appends to the sandbox bundle: the C++ suite's fixture, which
+/// test_profile_surface.cpp and crates/engine/tests/engine.rs read too, its leading newline parting it from the bundle's
+/// last line; its line ends as a checkout made them (core.autocrlf), which `recording_device_inputs` makes LF.
+const RECORD_DEVICE_INPUTS: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../desktop/tests/fixtures/record-device-inputs.js"));
 
 /// test_profile_surface.cpp's `recordingDeviceInputs`: the shipped bundles, the sandbox's dispatcher wrapped so that
 /// the realm keeps `deviceInputs`, the device's edges of the boot record (`boot:`) and each `deviceSafeArea` input
 /// (`input:`), as the engine wrote them for the widget.
 fn recording_device_inputs() -> SandboxResources {
     let mut res = resources();
-    res.sandbox_bundle.extend_from_slice(RECORD_DEVICE_INPUTS.as_bytes());
+    res.sandbox_bundle.extend_from_slice(RECORD_DEVICE_INPUTS.replace('\r', "").as_bytes());
     res
 }
 
-/// test_main.cpp's `sdk_profile_surface_layers_height_and_anchor` and test_profile_surface.cpp's
-/// `sdk_profile_surface_start_and_changes_reach_the_renderer_and_the_widget`, the engine process's half: a page and a
-/// bubble, each on a hosting stream of its own as `TW_ENGINE_HOSTED=stream` serves the C++ cases, the renderer's
-/// messages read behind the probe barrier. The page's place and both layers reach the widget from its first line (no
-/// corners and no chat on a page) and its resize anchor never crosses; a theme, a device layer and a viewport sent
-/// before the start win over the start's own; the renderer gets the theme, the place, the content's layer, the device's
-/// and the policy before any op, an empty batch counted; after the start each device, content and viewport change is
-/// resent to it as it comes (two equal device ones twice, the widget hearing one), the viewport checked to two
-/// decimals, one that is not finite as 0. In a bubble the engine gives the widget's realm four zeros for the device's
-/// edges, at boot and on every change, its renderer gets them as passed and no viewport, and its anchor crosses; a
-/// page's realm gets them as passed. The height is the glue's own state, which no frame carries: `surface::height`'s
-/// twins and the C++ cases in process check it.
+/// test_main.cpp's `sdk_profile_surface_layers_height_and_anchor`, the engine process's half: a page and a bubble,
+/// each on a hosting stream of its own as `TW_ENGINE_HOSTED=stream` serves the C++ case, with the layers and the
+/// viewport that the config and the start carry. The page's place and both layers reach the widget from its first line
+/// (no corners and no chat on a page), two equal device updates fire one safeAreaChanged, and its resize anchor never
+/// crosses; in a bubble the device's edges are 0 for the widget, and its anchor crosses (the bubble's script adds the
+/// page's call to the C++ one). The height is the glue's own state, which no frame carries: `surface::height`'s twins
+/// and the C++ case in process check it.
 #[test]
 fn sdk_profile_surface_layers_height_and_anchor() {
+    let res = resources();
+    let page_hosting = Hosting::new(&res, &Arc::new(Mutex::new(Vec::new())));
+    let host = &page_hosting.host;
+    let mut config = SandboxConfig { inner_width: 300.0, ..SandboxConfig::default() };
+    config.context.surface = WidgetSurface::Profile;
+    config.context.chat_type = b"private".to_vec(); // a page has no chat: null for the widget
+    // Past the old ranges: as passed on a page; negative: 0 for the widget.
+    config.safe_area = WidgetSafeArea { top: 120.0, bottom: 34.0, left: -5.0, ..WidgetSafeArea::default() };
+    // No corners on a page: 0 for the widget.
+    config.content_safe_area =
+        WidgetContentSafeArea { top: 90.0, bottom: 150.0, left: 40.0, corner_right: 64.0, ..WidgetContentSafeArea::default() };
+    let start = SandboxHostedStart { viewport_height: 844.0, ..SandboxHostedStart::default() };
+    host.hosted_start_forms(1, PROFILE_PAGE, &encode_config(&config), &encode_hosted_start(&start));
+    host.wait("Rendered", |s| s.runtime == 1 && s.kind == Kind::Rendered);
+    assert_eq!(host.probe(1, 1, "place"), "profile:120:34:0:90:150:40:0:null");
+    let turned = WidgetSafeArea { left: 59.0, right: 59.0, bottom: 21.0, ..WidgetSafeArea::default() };
+    host.send(1, Kind::DeviceSafeArea, &[Field::Str(&encode_device_safe_area(&turned))]);
+    host.send(1, Kind::DeviceSafeArea, &[Field::Str(&encode_device_safe_area(&turned))]);
+    assert_eq!(host.probe(1, 2, "log.join('|')"), "0:59:59:21:true:true");
+    // The widget's `bottom` stopped in the engine process: the client's anchor stays `top`.
+    assert_eq!(host.count(1, Kind::ResizeAnchor), 0);
+    host.send(1, Kind::Close, &[]);
+    assert_eq!(page_hosting.finish(), b"");
+
+    let bubble_hosting = Hosting::new(&res, &Arc::new(Mutex::new(Vec::new())));
+    let host = &bubble_hosting.host;
+    let mut bubble = SandboxConfig { inner_width: 300.0, ..SandboxConfig::default() };
+    bubble.safe_area.top = 47.0;
+    let html = "<script>var s = TelegramWidget.surface + ':' + JSON.stringify(TelegramWidget.safeAreaInset); TelegramWidget.setResizeAnchor('bottom');</script>";
+    host.hosted_start_forms(1, html, &encode_config(&bubble), &encode_hosted_start(&SandboxHostedStart::default()));
+    host.wait("Loaded", |s| s.runtime == 1 && s.kind == Kind::Loaded);
+    assert_eq!(host.probe(1, 1, "s"), "message:{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}");
+    // The control of the page's: a bubble's anchor reaches the client.
+    assert_eq!(host.wait("ResizeAnchor", |s| s.runtime == 1 && s.kind == Kind::ResizeAnchor).first(), "bottom");
+    host.send(1, Kind::Close, &[]);
+    assert_eq!(bubble_hosting.finish(), b"");
+}
+
+/// test_profile_surface.cpp's `sdk_profile_surface_start_and_changes_reach_the_renderer_and_the_widget`, the engine
+/// process's half: a page and a bubble, each on a hosting stream of its own as `TW_ENGINE_HOSTED=stream` serves the C++
+/// case, the renderer's messages read behind the probe barrier. A theme, a device layer and a viewport sent before the
+/// start win over the start's own, and the page's place and both layers reach the widget from its first line; the
+/// renderer gets the theme, the place, the content's layer, the device's and the policy before any op, an empty batch
+/// counted; after the start each device, content and viewport change is resent to it as it comes (two equal device
+/// ones twice, the widget hearing one), the viewport checked to two decimals, one that is not finite as 0. In a bubble
+/// the engine gives the widget's realm four zeros for the device's edges, at boot and on every change, and its renderer
+/// gets them as passed and no viewport; a page's realm gets them as passed. The height a size report gives is the
+/// glue's own state, which no frame carries: the C++ case in process checks it.
+#[test]
+fn sdk_profile_surface_start_and_changes_reach_the_renderer_and_the_widget() {
     let res = recording_device_inputs();
     let layers = |sent: &Mutex<Vec<String>>| -> Vec<String> {
         let sent = sent.lock().unwrap();
@@ -494,8 +536,6 @@ fn sdk_profile_surface_layers_height_and_anchor() {
         );
     }
     assert_eq!(layers(&page_sent), [placed, content, edges]);
-    // The widget's `bottom` stopped in the engine process: the client's anchor stays `top`.
-    assert_eq!(host.count(1, Kind::ResizeAnchor), 0);
     let turned = WidgetSafeArea { left: 59.0, right: 59.0, bottom: 21.0, ..WidgetSafeArea::default() };
     host.send(1, Kind::DeviceSafeArea, &[Field::Str(&encode_device_safe_area(&turned))]);
     host.send(1, Kind::DeviceSafeArea, &[Field::Str(&encode_device_safe_area(&turned))]);
@@ -530,7 +570,7 @@ fn sdk_profile_surface_layers_height_and_anchor() {
     let mut bubble = SandboxConfig { inner_width: 300.0, ..SandboxConfig::default() };
     bubble.safe_area.top = 47.0;
     let start = SandboxHostedStart { viewport_height: 844.0, ..SandboxHostedStart::default() }; // a bubble has none
-    let html = "<script>var s = TelegramWidget.surface + ':' + JSON.stringify(TelegramWidget.safeAreaInset); TelegramWidget.setResizeAnchor('bottom');</script>";
+    let html = "<script>var s = TelegramWidget.surface + ':' + JSON.stringify(TelegramWidget.safeAreaInset);</script>";
     host.hosted_start_forms(1, html, &encode_config(&bubble), &encode_hosted_start(&start));
     host.wait("Loaded", |s| s.runtime == 1 && s.kind == Kind::Loaded);
     let none = "{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}";
@@ -551,8 +591,6 @@ fn sdk_profile_surface_layers_height_and_anchor() {
     );
     let bubble_edges: Vec<String> = bubble_sent.lock().unwrap().iter().filter(|m| type_of(m) == "deviceSafeArea").cloned().collect();
     assert_eq!(bubble_edges, [given, turned_edges]);
-    // The control of the page's: a bubble's anchor reaches the client.
-    assert_eq!(host.wait("ResizeAnchor", |s| s.runtime == 1 && s.kind == Kind::ResizeAnchor).first(), "bottom");
     host.send(1, Kind::Close, &[]);
     assert_eq!(bubble_hosting.finish(), b"");
 }

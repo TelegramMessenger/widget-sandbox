@@ -1,0 +1,2 @@
+
+(function (g) { var dispatch = g.__twDispatch, seen = []; Object.defineProperty(g, '__twDispatch', { configurable: true, value: function (kind, arg) { if (kind === 'boot') seen.push('boot:' + JSON.stringify(JSON.parse(arg).config.deviceSafeArea)); if (kind === 'deviceSafeArea') seen.push('input:' + arg); return dispatch(kind, arg); } }); Object.defineProperty(g, 'deviceInputs', { value: seen }); })(globalThis);

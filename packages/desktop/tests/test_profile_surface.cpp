@@ -1,4 +1,4 @@
-// The bot's profile page's start and its changes through a WidgetHost in every fixture mode, as its renderer and its widget's realm get them, in the suite after test_main.cpp's (whose `sdk_profile_surface_layers_height_and_anchor` is the page's own case: the place, both layers, the height and the anchor); the engine process's twins are packages/rust's `sdk_profile_surface_layers_height_and_anchor` in crates/host/tests/hosted.rs and crates/engine/tests/engine.rs.
+// The bot's profile page's start and its changes through a WidgetHost in every fixture mode, as its renderer and its widget's realm get them, in the suite after test_main.cpp's (whose `sdk_profile_surface_layers_height_and_anchor` is the page's own case: the place, both layers, the height and the anchor); the engine process's twins are packages/rust's case of this name in crates/host/tests/hosted.rs and the realm's readings in crates/engine/tests/engine.rs's `sdk_profile_surface_layers_height_and_anchor`.
 #include "test_support.h"
 
 #include "twidget/json.h"
@@ -13,15 +13,14 @@
 #include <vector>
 
 /// The shipped bundles, the sandbox's dispatcher wrapped so that the realm keeps `deviceInputs`: the device's edges of
-/// the boot record (`boot:`) and each `deviceSafeArea` input (`input:`), as the engine wrote them for the widget.
+/// the boot record (`boot:`) and each `deviceSafeArea` input (`input:`), as the engine wrote them for the widget. The
+/// script is tests/fixtures/record-device-inputs.js, which packages/rust's twins include too: its leading newline
+/// parts it from the bundle's last line, and its line ends are LF whatever a checkout made of them (core.autocrlf).
 static std::shared_ptr<SandboxResources> recordingDeviceInputs() {
+    std::string script = readFile(std::string(TW_FIXTURES) + "/record-device-inputs.js");
+    script.erase(std::remove(script.begin(), script.end(), '\r'), script.end());
     auto res = std::make_shared<SandboxResources>(*RES);
-    res->sandboxBundle += "\n(function (g) { var dispatch = g.__twDispatch, seen = [];"
-                          " Object.defineProperty(g, '__twDispatch', { configurable: true, value: function (kind, arg) {"
-                          " if (kind === 'boot') seen.push('boot:' + JSON.stringify(JSON.parse(arg).config.deviceSafeArea));"
-                          " if (kind === 'deviceSafeArea') seen.push('input:' + arg);"
-                          " return dispatch(kind, arg); } });"
-                          " Object.defineProperty(g, 'deviceInputs', { value: seen }); })(globalThis);\n";
+    res->sandboxBundle += script;
     return res;
 }
 
