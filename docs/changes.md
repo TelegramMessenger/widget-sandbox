@@ -3,6 +3,14 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: the CSS sanitizer reads an escaped name as a renderer does (2026-11-26)
+
+The shared validator, every platform. css-tree compares a name as it is spelled and writes it back that way, while a
+renderer decodes it: `ur\6c`, a comment and `(a,'…')` came out as `ur\6c (a,"…")`, where the escape takes the space, so
+a renderer read `url(a,"` as a bad URL that ends at the first `)` and the rest of the string as live CSS, with any
+declaration or rule the profile drops. The names of identifiers, functions, at-keywords, hashes and units are now
+decoded before the sanitizer parses them and written with no escape that takes what follows.
+
 ## Unreleased validator optimization (2026-11-23)
 
 The shared validator skips the nesting-depth walk for batches that only update text, attributes or styles.
