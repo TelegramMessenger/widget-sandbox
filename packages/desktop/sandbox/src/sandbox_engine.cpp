@@ -350,7 +350,7 @@ void SandboxEngine::inProcessSetVisible(bool v) {
         if (v && requests_.show(nowMs()) && heldRequest_) {
             HeldRequest held = std::move(*heldRequest_);
             heldRequest_.reset();
-            deliverRequest(held.id, held.data);
+            deliverRequest(held.id, WidgetRequest{.data = std::move(held.data), .background = true});
         }
         if (!js_) return; // boot reads `visible_` for the shim
         dispatch("visibility", std::string("{\"visible\":") + (v ? "true" : "false") + "}");
@@ -753,7 +753,7 @@ void SandboxEngine::request(int64_t id, const std::string& data, bool wallet) {
     }
     // 3. Off screen it waits for the widget to appear (setVisible); otherwise to the client now.
     if (verdict == sdk::RequestVerdict::Held) heldRequest_ = HeldRequest{id, data};
-    else deliverRequest(id, data, wallet);
+    else deliverRequest(id, WidgetRequest{.data = data, .wallet = wallet, .background = verdict == sdk::RequestVerdict::Background});
 }
 
 void SandboxEngine::walletCall(int64_t id, const WalletCall& call) {
@@ -786,11 +786,11 @@ WidgetRequestResponder SandboxEngine::responder(int64_t id, bool wallet) {
     });
 }
 
-void SandboxEngine::deliverRequest(int64_t id, const std::string& data, bool wallet) {
-    // The client, which decides at delivery whether it handles requests at all. Background or not stays here: the bot
-    // cannot tell, and neither does the client.
+void SandboxEngine::deliverRequest(int64_t id, const WidgetRequest& request) {
+    // The client, which decides at delivery whether it handles requests at all. Background or not goes to the client
+    // (`request.background`), never to the bot.
     WidgetRequestResponder respond = responder(id, false);
-    if (delegate_) delegate_->onBridgeRequest(*this, WidgetRequest{data, wallet}, std::move(respond));
+    if (delegate_) delegate_->onBridgeRequest(*this, request, std::move(respond));
     else respond.unsupported();
 }
 

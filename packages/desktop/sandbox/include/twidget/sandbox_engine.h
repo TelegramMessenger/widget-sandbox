@@ -480,8 +480,9 @@ private:
     void request(int64_t id, const std::string& data, bool wallet = false);
     /// A checked wallet call: the request gate (a press or the grant), then the delegate.
     void walletCall(int64_t id, const WalletCall& call);
-    /// A request the gate let through, to the delegate; its outcome frees the gate (`answerRequest`).
-    void deliverRequest(int64_t id, const std::string& data, bool wallet = false);
+    /// A request the gate let through, with its verdict's `background`, to the delegate; its outcome frees the gate
+    /// (`answerRequest`).
+    void deliverRequest(int64_t id, const WidgetRequest& request);
     /// The responder of request or wallet call `id`: once, from any thread, back to `answerRequest` on the engine thread.
     WidgetRequestResponder responder(int64_t id, bool wallet);
     /// A request's or wallet call's outcome back on the engine thread (nullopt: the client handles none): the gate frees
