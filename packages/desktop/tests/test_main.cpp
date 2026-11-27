@@ -3573,6 +3573,24 @@ TEST(validator_stylesheet_text_is_only_shipped_sanitized) {
     CHECK(v.nodeCount() == 4);
 }
 
+/// `ur\6c (a,"…")` is url( to a renderer, bad at the quote and over at the first `)`: the rest of the string was live CSS.
+TEST(validator_writes_no_escape_that_takes_the_space_after_it) {
+    TrustedValidator v("light", RES, [](const std::string&, const std::string&) {});
+    std::string ops =
+        "[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},"
+        "{\"op\":\"el\",\"id\":6,\"tag\":\"style\"},{\"op\":\"ins\",\"parent\":2,\"id\":6,\"before\":null},"
+        "{\"op\":\"text\",\"id\":7,\"data\":\"a{content:ur\\\\6c/**/(a,');} #t{position:fixed;background:url(http://127.0.0.1:9999/b)}')} b{position:stick\\\\79}\"},{\"op\":\"ins\",\"parent\":6,\"id\":7,\"before\":null},"
+        "{\"op\":\"el\",\"id\":8,\"tag\":\"div\",\"attrs\":{\"style\":\"content:UR\\\\00004c/**/(a,');background:url(http://127.0.0.1:9999/b);')\"}},{\"op\":\"ins\",\"parent\":2,\"id\":8,\"before\":null}]";
+    auto out = Json::parse(v.processOps(ops));
+    std::string sheet, style;
+    for (const auto& op : out ? out->arr() : Json::Array{}) {
+        if (op["op"].asString() == "css") sheet = op["text"].asString();
+        if (op["op"].asString() == "el" && op["id"].asInt() == 8) style = op["attrs"][0][1].asString();
+    }
+    CHECK_MSG(sheet == "a{content:url (a,\");} #t{position:fixed;background:url(http://127.0.0.1:9999/b)}\")}b{position:relative}", sheet);
+    CHECK_MSG(style == "content:URL (a,\");background:url(http://127.0.0.1:9999/b);\")", style);
+}
+
 // ───────────── a thread the OS refuses to start (macOS: the per-process thread limit) ─────────────
 #ifdef __APPLE__
 

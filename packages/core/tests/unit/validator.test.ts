@@ -96,6 +96,35 @@ describe('css sanitizer', () => {
     assert.equal(sanitizeStyleProperty('bad name', 'red', noDiag), null);
     assert.equal(sanitizeStyleProperty('--leak', `url(${CANARY})`, noDiag), null);
   });
+  it('reads an escaped name as a renderer does and writes no escape that takes the space after it', () => {
+    // The escape took the space written before `(`: a renderer read url(a," as a bad URL over at the first `)`, the rest live.
+    const hidden = `} :host{position:fixed!important;background:url(${CANARY})} @import url(${CANARY});`;
+    for (const name of ['ur\\6c', 'UR\\4c', 'ur\\00006c', 'u\\72\\6c', '\\75 r\\6C', 'ur\\6c\t']) {
+      const css = sanitizeStylesheet(`a{content:${name}/**/(a,');${hidden}')} p{color:red}`, noDiag);
+      assert.equal(css, `a{content:${name.startsWith('UR') ? 'URL' : 'url'} (a,");${hidden}")}p{color:red}`, name);
+      assert.equal(sanitizeStylesheet(css, noDiag), css, name);
+    }
+    const declarations = `(a,');background:url(${CANARY});')`;
+    assert.equal(sanitizeStyleAttribute(`content:ur\\6c/**/${declarations};color:red`, noDiag), `content:url (a,");background:url(${CANARY});");color:red`);
+    assert.equal(sanitizeStyleProperty('--x', `ur\\6c/**/${declarations}`, noDiag)?.value, `url (a,");background:url(${CANARY});")`);
+    assert.equal(sanitizeStyleProperty('--x', 'a\\6c', noDiag)?.value, 'al');
+    // Two names stay two, and an escape that has to stay is written with its own end.
+    assert.equal(sanitizeStylesheet('a{content:a\\62/**/c;color:#f\\66/**/f;--x:a\\1/**/b}', noDiag), 'a{content:ab c;color:#ff f;--x:a\\1  b}');
+    // The function itself, spelled with an escape, is the url() a renderer loads.
+    const d: string[] = [];
+    assert.equal(sanitizeStylesheet(`a{background:ur\\6c(${CANARY})} b{background:ur\\6c(a,');} i{background:url(${CANARY})}`, (k) => d.push(k)), 'a{}b{}i{}');
+    assert.deepEqual(d, ['url-blocked', 'css-dropped', 'url-blocked']);
+    // The profile's rules see the name, not its spelling.
+    assert.equal(
+      sanitizeStylesheet('@\\6d edia screen{a:hove\\72{\\63olor:r\\65 d!\\69mportant;position:stick\\79;overflow:scrol\\6c;background-clip:te\\78t;width:1p\\78;font-family:Pap\\79rus,sans-seri\\66}}', noDiag),
+      '@media screen{a:hover{color:red!important;position:relative;overflow:hidden;width:1px;font-family:sans-serif}}',
+    );
+    // A unit is not read as the exponent of its number.
+    assert.equal(sanitizeStylesheet('a{--n:1\\65 3;--k:1\\65 m}', noDiag), 'a{--k:1em}');
+    // Names that need their escapes keep them.
+    const kept = '.sm\\:w-1\\/2,#\\31 0,.a\\ b{color:red;width:1e3px}';
+    assert.equal(sanitizeStylesheet(kept, noDiag), kept);
+  });
 });
 
 describe('css sanitizer: host-owned colour scheme', () => {

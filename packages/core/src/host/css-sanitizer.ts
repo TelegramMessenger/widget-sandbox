@@ -674,8 +674,39 @@ function sanitizeTree(ast: csstree.CssNode, diag: Diag, env: CssEnv): void {
   });
 }
 
+const TOKEN = csstree.tokenTypes;
+/** The number a dimension token starts with; the rest is its unit. */
+const DIMENSION_NUMBER = /^[+-]?(?:\d*\.\d+|\d+)(?:e[+-]?\d+)?/i;
+
+/**
+ * `css` with the names of its tokens (identifiers, functions, at-keywords, hashes, units) decoded and written as an
+ * identifier is serialised (https://drafts.csswg.org/cssom/#serialize-an-identifier). css-tree compares a name and
+ * writes it back as it was written, a renderer decodes it: `ur\6c`, a comment and `(a,'…')` came out as
+ * `ur\6c (a,"…")`, where the escape takes the space, so a renderer read url(a," as a bad URL over at the first `)` and
+ * the rest of the string as live CSS. Decoded first, a name is checked as a renderer reads it and ends in no open escape.
+ */
+function decodeNames(css: string): string {
+  if (!css.includes('\\')) return css;
+  let out = '';
+  let done = 0;
+  csstree.tokenize(css, (type, start, end) => {
+    if (type !== TOKEN.Ident && type !== TOKEN.Function && type !== TOKEN.AtKeyword && type !== TOKEN.Hash && type !== TOKEN.Dimension) return;
+    const raw = css.slice(start, end);
+    if (!raw.includes('\\')) return;
+    const head = type === TOKEN.Dimension ? (DIMENSION_NUMBER.exec(raw)?.[0] ?? '').length : type === TOKEN.AtKeyword || type === TOKEN.Hash ? 1 : 0;
+    const tail = type === TOKEN.Function ? 1 : 0;
+    const name = csstree.ident.decode(raw.slice(head, raw.length - tail));
+    // A unit that would read as the number's exponent (`1e3`) keeps its first letter escaped.
+    const exponent = type === TOKEN.Dimension && /^e-?\d/i.test(name);
+    const written = exponent ? `\\${name.charCodeAt(0).toString(16)} ${csstree.ident.encode(name.slice(1))}` : csstree.ident.encode(name);
+    out += css.slice(done, start) + raw.slice(0, head) + written + raw.slice(raw.length - tail);
+    done = end;
+  });
+  return out + css.slice(done);
+}
+
 function parse(css: string, context: string): csstree.CssNode {
-  return csstree.parse(stripUnicodeControls(css), { ...PARSE_OPTS, context } as csstree.ParseOptions);
+  return csstree.parse(decodeNames(stripUnicodeControls(css)), { ...PARSE_OPTS, context } as csstree.ParseOptions);
 }
 
 /** Sanitize the text of a <style> element. */
