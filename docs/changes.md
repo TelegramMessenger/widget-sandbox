@@ -3,6 +3,25 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: a delivered request says whether it went out without a press (2026-11-27)
+
+C++, desktop core only (no Swift or Kotlin twin: no client there sends a request later than its delivery). No wire,
+frame kind or widget-visible change: the bot gets the same data and wallet flag. A client that queues a delivered
+request before it sends it (tdesktop sends from its main thread) could send a background request after the widget went
+off screen, which docs/sdk-v1.md §2.14 forbids, and could not tell it from a tap's, which still goes out.
+
+- `WidgetRequest::background` (default false): the request gate let the request out without a press. A client-mode
+  engine's gate sets it from its own verdict (`SandboxEngine::clientRequest`; the engine process sends only the data
+  and the wallet flag), the in-process engine's from its verdict and for a request held off screen and sent when the
+  widget appeared. `==` still compares only the data and the wallet flag. `WidgetHost::onRequest` and
+  `packages/desktop/README.md`: a client that sends one after the delivery returns sends it only while the widget is
+  on screen.
+- Tests: `sdk_request_tap_answer_and_busy`, `sdk_request_refusals` and
+  `sdk_background_request_off_screen_waits_for_the_widget` check the bit the recording host got (false for a tap's,
+  true for a background request and for the one held until the widget appeared); no test is added. Run here (Windows
+  x64 Debug, 2026-11-27): the three in process and with `TW_ENGINE_LOOPBACK=1`, 0 failures, and each fails with every
+  delivered request false or every one true; the suite in process, 249 tests, 0 failures.
+
 ## Unreleased: the CSS sanitizer reads an escaped name as a renderer does (2026-11-26)
 
 The shared validator, every platform. css-tree compares a name as it is spelled and writes it back that way, while a

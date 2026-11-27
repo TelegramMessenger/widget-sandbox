@@ -2435,7 +2435,7 @@ TEST(sdk_set_data_fires_chat_then_public_data_changed) {
     CHECK(diagsOf(c.host, "data-rejected").empty());
 }
 
-/// A tap sends one request (the client gets only its data) where the message allows requests: an original in a group (`canQuery`) and a live copy (`isCopy`, `canQuery`); the answer resolves with { result }; the second call of the tap is BUSY in the glue's gate and never reaches the client; after the answer the next tap can ask again. The recording host answers inside the delivery: in process that answer is queued before the gate's refusal, behind a remote engine it crosses the channel and comes in either order (`tapOutcomes`).
+/// A tap sends one request (the client gets its data, not `background`) where the message allows requests: an original in a group (`canQuery`) and a live copy (`isCopy`, `canQuery`); the answer resolves with { result }; the second call of the tap is BUSY in the glue's gate and never reaches the client; after the answer the next tap can ask again. The recording host answers inside the delivery: in process that answer is queued before the gate's refusal, behind a remote engine it crosses the channel and comes in either order (`tapOutcomes`).
 TEST(sdk_request_tap_answer_and_busy) {
     SandboxConfig cfg = testConfig();
     cfg.context = messageContext(false, true, false, "group");
@@ -2447,12 +2447,16 @@ TEST(sdk_request_tap_answer_and_busy) {
     r.engine.activationEvent(kTapOnButton, 1);
     const std::string first = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"thanks\"}:true";
     CHECK_MSG(probeUntil(r.engine, tapOutcomes(), first) == first, r.engine.probe("log.join(' ')"));
-    CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}}));
+    std::vector<WidgetRequest> got = requestsOf(r.host);
+    CHECK((got == std::vector<WidgetRequest>{{"tap"}}));
+    CHECK(got.size() == 1 && !got[0].background); // `==` ignores the bit
     r.engine.activationEvent(kTapOnButton, 2);
     const std::string second = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"again\"}:true";
     CHECK_MSG(probeUntil(r.engine, tapOutcomes(2), second) == second, r.engine.probe("log.join(' ')"));
     CHECK(r.engine.probe("log.length") == "4" && r.engine.probe(tapOutcomes(0, 2)) == first);
-    CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}, {"tap"}}));
+    got = requestsOf(r.host);
+    CHECK((got == std::vector<WidgetRequest>{{"tap"}, {"tap"}}));
+    CHECK(got.size() == 2 && !got[0].background && !got[1].background);
     const std::string busy = "request refused (busy): a request is already in flight";
     CHECK((diagsOf(r.host, "request-blocked") == std::vector<std::string>{busy, busy}));
     {
@@ -2468,11 +2472,13 @@ TEST(sdk_request_tap_answer_and_busy) {
     c.engine.activationEvent(kTapOnButton, 1);
     const std::string asked = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":null}:true";
     CHECK_MSG(probeUntil(c.engine, tapOutcomes(), asked) == asked, c.engine.probe("log.join(' ')"));
-    CHECK((requestsOf(c.host) == std::vector<WidgetRequest>{{"tap"}}));
+    got = requestsOf(c.host);
+    CHECK((got == std::vector<WidgetRequest>{{"tap"}}));
+    CHECK(got.size() == 1 && !got[0].background);
 }
 
 /// Refused requests never reach the client: a message with `canQuery` only, from a timer (no-activation); with
-/// `backgroundQuery` the first goes out and the next within 5 s is RATE_LIMITED (a hidden widget's waits: the next test);
+/// `backgroundQuery` the first goes out, as `background`, and the next within 5 s is RATE_LIMITED (a hidden widget's waits: the next test);
 /// a plain copy and a message without flags never ask, even with a tap (the shim refuses; a forged call on the wire is
 /// the glue's `disabled`). Without onRequest the gate lets the request through and the delivery refuses it
 /// (`unsupported`): the tap is used, the gate frees, the next tap is refused the same way, not BUSY.
@@ -2500,7 +2506,9 @@ TEST(sdk_request_refusals) {
         b.engine.start();
         b.host.waitLoaded(20);
         CHECK_MSG(probeUntil(b.engine, "log.join()", "ok,RATE_LIMITED") == "ok,RATE_LIMITED", b.engine.probe("log.join()"));
-        CHECK((requestsOf(b.host) == std::vector<WidgetRequest>{{"bg"}}));
+        const std::vector<WidgetRequest> got = requestsOf(b.host);
+        CHECK((got == std::vector<WidgetRequest>{{"bg"}}));
+        CHECK(got.size() == 1 && got[0].background);
         CHECK((diagsOf(b.host, "request-blocked") == std::vector<std::string>{"request refused (rate-limited): background requests at most once per 5 s"}));
     }
     for (WidgetContext context : {messageContext(true, false, false, "private"), messageContext(true, false, true), WidgetContext{}}) {
@@ -2569,7 +2577,7 @@ TEST(sdk_request_failures_and_invalid_answers) {
 }
 
 /// Background requests: one when the widget appears on screen, then one per 5 s. A background request at boot goes
-/// out; after hide and show the next goes out at once; another at once is RATE_LIMITED. The client gets only the data.
+/// out; after hide and show the next goes out at once; another at once is RATE_LIMITED. The bot gets only the data.
 TEST(sdk_background_request_after_the_widget_appears) {
     SandboxConfig cfg = testConfig();
     cfg.context = messageContext(false, true, true, "private");
@@ -2598,7 +2606,7 @@ TEST(sdk_background_request_after_the_widget_appears) {
 }
 
 /// Telegram's clients create the host off screen: a background request at boot waits in the glue (no answer, nothing
-/// refused, nothing delivered) and goes to the client when the widget appears, as that appearance's; one on `activated`
+/// refused, nothing delivered) and goes to the client when the widget appears, as that appearance's (`background`); one on `activated`
 /// meanwhile is BUSY, the first being in flight. A widget terminated before it appears never sends its held request.
 TEST(sdk_background_request_off_screen_waits_for_the_widget) {
     SandboxConfig cfg = testConfig();
@@ -2616,7 +2624,9 @@ TEST(sdk_background_request_off_screen_waits_for_the_widget) {
     r.engine.setVisible(true);
     const std::string both = "activated:BUSY boot:r";
     CHECK_MSG(probeUntil(r.engine, "log.slice().sort().join(' ')", both) == both, r.engine.probe("log.join(' ')"));
-    CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"boot"}}));
+    const std::vector<WidgetRequest> got = requestsOf(r.host);
+    CHECK((got == std::vector<WidgetRequest>{{"boot"}}));
+    CHECK(got.size() == 1 && got[0].background);
     CHECK((diagsOf(r.host, "request-blocked") == std::vector<std::string>{"request refused (busy): a request is already in flight"}));
 
     int calls = 0;

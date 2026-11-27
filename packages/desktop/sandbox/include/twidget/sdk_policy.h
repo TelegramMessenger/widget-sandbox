@@ -121,12 +121,17 @@ struct WidgetContext {
 };
 
 /// What the client sends to the bot, as a callback button's press: `data` (1–64 bytes). Whether it came from a tap is
-/// the framework's business only (the request gate): the server and the bot cannot tell.
+/// for the request gate and the client only (`background`): the server and the bot cannot tell.
 struct WidgetRequest {
     std::string data;
     /// The widget asked for the user's wallet (only on a tap, only with `WidgetContext::wallet`): ask the server to attach
     /// the wallet card (`with_wallet`); it creates the wallet if the user had none.
     bool wallet = false;
+    /// The request gate let it out without a press (`RequestVerdict::Background`, a held one sent when the widget
+    /// appeared too), from the gate in this process: an engine process's word is never taken. A client that sends it
+    /// after its delivery returns checks first that the widget is still on screen, and holds it until it is
+    /// (docs/sdk-v1.md §2.14). Never for the bot, and not compared by `==`, which compares what the bot gets.
+    bool background = false;
     bool operator==(const WidgetRequest& o) const { return data == o.data && wallet == o.wallet; }
 };
 

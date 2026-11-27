@@ -416,7 +416,9 @@ What it is on this platform:
   `onRequest(request, respond)` gets a checked request (`data` 1–64 bytes; only
   with `canQuery`; one press unlocks one privileged call, without a press only
   with `backgroundQuery`, while visible: one when the widget appears on screen,
-  then one per 5 s; one in flight): send it like a callback button's press and
+  then one per 5 s; one in flight): send it like a callback button's press (one
+  with `request.background`, no press, sent after `onRequest` returns: only
+  while the widget is on screen, held until then) and
   call `respond` once, from any thread, with a `WidgetRequestOutcome` (the
   server's answer, `result`: text of at most 1024 bytes without NUL; or a
   `Timeout` / `RateLimited` / `Failed` failure); later calls and calls after

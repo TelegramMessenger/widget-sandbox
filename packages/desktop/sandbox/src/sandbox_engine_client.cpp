@@ -1009,7 +1009,8 @@ void SandboxEngine::clientRequest(int64_t id, const std::optional<WidgetRequest>
         });
     });
     if (!delegate_) return respond.unsupported();
-    if (request) delegate_->onBridgeRequest(*this, *request, std::move(respond));
+    // Background or not is this gate's verdict: the engine's side sends only the data and the wallet flag.
+    if (request) delegate_->onBridgeRequest(*this, WidgetRequest{.data = request->data, .wallet = request->wallet, .background = verdict == sdk::RequestVerdict::Background}, std::move(respond));
     else delegate_->onBridgeWallet(*this, *wallet, std::move(respond));
 }
 
