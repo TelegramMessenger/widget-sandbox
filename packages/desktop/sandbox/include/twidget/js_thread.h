@@ -1,9 +1,9 @@
-// A QuickJS runtime is pinned to one thread with a known, large stack (the
-// desktop copy of ios JSThread.swift / android JSThread.kt). QuickJS measures
-// recursion from the stack pointer it saw at creation, so a pool thread (or
-// std::thread, whose stack size cannot be chosen) is not an option: every
-// runtime gets a dedicated thread with `kStackSize` bytes and a QuickJS limit
-// well under it, which turns any overflow into a catchable RangeError.
+// A Nova engine is pinned to one thread with a known, large stack (the
+// desktop copy of ios JSThread.swift / android JSThread.kt). The engine counts
+// its native stack from each call into it, so a pool thread (or std::thread,
+// whose stack size cannot be chosen) is not an option: every engine gets a
+// dedicated thread with `kStackSize` bytes and a stack limit well under it,
+// which turns any overflow into a catchable RangeError.
 //
 // No Qt here on purpose: tdesktop drives the engine from Qt through the
 // delegate; the core itself only needs the C++ standard library and pthreads
@@ -14,6 +14,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <future>
 #include <map>
@@ -27,11 +28,12 @@ namespace twidget {
 
 class JSThread {
 public:
-    /// Real stack of the thread; `QuickJSContext` limits must stay below it.
+    /// Real stack of the thread; `NovaContext` limits must stay below it.
     static constexpr size_t kStackSize = size_t(8) << 20;
-    /// Safe QuickJS limit for a context that only ever runs on a JSThread.
+    /// Safe stack limit for a context that only ever runs on a JSThread.
     static constexpr size_t kJSStackLimit = size_t(6) << 20;
 
+    /// Starts the thread and waits until it runs. Throws std::system_error with the OS error (`pthread_create`'s, `_beginthreadex`'s errno) when it cannot start; nothing is waited for or left behind then.
     explicit JSThread(std::string name);
     ~JSThread();
     JSThread(const JSThread&) = delete;
@@ -42,7 +44,7 @@ public:
     /// Runs `fn` on the thread after everything queued before it. Dropped once stopped.
     void async(std::function<void()> fn);
 
-    /// Runs `fn` on the thread and waits for it (inline when already there).
+    /// Runs `fn` on the thread and waits for it (inline when already there). Rethrows what `fn` throws here, in the caller; the thread goes on with its queue.
     template <class F>
     auto sync(F&& fn) -> std::invoke_result_t<F> {
         using R = std::invoke_result_t<F>;
@@ -50,8 +52,12 @@ public:
         std::promise<R> promise;
         auto future = promise.get_future();
         bool queued = post([&] {
-            if constexpr (std::is_void_v<R>) { fn(); promise.set_value(); }
-            else promise.set_value(fn());
+            try {
+                if constexpr (std::is_void_v<R>) { fn(); promise.set_value(); }
+                else promise.set_value(fn());
+            } catch (...) {
+                promise.set_exception(std::current_exception());
+            }
         });
         if (!queued) {
             if constexpr (std::is_void_v<R>) return;

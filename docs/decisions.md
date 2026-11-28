@@ -536,17 +536,60 @@ The TypeScript validator and Swift native validator enforce the same accounting.
 ### CPU time, not wall-clock time (Oct 2026)
 
 - The slice and the quota count the JS thread's own CPU time
-  (`CLOCK_THREAD_CPUTIME_ID` in Swift, C++ and the Android JNI layer,
-  `GetThreadTimes` on Windows), not wall-clock time. On a loaded machine (a
-  build, a busy chat list, other widgets) wall-clock slices killed widgets that
-  had used a fraction of their budget. Waiting for a sync query no longer needs
-  subtracting: a blocked thread uses no CPU.
+  (`CLOCK_THREAD_CPUTIME_ID` in Swift, the Android JNI layer and C++ outside
+  Windows; on Windows the clock below), not wall-clock time. On a loaded machine
+  (a build, a busy chat list, other widgets) wall-clock slices killed widgets
+  that had used a fraction of their budget. Waiting for a sync query no longer
+  needs subtracting: a blocked thread uses no CPU.
 - Wall-clock time stays as a backstop, `max(10 x slice, 5 s)`, for a thread
   that is starved or stuck outside JS.
 - The web worker and the Node harness keep wall-clock slices: browsers and
   Node expose no per-thread CPU clock to a worker. A loaded browser can still
   throttle or kill a widget early there; the quota policy (`cpu-budget.ts` and
   its twins) is unchanged, only what the native glue feeds it.
+- On Windows (2026-11-16) `GetThreadTimes` counts in whole clock ticks
+  (15.625 ms by default), so a task or a validation of a few milliseconds reads
+  0 or a whole tick. Instead the C++ core reads the thread's cycles
+  (`QueryThreadCycleTime`, which x86 and x64 Windows counts in TSC ticks) over
+  the TSC frequency the processor enumerates, CPUID leaf 0x15's crystal
+  frequency in Hz (ECX) times EBX / EAX, where all of these hold, checked in
+  this order: x86 or x64 code (ARM64 and ARM64EC code compiles no CPUID);
+  `IsWow64Process2`, looked up at run time, names no ARM64 native machine
+  (without it the Windows is older than 10 1709, so x86 or x64; a call that
+  fails counts as ARM64); a GenuineIntel processor whose basic leaves reach
+  0x15; extended leaves that reach `0x80000007`, whose EDX bit 8 says the TSC is
+  invariant; no hypervisor bit (leaf 1 ECX bit 31), or Hyper-V's root partition
+  (below); leaf 0x15's three values non-zero and a rate within [1e8, 1e11] Hz. A
+  range's first leaf (0, `0x80000000`, and `0x40000000` only with the hypervisor
+  bit) gives its maximum, and no leaf past it is read before that maximum says
+  it exists. Nothing is measured or calibrated.
+- Every other case reads `GetThreadTimes`, decided before any value: ARM64
+  builds and x86 or x64 builds emulated on ARM64 (the emulated TSC is not what
+  the ARM64 kernel counts a thread's cycles in), AMD processors, Intel ones that
+  do not enumerate a rate there (no leaf 0x15, a zero in it, a rate out of that
+  range), a TSC that is not invariant, and a hypervisor's guest. There, as
+  before, a short task or validation can be charged 0 or a whole tick, a widget
+  woken by timers can run above its quota by what its short bursts miss, and
+  `widget_host_charges_the_validators_time` can fail, missing the validator's
+  few milliseconds; a long task and the 500 ms slice are charged within a tick.
+- With the hypervisor bit set, only Hyper-V's root partition reads the cycles,
+  as Hyper-V's own leaves identify it: `0x40000000` reaching `0x40000004`, the
+  "Hv#1" interface in `0x40000001`, the CreatePartitions privilege (`0x40000003`
+  EBX bit 0) and the nested-within-Hyper-V bit (`0x40000004` EAX bit 12) clear.
+  Windows with Hyper-V or virtualization-based security on runs as that root and
+  reads the processor's own TSC; a guest's leaves are what its hypervisor shows
+  and need not give the rate of the TSC it gets. This is Hyper-V's
+  identification of its root, not proof of bare hardware: a Hyper-V root nested
+  in another vendor's hypervisor that leaves the nested bit clear, or a
+  hypervisor that hides itself, is taken at the leaves it shows.
+- The source is decided once per process, in its first `threadCpuTime()` call
+  before that call reads a count, through a function-local static (concurrent
+  first readers wait for it), and never changes; the decision's own work comes
+  before every thread's first count, so no task or validation is charged for it.
+  Each thread counts from its first good reading, which is 0 (every caller takes
+  differences of one thread's readings). A failed reading returns the thread's
+  last value and the next good one counts on from it: the time around a failure
+  is lost, never filled in with wall time or the other source.
 
 ### The validator's time counts (2026-11-02)
 
@@ -592,7 +635,7 @@ its JS used 92 ms of the 300 ms quota and the main-thread window charged the mod
   On an A55 that is about 12–15 µs instead of 134 per style op, and `opacity-moving/128` costs the validator about
   75 ms a second instead of 900, plus its wake-ups (below).
 - **Its CPU time is charged to the widget's JS quota on the native hosts.** `TrustedValidator` measures its thread's
-  CPU time (`CLOCK_THREAD_CPUTIME_ID`, the JS quota's clock) around each call made for the widget's messages (ops
+  CPU time (the JS quota's clock, "CPU time, not wall-clock time") around each call made for the widget's messages (ops
   batches: JSON, for a renderer, binary; queries and their media rewrite; `listen`, `preventDefault`, anim batches) and
   hands it to a sink `WidgetHost` sets; `SandboxEngine.chargeValidator` records it with `CpuBudget.record` on the engine
   thread as it arrives. The budget belongs to the engine thread and the validator's is never that one, so the time is

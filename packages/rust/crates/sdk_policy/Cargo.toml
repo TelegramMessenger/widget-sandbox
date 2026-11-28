@@ -1,0 +1,17 @@
+[package]
+name = "twidget_sdk_policy"
+description = "The SDK v1 checks of the glue: bridge calls, links, haptics, Web Storage, theme, locale, the bot's data and requests, the wallet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+twidget_bundle_stamp = { path = "../bundle_stamp" }
+twidget_json = { path = "../json" }
+
+[dev-dependencies]
+twidget_testkit = { path = "../testkit" }

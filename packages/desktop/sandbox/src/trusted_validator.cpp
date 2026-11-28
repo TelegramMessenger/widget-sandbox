@@ -7,8 +7,9 @@ namespace twidget {
 TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<SandboxResources> resources, DiagSink onDiag)
     : thread_("widget.validator"), onDiag_(std::move(onDiag)) {
     thread_.sync([&] {
-        js_ = std::make_unique<QuickJSContext>(size_t(256) << 20, JSThread::kJSStackLimit);
-        js_->registerFunction("__diag", [this](const std::vector<std::string>& args) {
+        // Kept local until the boot is over: a boot that throws frees the context here, on the thread it is pinned to.
+        auto js = std::make_unique<NovaContext>(size_t(256) << 20, JSThread::kJSStackLimit);
+        js->registerFunction("__diag", [this](const std::vector<std::string>& args) {
             std::string kind = args.empty() ? "" : args[0], detail = args.size() > 1 ? args[1] : "";
             if (kind == "limit") {
                 // Fatal: the owner reads it once the call returns and stops the widget (the bundle reports it once).
@@ -22,17 +23,12 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
         // answers empty (`validator-error`).
         if (auto refusal = BundleStamp::refusal(*resources)) {
             if (onDiag_) onDiag_("bundle-mismatch", *refusal);
+            js_ = std::move(js);
             return;
         }
-        // Precompiled when shipped and matching the source, else the source (same rule as the engine).
-        bool fromBytecode = false;
-        if (!resources->validatorBytecode.empty()) {
-            try { js_->evaluateBytecode(resources->validatorBytecode, resources->validatorBundle); fromBytecode = true; }
-            catch (const JSError& e) { if (onDiag_) onDiag_("bytecode", std::string("validator-bundle.js: falling back to source — ") + e.what()); }
-        }
-        if (!fromBytecode) js_->evaluate(resources->validatorBundle, "validator-bundle.js");
-        // Flatten the API into globals so QuickJSContext::call can reach it.
-        js_->evaluate(
+        js->evaluateBundle(resources->validatorBundle, "validator-bundle.js");
+        // Flatten the API into globals so NovaContext::call can reach it.
+        js->evaluate(
             "globalThis.__v_processOps = (j) => __twValidator.processOps(j);"
             "globalThis.__v_validateQuery = (j) => __twValidator.validateQuery(j);"
             "globalThis.__v_validateListen = (j) => __twValidator.validateListen(j);"
@@ -45,7 +41,8 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
             "globalThis.__v_create = (t) => { __twValidator.create(t); return ''; };"
             "globalThis.__v_setPolicy = (p) => __twValidator.setPolicy ? __twValidator.setPolicy(p) : '';",
             "validator-glue.js");
-        js_->call("__v_create", {theme});
+        js->call("__v_create", {theme});
+        js_ = std::move(js);
     });
 }
 
@@ -72,9 +69,9 @@ void TrustedValidator::setCpuSink(CpuSink sink) {
 std::string TrustedValidator::metered(const char* name, const std::vector<std::string>& args) {
     return thread_.sync([&]() -> std::string {
         if (!cpuSink_) return str(name, args);
-        double t0 = QuickJSContext::threadCpuTime();
+        double t0 = NovaContext::threadCpuTime();
         std::string out = str(name, args);
-        cpuSink_((QuickJSContext::threadCpuTime() - t0) * 1000);
+        cpuSink_((NovaContext::threadCpuTime() - t0) * 1000);
         return out;
     });
 }

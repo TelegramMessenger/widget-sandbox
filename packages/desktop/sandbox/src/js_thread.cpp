@@ -1,6 +1,9 @@
 #include "twidget/js_thread.h"
 
+#include <cerrno>
 #include <cstring>
+#include <memory>
+#include <system_error>
 
 #ifdef _WIN32
 #include <process.h>
@@ -15,9 +18,10 @@ JSThread::JSThread(std::string name) : name_(std::move(name)) {
     std::promise<void> started;
     auto startedFuture = started.get_future();
     struct Boot { JSThread* self; std::promise<void>* started; };
-    auto* boot = new Boot{this, &started};
+    // Ours until the thread starts (then it deletes `boot`, the destructor the handle); a refused start frees both here.
+    auto boot = std::make_unique<Boot>(Boot{this, &started});
 #ifdef _WIN32
-    auto* h = new HANDLE;
+    auto h = std::make_unique<HANDLE>();
     *h = (HANDLE)_beginthreadex(nullptr, (unsigned)kStackSize, [](void* p) -> unsigned {
         auto* b = static_cast<Boot*>(p);
         b->self->id_.store(std::this_thread::get_id());
@@ -25,17 +29,25 @@ JSThread::JSThread(std::string name) : name_(std::move(name)) {
         JSThread* self = b->self;
         delete b;
         self->run();
+        self->id_.store(std::thread::id());
         return 0;
-    }, boot, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-    handle_ = h;
+    }, boot.get(), STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (!*h) {
+        const int error = errno; // _beginthreadex returns 0 and sets errno; read it before anything else can change it
+        throw std::system_error(error, std::generic_category(), "JSThread " + name_ + ": _beginthreadex");
+    }
+    boot.release();
+    handle_ = h.release();
 #else
+    auto t = std::make_unique<pthread_t>();
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, kStackSize);
-    auto* t = new pthread_t;
-    pthread_create(t, &attr, &JSThread::entry, boot);
+    const int error = pthread_create(t.get(), &attr, &JSThread::entry, boot.get()); // the error itself, not errno
     pthread_attr_destroy(&attr);
-    handle_ = t;
+    if (error) throw std::system_error(error, std::generic_category(), "JSThread " + name_ + ": pthread_create");
+    boot.release();
+    handle_ = t.release();
 #endif
     startedFuture.wait();
 }
@@ -53,6 +65,7 @@ void* JSThread::entry(void* p) {
     b->started->set_value();
     delete b;
     self->run();
+    self->id_.store(std::thread::id());
     return nullptr;
 }
 

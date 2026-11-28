@@ -1,0 +1,23 @@
+[package]
+name = "twidget_engine"
+description = "The sandbox engine in process: one Nova runtime per widget on its own thread, its one capability, the CPU and memory limits"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+oracle-stats-clock = []
+
+[lints]
+workspace = true
+
+[dependencies]
+twidget_bundle_stamp = { path = "../bundle_stamp" }
+twidget_cpu_budget = { path = "../cpu_budget" }
+twidget_js = { path = "../js" }
+twidget_json = { path = "../json" }
+twidget_sdk_policy = { path = "../sdk_policy" }
+
+[dev-dependencies]
+twidget_testkit = { path = "../testkit" }

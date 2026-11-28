@@ -1,0 +1,28 @@
+[package]
+name = "twidget_engine_ffi"
+description = "The C ABI of the engine process's end: the stream and platform callbacks of the C++ OS glue, the hosted mode's renderer tables, and Nova's C interface"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+# The one crate of the engine process allowed `unsafe` (tools/unsafe_report.py): no workspace lints.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[dependencies]
+nova_embed_ffi = { path = "../../../../../nova-safe/nova_embed_ffi", optional = true }
+twidget_bundle_stamp = { path = "../bundle_stamp" }
+twidget_host = { path = "../host" }
+twidget_js = { path = "../js" }
+twidget_server = { path = "../server" }
+twidget_stream = { path = "../stream" }
+
+[features]
+# Nova's own C interface (`nova_engine.h`) in the same library, for a program whose C++ still drives Nova (the desktop
+# core's tests); an engine process that only serves streams leaves it out.
+nova-c-api = ["dep:nova_embed_ffi"]

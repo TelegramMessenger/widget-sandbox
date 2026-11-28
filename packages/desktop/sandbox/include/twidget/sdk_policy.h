@@ -7,7 +7,7 @@
 // TS only: the renderer core builds them from the host's `theme` message.
 //
 // Strings. Everything here is UTF-8 bytes. A JS string may hold a lone
-// surrogate; QuickJS hands it to C++ in its 3-byte WTF-8 form (ED A0..BF xx),
+// surrogate; the engine hands it to C++ in its 3-byte WTF-8 form (ED A0..BF xx),
 // and the engine parses bridge calls and storage commits with
 // `Json::parse(…, Json::Surrogates::Keep)` so that the JSON route gives the
 // same bytes. `utf8Length` is the byte length, which is what the TS
@@ -83,13 +83,6 @@ struct WidgetViewer {
     }
 };
 
-/// Where the widget is shown (docs/sdk-v1.md §2.19), fixed for the host's life: a bubble in a chat (the default) or the
-/// bot's profile page, full screen. `TelegramWidget.surface` in the widget; the geometry is `surface::` in sandbox_engine.h.
-enum class WidgetSurface { Message, Profile };
-
-/// The wire name: "message" | "profile".
-inline const char* surfaceName(WidgetSurface s) { return s == WidgetSurface::Profile ? "profile" : "message"; }
-
 /// Where the widget is and what it may do, from the message (`messageMediaWidget`'s flags, which the server computes)
 /// and the chat; fixed for the host's life (docs/sdk-v1.md §2.14, §4.4). The framework derives nothing itself; all
 /// false (the default): no requests.
@@ -103,7 +96,6 @@ struct WidgetContext {
     bool backgroundQuery = false;
     /// "private" | "group" | "supergroup" | "channel" (`Chat.type` of the Bot API); "" or anything else is none. A copy
     /// (with `canQuery` or not) and a preview get none: the bot learns nothing about where its widget was forwarded.
-    /// A profile page is in no chat: none there either.
     std::string chatType;
     /// The account that looks at the widget. A copy without `canQuery` gets none.
     std::optional<WidgetViewer> viewer;
@@ -114,10 +106,6 @@ struct WidgetContext {
     /// The client has Gram Wallet for this user: it supports the wallet and the wallet is available in the user's
     /// country (docs/sdk-v1.md §2.18). The widget gets `TelegramWidget.wallet` only with `canQuery` too, never in a preview.
     bool wallet = false;
-    /// Where the widget is shown (docs/sdk-v1.md §2.19). On a profile page the client passes the flags of
-    /// `bot_profile_widget` as they are: none before the user pressed Start, `canQuery` and `backgroundQuery` after it.
-    /// A page has no chat: the glue gives the widget no `chatType` there.
-    WidgetSurface surface = WidgetSurface::Message;
 };
 
 /// What the client sends to the bot, as a callback button's press: `data` (1–64 bytes). Whether it came from a tap is
@@ -196,7 +184,11 @@ struct WidgetRequestAnswer {
 /// A request the client could not complete: the bot did not answer in time, a flood wait, anything else. `None`: answered.
 /// For a wallet call also `Rejected` (the user declined in the wallet window) and `BadRequest` (the wallet refused the
 /// transaction or the payload); a request's failure turns them into FAILED.
-enum class WidgetRequestFailure { None, Timeout, RateLimited, Failed, Rejected, BadRequest };
+enum class WidgetRequestFailure {
+    None, Timeout, RateLimited, Failed, Rejected, BadRequest,
+    /// The host refused the call itself, as a client-mode engine does when its own checks refuse it (remote_engine.h): NOT_ALLOWED.
+    NotAllowed
+};
 
 /// What the client reports for a request (`respond`): the answer when `failure` is `None`, else the failure.
 struct WidgetRequestOutcome {
@@ -295,6 +287,10 @@ inline constexpr size_t MAX_WALLET_BOC_TOTAL = 65536;
 inline constexpr size_t MAX_SIGN_DATA_LENGTH = 4096;
 /// UTF-8 bytes of a `cell` payload's TL-B schema.
 inline constexpr size_t MAX_SIGN_DATA_SCHEMA_BYTES = 1024;
+/// The longest valid `bridge` argument is a wallet transaction: every bag of cells, and 256 bytes for the rest of each message.
+inline constexpr size_t MAX_BRIDGE_CALL_BYTES = MAX_WALLET_BOC_TOTAL + 256 * MAX_WALLET_MESSAGES + 1024;
+/// The other arguments the glue parses (`intl`, `timer`, `stat`); a parsed megabyte takes fifty, so a longer one is refused unparsed.
+inline constexpr size_t MAX_HOST_CALL_BYTES = 65536;
 /// After the answer to a call made by a tap (a request or a wallet call) reached the widget, one wallet call may follow without a new tap this long.
 inline constexpr double WALLET_GRANT_MS = 10000;
 /// TON Connect's network ids: the mainnet and the testnet.
@@ -464,7 +460,7 @@ struct CheckedAnswer {
 /// allowed). Nullopt for anything else (the widget gets `INVALID_ANSWER`, `answer-rejected`).
 std::optional<CheckedAnswer> checkRequestAnswer(const WidgetRequestAnswer& answer);
 
-/// What the widget's promise rejects with for a client's failure: "TIMEOUT", "RATE_LIMITED", anything else "FAILED".
+/// What the widget's promise rejects with for a client's failure: "TIMEOUT", "RATE_LIMITED", "NOT_ALLOWED", anything else "FAILED".
 std::string_view requestFailureCode(WidgetRequestFailure failure);
 /// The same for a wallet call: also "REJECTED" and "BAD_REQUEST".
 std::string_view walletFailureCode(WidgetRequestFailure failure);

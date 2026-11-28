@@ -6,7 +6,12 @@
 // SDK v1 through the real engine and WidgetHost, and the JSON helper.
 // No test framework dependency: `twidget-tests [filter]`, exit code = failures.
 
+#include "test_support.h"
+#include "test_thread_limit.h"
+
+#include "../harness/hosted_peers.h"
 #include "../harness/recording_host.h"
+#include "../harness/stream_peers.h"
 #include "twidget/bundle_stamp.h"
 #include "twidget/cpu_budget.h"
 #include "twidget/gesture_policy.h"
@@ -25,44 +30,75 @@
 #include "twidget/widget_host.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <clocale>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <limits>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <thread>
 #include <vector>
+#ifdef __APPLE__
+#include <cerrno>
+#include <csignal>
+#include <cstdlib>
+#include <mach/mach.h>
+#include <malloc/malloc.h>
+#include <spawn.h>
+#include <sys/sysctl.h>
+#include <sys/wait.h>
+#include <system_error>
+#include <unistd.h>
+
+extern char** environ;
+#endif
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 using namespace twidget;
 
-static int g_failures = 0;
-static int g_checks = 0;
-#define CHECK(cond) do { g_checks++; if (!(cond)) { g_failures++; fprintf(stderr, "  FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); } } while (0)
-#define CHECK_MSG(cond, msg) do { g_checks++; if (!(cond)) { g_failures++; fprintf(stderr, "  FAIL %s:%d: %s — %s\n", __FILE__, __LINE__, #cond, std::string(msg).c_str()); } } while (0)
+int g_failures = 0;
+int g_checks = 0;
+std::vector<TestCase>& registry() { static std::vector<TestCase> r; return r; }
+std::vector<TestCase>& childCases() { static std::vector<TestCase> r; return r; }
+std::string g_self;
 
-struct TestCase { const char* name; void (*fn)(); };
-static std::vector<TestCase>& registry() { static std::vector<TestCase> r; return r; }
-#define TEST(name) static void name(); static const bool name##_registered = (registry().push_back({#name, name}), true); static void name()
-
-static std::shared_ptr<SandboxResources> RES;
+std::shared_ptr<SandboxResources> RES;
 static const std::string CANARY = "http://127.0.0.1:9999/hit/desktop-unit";
 
-static std::string readFile(const std::string& p) {
+std::string readFile(const std::string& p) {
     std::ifstream in(p, std::ios::binary);
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();
 }
 
-static void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
+void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
-static SandboxConfig testConfig() {
+SandboxConfig testConfig() {
     SandboxConfig c;
     c.cpuLimitMs = 2000;
     c.innerWidth = 400;
@@ -72,16 +108,96 @@ static SandboxConfig testConfig() {
     return c;
 }
 
+/// What `SandboxEngine::make` gives without a factory: a client over the in-process loopback with Debug's `TW_ENGINE_LOOPBACK=1`, else an engine in process.
+bool loopbackSwitch() {
+#ifndef NDEBUG
+    const char* value = std::getenv("TW_ENGINE_LOOPBACK");
+    return value && std::string_view(value) == "1";
+#else
+    return false;
+#endif
+}
+
+/// What `make` gives under `TW_ENGINE_STREAM=1`, in any build: a client on a framed byte stream (harness/stream_peers.h), the switch's factory installed for every test.
+bool streamSwitch() { return StreamSwitch::requested(); }
+
+/// Whether `make` gives a client-mode engine when no test set a factory of its own: under either switch.
+bool remoteSwitch() { return streamSwitch() || loopbackSwitch(); }
+
+/// The factory each test starts with and gets back when it ends: the stream switch's, else none.
+static SandboxRemoteChannelFactory g_baselineFactory;
+
+void restoreRemoteFactory() { SandboxEngine::setRemoteChannelFactory(g_baselineFactory); }
+
+/// Whether `TW_ENGINE_HOSTED` asks for the hosted switch, behind the loopback or over the stream.
+bool hostedSwitch() {
+    const HostedSwitch::Mode mode = HostedSwitch::requested();
+    return mode == HostedSwitch::Mode::Loopback || mode == HostedSwitch::Mode::Stream;
+}
+
+/// The hosted hook each test starts with and gets back when it ends: the hosted switch's, else none.
+static HostedChannelFactory g_baselineHostedFactory;
+
+void restoreHostedFactory() { WidgetHost::setHostedChannelFactory(g_baselineHostedFactory); }
+
+/// The fixture widgets: WidgetHosts whose renderer `scripted()` built while no engine channel factory was set, outside an `InProcessWidgets` scope; and how many of them the hosted switch ran behind the loopback and over the stream.
+static std::atomic<int> g_widgets{0};
+static std::atomic<int> g_loopbackWidgets{0};
+static std::atomic<int> g_streamWidgets{0};
+/// The test running now, and those that opened an `InProcessWidgets` scope (main's thread only).
+static const char* g_currentTest = "";
+static std::vector<std::string> g_inProcessTests;
+
+static bool& inProcessHere() {
+    thread_local bool scope = false;
+    return scope;
+}
+
+InProcessWidgets::InProcessWidgets() {
+    WidgetHost::setHostedChannelFactory(nullptr);
+    inProcessHere() = true;
+    if (std::find(g_inProcessTests.begin(), g_inProcessTests.end(), g_currentTest) == g_inProcessTests.end()) g_inProcessTests.push_back(g_currentTest);
+}
+
+InProcessWidgets::~InProcessWidgets() {
+    inProcessHere() = false;
+    restoreHostedFactory();
+}
+
+/// The real engines the fixtures built, how many of them ran over the loopback and how many over the stream switch's factory (printed with the totals).
+static int g_engines = 0;
+static int g_loopbackEngines = 0;
+static int g_streamEngines = 0;
+
+/// A fixture's real engine: `make`'s, in the mode the switches ask for; over the stream only when the switch's factory gave its channel on this thread.
+static std::unique_ptr<SandboxEngine> fixtureEngine(const std::string& html, const SandboxConfig& config, std::shared_ptr<SandboxResources> resources,
+                                                    std::shared_ptr<IntlProvider> intl = nullptr) {
+    const size_t madeBefore = StreamSwitch::madeHere();
+    std::unique_ptr<SandboxEngine> engine = SandboxEngine::make(html, config, std::move(resources), std::move(intl));
+    const bool streamed = StreamSwitch::madeHere() > madeBefore;
+    g_engines++;
+    if (streamed) g_streamEngines++;
+    else if (engine->isRemote()) g_loopbackEngines++;
+    CHECK_MSG(engine->isRemote() == remoteSwitch(), engine->isRemote() ? "a client-mode engine without a switch" : "an engine in process under a switch");
+    CHECK_MSG(streamed == streamSwitch(), streamed ? "an engine over the stream without its switch" : "an engine not over the stream under its switch");
+    return engine;
+}
+
 /// One engine with a recording host; the host outlives the engine (declaration order).
 struct Run {
     RecordingHost host;
-    SandboxEngine engine;
-    Run(const std::string& html, SandboxConfig cfg = testConfig(), bool start = true) : host("light", RES, false, cfg.policy), engine(html, cfg, RES) {
+    std::unique_ptr<SandboxEngine> made;
+    SandboxEngine& engine;
+    Run(const std::string& html, SandboxConfig cfg = testConfig(), bool start = true)
+        : host("light", RES, false, cfg.policy), made(fixtureEngine(html, cfg, RES)), engine(*made) {
         engine.setDelegate(&host);
         if (start) { engine.start(); host.waitLoaded(20); }
     }
-    /// Like `engine.queue.sync {}` on iOS: everything queued so far has run.
-    void barrier() { engine.thread().sync([] {}); }
+    /// Like `engine.queue.sync {}` on iOS: everything queued so far has run; for a client its inputs reach the engine's side first, whose calls before the probe's answer come back.
+    void barrier() {
+        if (engine.isRemote()) engine.probe("0");
+        engine.thread().sync([] {});
+    }
     std::string logsText() { std::string s; for (auto& l : host.logs) s += "[" + l.first + "] " + l.second + "\n"; return s; }
     std::string diagsText() { std::string s; for (auto& d : host.diags) s += d.first + ": " + d.second + "\n"; return s; }
 };
@@ -128,6 +244,24 @@ TEST(json_fuzz_never_crashes) {
     CHECK(parsed > 0);
     CHECK(!Json::parse(std::string(200000, '[')).has_value());
     CHECK(!Json::parse(std::string("\"\\ud800")).has_value() || true);
+}
+
+// Numbers the sandbox sends are any doubles: asInt answers the nearest end of `int` past it, never an undefined conversion.
+TEST(json_as_int_saturates) {
+    auto v = Json::parse("[1e300,-1e300,2147483648,-2147483649,2147483647.5,-2147483648.5,1.9,-1.9,1e999,\"7\"]");
+    CHECK(v.has_value());
+    if (!v) return;
+    const int max = std::numeric_limits<int>::max(), min = std::numeric_limits<int>::min();
+    CHECK((*v)[0].asInt() == max);
+    CHECK((*v)[1].asInt() == min);
+    CHECK((*v)[2].asInt() == max);
+    CHECK((*v)[3].asInt() == min);
+    CHECK((*v)[4].asInt() == max);
+    CHECK((*v)[5].asInt() == min);
+    CHECK((*v)[6].asInt() == 1);
+    CHECK((*v)[7].asInt() == -1);
+    CHECK((*v)[8].asInt(5) == 5);
+    CHECK((*v)[9].asInt(5) == 5);
 }
 
 TEST(json_parse_and_dump) {
@@ -241,7 +375,7 @@ static bool jsonEqual(const Json& a, const Json& b) {
 }
 
 /// `{ "repeat": [s, n] }` in the fixture stands for s repeated n times.
-static Json expandRepeat(const Json& v) {
+Json expandRepeat(const Json& v) {
     if (v.isArray()) {
         Json out = Json::array();
         for (const auto& x : v.arr()) out.push(expandRepeat(x));
@@ -463,7 +597,7 @@ TEST(sdk_policy_shared_fixture) {
         CHECK_MSG((*root)[section].size() > 0, section);
 }
 
-/// What the fixture cannot carry: the strings of the bot's data and requests refuse a lone surrogate (its WTF-8 form, as QuickJS and the
+/// What the fixture cannot carry: the strings of the bot's data and requests refuse a lone surrogate (its WTF-8 form, as Nova and the
 /// engine's `Surrogates::Keep` parse give it) and invalid UTF-8 everywhere a string leaves the widget or enters it;
 /// lengths are UTF-8 bytes for the data and UTF-16 code units for copyText; out-of-range ids and viewers are none.
 TEST(sdk_request_strings_refuse_surrogates_and_invalid_utf8) {
@@ -655,16 +789,16 @@ TEST(gesture_policy_shared_fixture) {
 
 static const char* kDepthProbe ="(function(){ var n = 0; function r(){ n++; r(); } try { r(); } catch (e) { if (!(e instanceof RangeError)) throw e; } return n; })()";
 
-/// Product contexts live on a JSThread (8 MB stack, 6 MB QuickJS limit): a release
-/// quickjs-ng needs a few hundred bytes per JS call, so this must comfortably exceed
+/// Product contexts live on a JSThread (8 MB stack, three quarters of the 6 MB limit for the engine's JavaScript): a release
+/// Nova needs about 3 KB per JS call, so this must comfortably exceed
 /// what css-tree and chart libraries recurse to.
 TEST(pinned_thread_gives_deep_recursion) {
     JSThread t("test.js");
     double depth = t.sync([&] {
-        QuickJSContext js(size_t(16) << 20, JSThread::kJSStackLimit);
+        NovaContext js(size_t(16) << 20, JSThread::kJSStackLimit);
         return js.evaluate(kDepthProbe, "t.js").number.value_or(-1);
     });
-    printf("    quickjs recursion depth on JSThread: %.0f\n", depth);
+    printf("    recursion depth on JSThread: %.0f\n", depth);
     CHECK(depth > 300);
     // Timers and ordering: `after` fires on the thread, `cancel` prevents it.
     std::promise<bool> fired;
@@ -689,23 +823,119 @@ TEST(pinned_thread_gives_deep_recursion) {
 /// (whose stack lives elsewhere) is measured correctly, not as a bogus overflow.
 TEST(stack_check_follows_the_calling_thread) {
     JSThread t("creator");
-    std::unique_ptr<QuickJSContext> js;
+    std::unique_ptr<NovaContext> js;
     double depthOnCreator = t.sync([&] {
-        js = std::make_unique<QuickJSContext>(size_t(16) << 20);
+        js = std::make_unique<NovaContext>(size_t(16) << 20);
         return js->evaluate(kDepthProbe, "t.js").number.value_or(-1);
     });
     double depthHere = js->evaluate(kDepthProbe, "t.js").number.value_or(-1);
-    printf("    quickjs recursion depth at default stack limit: creator %.0f, here %.0f\n", depthOnCreator, depthHere);
+    printf("    recursion depth at default stack limit: creator %.0f, here %.0f\n", depthOnCreator, depthHere);
     CHECK(depthOnCreator > 20);
     CHECK(depthHere > 20);
     CHECK(std::fabs(depthHere - depthOnCreator) / depthOnCreator < 0.1);
     t.sync([&] { js.reset(); });
 }
 
+/// What a task `sync` waits for throws reaches the caller, from a task that returns nothing, one that returns a value and one that throws no std::exception, and the thread goes on with its queue (before, it left the task and the thread's loop ended the process).
+TEST(an_exception_from_a_sync_task_reaches_its_caller) {
+    JSThread t("test.throws");
+    std::string caught = "nothing";
+    try {
+        t.sync([] { throw std::runtime_error("from a task that returns nothing"); });
+    } catch (const std::runtime_error& e) {
+        caught = e.what();
+    }
+    CHECK_MSG(caught == "from a task that returns nothing", caught);
+    caught = "nothing";
+    try {
+        caught = "returned " + std::to_string(t.sync([]() -> int { throw JSError("from a task that returns a value"); }));
+    } catch (const JSError& e) {
+        caught = e.what();
+    }
+    CHECK_MSG(caught == "from a task that returns a value", caught);
+    int thrown = 0;
+    try {
+        t.sync([] { throw 42; });
+    } catch (int value) {
+        thrown = value;
+    }
+    CHECK_MSG(thrown == 42, std::to_string(thrown));
+    CHECK(t.sync([&] { return t.isCurrent(); }));
+    CHECK(t.sync([] { return std::string("later"); }) == "later");
+    t.stop();
+}
+
+/// The limit counts a string's bytes: 5 M code units of two bytes each never exist under 8 MB, so none reaches a host function.
+TEST(a_string_past_the_memory_limit_never_reaches_a_host_function) {
+    JSThread t("test.js");
+    int calls = 0;
+    std::string error = t.sync([&]() -> std::string {
+        NovaContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+        js.registerFunction("__probe", [&](const std::vector<std::string>&) { calls++; return HostReturn::undefined(); });
+        try {
+            js.evaluate("__probe('fits'); var s; try { s = '\\u00e9'.repeat(5 << 20); } catch (e) {} __probe(s); __probe('after');", "t.js");
+        } catch (const JSError& e) {
+            return e.what();
+        }
+        return "no error";
+    });
+    CHECK_MSG(calls == 1, std::to_string(calls) + " calls");
+    CHECK_MSG(error.find("out of memory") != std::string::npos, error);
+    t.stop();
+}
+
+TEST(an_exception_from_a_host_function_stops_the_script) {
+    JSThread t("test.js");
+    int after = 0;
+    auto outcome = [&](const std::string& which) {
+        return t.sync([&]() -> std::string {
+            NovaContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+            js.registerFunction("__throws", [&](const std::vector<std::string>& args) -> HostReturn {
+                if (args[0] == "runtime") throw std::runtime_error("broken glue");
+                if (args[0] == "alloc") throw std::bad_alloc();
+                if (args[0] == "other") throw 42;
+                return HostReturn::string(std::string(size_t(64) << 20, 'x'));
+            });
+            js.registerFunction("__after", [&](const std::vector<std::string>&) { after++; return HostReturn::undefined(); });
+            try {
+                js.evaluate("try { __throws('" + which + "'); } catch (e) { __after(); } __after();", "t.js");
+            } catch (const JSError& e) {
+                return std::string(e.what()) + (js.uncatchable ? " (uncatchable)" : "");
+            }
+            return "no error";
+        });
+    };
+    CHECK_MSG(outcome("runtime") == "InternalError: host function failed: broken glue (uncatchable)", outcome("runtime"));
+    CHECK_MSG(outcome("other") == "InternalError: host function failed (uncatchable)", outcome("other"));
+    CHECK_MSG(outcome("alloc") == "InternalError: out of memory (uncatchable)", outcome("alloc"));
+    CHECK_MSG(outcome("a result past the limit") == "InternalError: out of memory (uncatchable)", outcome("a result past the limit"));
+    CHECK_MSG(after == 0, std::to_string(after) + " calls after a failed one");
+    t.stop();
+}
+
+TEST(a_result_that_cannot_be_copied_is_an_error) {
+    JSThread t("test.js");
+    auto outcome = [&](bool byCall) {
+        return t.sync([&]() -> std::string {
+            NovaContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+            try {
+                js.evaluate("function big() { return '\\u00e9'.repeat(5 << 20); }", "t.js");
+                JSResult r = byCall ? js.call("big") : js.evaluate("big()", "t.js");
+                return "a result of " + std::to_string(r.string.value_or("").size()) + " bytes";
+            } catch (const JSError& e) {
+                return e.what();
+            }
+        });
+    };
+    CHECK_MSG(outcome(false).find("out of memory") != std::string::npos, outcome(false));
+    CHECK_MSG(outcome(true).find("out of memory") != std::string::npos, outcome(true));
+    t.stop();
+}
+
 // ───────────── engine ─────────────
 
 TEST(boots_and_emits_initial_tree) {
-    Run r("<p id=\"a\">hi</p><script>document.getElementById('a').textContent = 'changed by script'; console.log('hello from quickjs');</script>");
+    Run r("<p id=\"a\">hi</p><script>document.getElementById('a').textContent = 'changed by script'; console.log('hello from the sandbox');</script>");
     r.barrier();
     auto l = r.host.lock();
     CHECK(!r.host.died);
@@ -713,7 +943,7 @@ TEST(boots_and_emits_initial_tree) {
     CHECK_MSG(all.find("\"tag\":\"p\"") != std::string::npos, "initial tree should be sent");
     CHECK_MSG(all.find("changed by script") != std::string::npos, "script mutation should be sent");
     CHECK_MSG(r.host.allRenderOps().find("changed by script") != std::string::npos, "validated ops carry the mutation");
-    CHECK(r.host.hasLog("hello from quickjs"));
+    CHECK(r.host.hasLog("hello from the sandbox"));
     bool errors = false;
     for (auto& lg : r.host.logs) if (lg.first == "error") errors = true;
     CHECK_MSG(!errors, r.logsText());
@@ -737,6 +967,23 @@ TEST(cpu_limit_kills_infinite_loop) {
     CHECK_MSG(r.host.died && r.host.died->find("CPU limit") != std::string::npos, r.host.died.value_or(""));
 }
 
+/// Once the widget is stopped the jobs still queued never run: the cleanup callback, a job whose throw is logged, shows one that did.
+TEST(jobs_queued_when_the_widget_is_stopped_never_run) {
+    const std::string cleanup = "var registry = new FinalizationRegistry(function () { throw new Error('ran after the stop'); });";
+    Run memory("<script>" + cleanup + "Promise.resolve().then(function () { registry.register({}, 1); var a = []; for (;;) a.push(new Array(100000).fill(1.5)); });</script>");
+    memory.barrier();
+    {
+        auto l = memory.host.lock();
+        CHECK_MSG(memory.host.died && memory.host.died->find("Memory limit exceeded (8 MB)") != std::string::npos, memory.host.died.value_or("alive: " + memory.logsText()));
+        CHECK_MSG(!memory.host.hasLogPrefix("Uncaught Error: ran after the stop"), memory.logsText());
+    }
+    Run cap("<p id=p>start</p><script>" + cleanup + "Promise.resolve().then(function () { registry.register({}, 1); var p = document.getElementById('p'); p.textContent = 'x'.repeat(40000); p.getBoundingClientRect(); });</script>");
+    cap.barrier();
+    auto l = cap.host.lock();
+    CHECK_MSG(cap.host.died && cap.host.died->find("Text limit exceeded") != std::string::npos, cap.host.died.value_or("alive: " + cap.logsText()));
+    CHECK_MSG(!cap.host.hasLogPrefix("Uncaught Error: ran after the stop"), cap.logsText());
+}
+
 TEST(memory_limit_kills_allocation_flood) {
     auto cfg = testConfig();
     cfg.memoryLimitBytes = size_t(16) << 20;
@@ -747,13 +994,53 @@ TEST(memory_limit_kills_allocation_flood) {
         auto l = r.host.lock();
         CHECK_MSG(r.host.died && r.host.died->find("Memory limit exceeded (16 MB)") != std::string::npos, r.host.died.value_or("alive: " + r.logsText()));
     }
-    // The default is 8 MB of QuickJS heap (docs/decisions.md, "Strict limits from the start").
+    // The default is 8 MB of engine heap (docs/decisions.md, "Strict limits from the start").
     auto byDefault = testConfig();
     byDefault.cpuLimitMs = 10000;
     Run d("<script>var a = []; for (;;) a.push(new Array(100000).fill(1.5));</script>", byDefault);
     d.barrier();
     auto l = d.host.lock();
     CHECK_MSG(d.host.died && d.host.died->find("Memory limit exceeded (8 MB)") != std::string::npos, d.host.died.value_or("alive: " + d.logsText()));
+}
+
+TEST(an_uncatchable_error_stops_the_widget_whatever_its_text) {
+    auto cfg = testConfig();
+    cfg.cpuLimitMs = 10000;
+    const std::string later = "setTimeout(function () { console.log('went on'); }, 0);";
+    const std::string flood = "var a = []; for (;;) a.push(new Array(100000).fill(1.5));";
+    auto stopped = [&](const std::string& script, const std::string& reason) {
+        Run r("<script>" + later + script + "</script>", cfg);
+        r.barrier();
+        sleepMs(100);
+        r.barrier();
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.died && r.host.died->find(reason) != std::string::npos, script + " → " + r.host.died.value_or("alive: " + r.logsText()));
+        CHECK_MSG(!r.host.hasLog("getter ran") && !r.host.hasLog("went on"), script + " → " + r.logsText());
+    };
+    stopped("Object.defineProperty(Error.prototype, 'name', { get: function () { console.log('getter ran'); this.message = 'renamed'; return 'Quiet'; } });" + flood,
+            "Memory limit exceeded (8 MB)");
+    stopped("try { " + flood + " } catch (e) { console.log('getter ran'); } finally { console.log('getter ran'); }", "Memory limit exceeded (8 MB)");
+    stopped("Promise.resolve().then(function () { try { " + flood + " } catch (e) { console.log('getter ran'); } });", "Memory limit exceeded (8 MB)");
+    stopped("throw { get name() { " + flood + " }, message: Symbol('m') };", "Memory limit exceeded (8 MB)");
+}
+
+TEST(an_ordinary_uncaught_error_is_logged_and_the_widget_goes_on) {
+    const std::string later = "setTimeout(function () { console.log('went on'); }, 0);";
+    auto logged = [&](const std::string& script, const std::string& text) {
+        Run r("<script>" + later + script + "</script>");
+        r.host.waitUntil([&] { return r.host.hasLog("went on"); }, 3);
+        auto l = r.host.lock();
+        CHECK_MSG(!r.host.died && r.host.hasLog("went on"), script + " → " + r.host.died.value_or("alive") + ": " + r.logsText());
+        CHECK_MSG(r.host.countLogPrefix("Uncaught ") == 1 && r.host.hasLogPrefix(text), script + " → " + r.logsText());
+    };
+    logged("throw new Error('plain');", "Uncaught Error: plain");
+    logged("(function f() { f(); })();", "Uncaught RangeError: Maximum call stack size exceeded");
+    logged("throw { name: 'Custom', message: 'text' };", "Uncaught Custom: text");
+    logged("throw 'a string';", "Uncaught a string");
+    logged("throw { get name() { throw new Error('inner'); }, message: 'm' };", "Uncaught Error: ");
+    // The engine's own failures are not errors a script can make: one that names itself after them is an ordinary error.
+    logged("throw { name: 'InternalError', message: 'made by the widget' };", "Uncaught InternalError: made by the widget");
+    logged("var e = new Error('interrupted'); e.name = 'InternalError'; throw e;", "Uncaught InternalError: interrupted");
 }
 
 TEST(layout_query_round_trip) {
@@ -834,15 +1121,60 @@ TEST(cpu_quota_throttles_greedy_timer) {
     CHECK_MSG(ticks < 12, std::to_string(ticks) + " ticks: " + r.logsText());
 }
 
+#ifdef _WIN32
+/// Windows' sleep_for(5 ms) takes a 15.6 ms timer tick; this waits until `deadline` on a high-resolution timer (empty: waited).
+static std::string waitOnTimer(HANDLE timer, std::chrono::steady_clock::time_point deadline) {
+    for (auto now = std::chrono::steady_clock::now(); now < deadline; now = std::chrono::steady_clock::now()) {
+        LARGE_INTEGER due;
+        due.QuadPart = -std::chrono::ceil<std::chrono::duration<LONGLONG, std::ratio<1, 10000000>>>(deadline - now).count();
+        if (!SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+            const DWORD error = GetLastError();
+            return "SetWaitableTimer failed, error " + std::to_string(error);
+        }
+        const DWORD result = WaitForSingleObject(timer, 1000);
+        if (result == WAIT_FAILED) {
+            const DWORD error = GetLastError();
+            return "WaitForSingleObject failed, error " + std::to_string(error);
+        }
+        if (result != WAIT_OBJECT_0) return "WaitForSingleObject returned " + std::to_string(result);
+    }
+    return {};
+}
+#endif
+
 /// The layout-query limit (CpuBudget::queryLimitHit): a forced-layout loop burns no JS
 /// CPU of its own but keeps the host answering queries; with a slow renderer (5 ms per
-/// answer) it is killed past 128 answered queries instead of holding the renderer.
+/// answer, on a high-resolution timer on Windows) it is killed past 128 answered queries
+/// instead of holding the renderer.
 /// The twin of QueryBudgetTests.swift and QueryBudgetTest.kt.
 TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
+#ifdef _WIN32
+    const std::unique_ptr<void, decltype(&CloseHandle)> timer(CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE), &CloseHandle);
+    const DWORD createError = timer ? ERROR_SUCCESS : GetLastError();
+    CHECK_MSG(timer != nullptr, "CreateWaitableTimerExW failed, error " + std::to_string(createError));
+    if (!timer) return;
+#endif
+    int answers = 0;
+    auto shortest = std::chrono::steady_clock::duration::max();
+    std::string waitError;
     auto cfg = testConfig();
     cfg.cpuLimitMs = 200;
     Run r("<div id=a></div><script>const a = document.getElementById('a'); let i = 0; for (;;) { a.style.width = (i++ % 300) + 'px'; a.offsetHeight; }</script>", cfg, false);
-    r.host.answer = [](const Json&) -> std::optional<std::string> { std::this_thread::sleep_for(std::chrono::milliseconds(5)); return std::nullopt; };
+    r.host.answer = [&](const Json&) -> std::optional<std::string> {
+        const auto began = std::chrono::steady_clock::now();
+#ifdef _WIN32
+        const std::string error = waitOnTimer(timer.get(), began + std::chrono::milliseconds(5));
+#else
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        const std::string error;
+#endif
+        const auto elapsed = std::chrono::steady_clock::now() - began;
+        auto l = r.host.lock();
+        answers++;
+        shortest = std::min(shortest, elapsed);
+        if (waitError.empty()) waitError = error;
+        return std::nullopt;
+    };
     auto t0 = std::chrono::steady_clock::now();
     r.engine.start();
     r.host.waitLoaded(10);
@@ -854,6 +1186,11 @@ TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
     CHECK_MSG(r.host.died && r.host.died->find("more than 128 layout queries in one boot task") != std::string::npos, r.host.died.value_or("alive"));
     CHECK_MSG(seconds < 5, std::to_string(seconds) + " s");
     CHECK_MSG(int(r.host.queries.size()) == CpuBudget::kQueryLimit + 1, std::to_string(r.host.queries.size()) + " queries");
+    CHECK_MSG(waitError.empty(), waitError);
+    const double shortestMs = std::chrono::duration<double, std::milli>(shortest).count();
+    const std::string measured = std::to_string(answers) + " answers of " + std::to_string(r.host.queries.size()) + " queries, the shortest " + std::to_string(shortestMs) + " ms";
+    CHECK_MSG(answers == int(r.host.queries.size()), measured);
+    CHECK_MSG(shortest >= std::chrono::milliseconds(5), measured);
 }
 
 /// 30 ms per answer: the 1000 ms guard (CpuBudget::kQueryBudgetMs) fires at the 34th query, and a loop that ends on the
@@ -1045,34 +1382,12 @@ TEST(user_gestures_are_numbered_per_physical_press) {
     CHECK(d.gestureFor(ev("{\"type\":\"click\",\"detail\":1}")) == 2);
 }
 
-/// A renderer without a document: announces itself, answers every query with null, keeps what it was sent; tests inject its events.
-struct ScriptedRenderer final : Renderer {
-    void load() override { onMessage("{\"type\":\"ready\"}"); }
-    void send(const std::string& json) override {
-        {
-            std::lock_guard<std::mutex> l(mutex);
-            messages.push_back(json);
-        }
-        auto m = Json::parse(json);
-        if (m && (*m)["type"].asString() == "query") onMessage("{\"type\":\"result\",\"qid\":" + std::to_string((*m)["qid"].asInt()) + ",\"result\":null}");
-    }
-    void setTheme(const std::string& t) override { std::lock_guard<std::mutex> l(mutex); themes.push_back(t); }
-    void setWidth(double) override {}
-    void destroy() override {}
-    /// The messages of one type, in order.
-    std::vector<Json> sent(const std::string& type) {
-        std::lock_guard<std::mutex> l(mutex);
-        std::vector<Json> out;
-        for (auto& m : messages) if (auto j = Json::parse(m); j && (*j)["type"].asString() == type) out.push_back(*j);
-        return out;
-    }
-    std::mutex mutex;
-    std::vector<std::string> messages;
-    std::vector<std::string> themes;
-};
-
-static RendererFactory scripted(ScriptedRenderer*& out) {
+RendererFactory scripted(ScriptedRenderer*& out) {
     return [&out](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> {
+        if (!SandboxEngine::remoteChannelFactorySet() && !inProcessHere()) {
+            g_widgets++;
+            if (HostedSwitch::building()) (HostedSwitch::requested() == HostedSwitch::Mode::Stream ? g_streamWidgets : g_loopbackWidgets)++;
+        }
         auto r = std::make_unique<ScriptedRenderer>();
         out = r.get();
         return r;
@@ -1230,6 +1545,7 @@ TEST(paint_limit_stops_the_widget) {
         int count = code == WidgetPaintLimit::Paint ? 17 : 3;
         renderer->limitExceeded(code, count);
         CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.dead.has_value(); }, 5));
+        host.onHostThread([] {});   // and the closure that published it sent frozen
         WidgetDiagnostics d = host.diagnostics();
         CHECK_MSG(d.dead == std::optional<std::string>(paintLimitMessage(code, count)), d.dead.value_or("alive"));
         CHECK(d.countDiag(paintLimitCode(code)) == 1);
@@ -1550,6 +1866,7 @@ TEST(sdk_locale_reaches_the_widget) {
 /// gesture report becomes onGesture with its x and hold (missing or not a boolean: false); `y` is false whatever the
 /// renderer sends (v0.1.3: vertical drags are the chat's), and a report with only `wants` claims nothing.
 TEST(sdk_widget_host_theme_locale_and_gestures) {
+    InProcessWidgets inProcess;
     ScriptedRenderer* renderer = nullptr;
     WidgetTheme theme;
     theme.colorScheme = "dark";
@@ -1625,11 +1942,8 @@ TEST(sdk_content_safe_area_reaches_the_renderer_and_the_widget) {
     CHECK(host.waitLoaded(20));
     {
         std::lock_guard<std::mutex> l(renderer->mutex);
-        // The theme, then the place, then both safe-area layers, before any op.
-        CHECK_MSG(renderer->messages.size() > 3 && renderer->messages[1] == "{\"type\":\"surface\",\"surface\":\"message\",\"viewportHeight\":0}" &&
-                      renderer->messages[2] == "{\"type\":\"safeArea\",\"inset\":{\"top\":99,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}}" &&
-                      renderer->messages[3] == "{\"type\":\"deviceSafeArea\",\"inset\":{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}}",
-                  renderer->messages.size() > 2 ? renderer->messages[2] : "nothing sent");
+        CHECK_MSG(renderer->messages.size() > 1 && renderer->messages[1] == "{\"type\":\"safeArea\",\"inset\":{\"top\":99,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}}",
+                  renderer->messages.size() > 1 ? renderer->messages[1] : "nothing sent");
     }
     CHECK_MSG(host.probe("JSON.stringify(first)") == "{\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}", host.probe("JSON.stringify(first)"));
     WidgetContentSafeArea rtl;
@@ -1658,6 +1972,7 @@ TEST(sdk_deprecated_host_api_forwards) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
+    InProcessWidgets inProcess;
     ScriptedRenderer* renderer = nullptr;
     WidgetHost host("<script>TelegramWidget.ready(); TelegramWidget.HapticFeedback.impactOccurred('soft');</script>", "dark", 300, WidgetHostOptions(), RES, scripted(renderer));
     std::mutex m;
@@ -1681,6 +1996,7 @@ TEST(sdk_deprecated_host_api_forwards) {
     host.onHostThread([] {});
     std::lock_guard<std::mutex> l(m);
     CHECK_MSG((raw == std::vector<std::pair<std::string, std::string>>{{"ready", "[]"}, {"haptic", "[\"impact\",\"soft\"]"}}), std::to_string(raw.size()));
+    CHECK(host.diagnostics().bridge == raw);
     // `y` is always false since v0.1.3, for the deprecated callback too.
     CHECK((gestures == std::vector<std::string>{"onGesture 101", "onGestureClaim 10", "onGesture 100", "onGestureClaim 10", "onGesture 000", "onGestureClaim 00"}));
     CHECK(host.diagnostics().actions.size() == 2);
@@ -1742,6 +2058,7 @@ struct GrowingRenderer final : Renderer {
 /// bridge call reaches the host state before the size report of the same task's ops); `top` again goes back; no action,
 /// no raw bridge call, no gesture needed, on a hidden widget too. An equal value changes nothing.
 TEST(sdk_resize_anchor_is_host_state_next_to_the_height) {
+    InProcessWidgets inProcess;
     std::mutex m;
     std::vector<std::pair<double, std::string>> heights; // each new height with the anchor of that moment
     int anchorChanges = 0;
@@ -1800,62 +2117,13 @@ TEST(sdk_resize_anchor_is_host_state_next_to_the_height) {
     CHECK(plain.diagnostics().resizeAnchor == "top" && plain.diagnostics().height > 0);
 }
 
-/// The bot's profile page (docs/sdk-v1.md §2.19): the place and both layers reach the renderer and the widget from its
-/// first line (no corners on a page), setSafeArea fires one safeAreaChanged, the page is at least its viewport tall and
-/// at most the (provisional) ceiling, and the widget's resize anchor goes nowhere. In a bubble the device's edges are 0.
-TEST(sdk_profile_surface_layers_height_and_anchor) {
-    CHECK(surface::height(WidgetSurface::Message, 9000, 844) == 600 && surface::height(WidgetSurface::Message, 10, 844) == 50);
-    CHECK(surface::height(WidgetSurface::Profile, 120, 844) == 844 && surface::height(WidgetSurface::Profile, 9000, 844) == surface::kPageMaxHeight);
-    CHECK(surface::checkViewportHeight(WidgetSurface::Profile, 844.123) == 844.12 && surface::checkViewportHeight(WidgetSurface::Profile, 4001) == 0);
-    CHECK(surface::checkViewportHeight(WidgetSurface::Message, 844) == 0 && surface::kPageMaxHeight == 4000);
-    WidgetHostOptions options;
-    options.context.surface = WidgetSurface::Profile;
-    options.context.chatType = "private"; // a page has no chat: null for the widget
-    options.safeArea.top = 120; // past the old ranges: as passed on a page
-    options.safeArea.bottom = 34;
-    options.safeArea.left = -5; // negative: 0 for the widget
-    options.contentSafeArea.top = 90;
-    options.contentSafeArea.bottom = 150;
-    options.contentSafeArea.left = 40;
-    options.contentSafeArea.cornerRight = 64; // no corners on a page: 0 for the widget
-    options.viewportHeight = 844;
-    WidgetHost host("<p>x</p><script>var log = [], d = TelegramWidget.safeAreaInset, c = TelegramWidget.contentSafeAreaInset;"
-                    "var place = [TelegramWidget.surface, d.top, d.bottom, d.left, c.top, c.bottom, c.left, c.cornerRight, String(TelegramWidget.chatType)].join(':');"
-                    "TelegramWidget.onEvent('safeAreaChanged', function () { var a = TelegramWidget.safeAreaInset; log.push([a.top, a.left, a.right, a.bottom, Object.isFrozen(a), a !== d].join(':')); });"
-                    "TelegramWidget.setResizeAnchor('bottom');</script>",
-                    WidgetTheme{}, 390, options, RES,
-                    [](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> { return std::make_unique<GrowingRenderer>(); });
-    host.start();
-    CHECK(host.waitLoaded(20));
-    CHECK(host.waitRendered(5));
-    CHECK_MSG(host.probe("place") == "profile:120:34:0:90:150:40:0:null", host.probe("place"));
-    CHECK_MSG(host.diagnostics().height == 844, std::to_string(host.diagnostics().height));
-    CHECK(host.diagnostics().resizeAnchor == "top");
-    WidgetSafeArea turned;
-    turned.left = 59;
-    turned.right = 59;
-    turned.bottom = 21;
-    host.setSafeArea(turned);
-    host.setSafeArea(turned);
-    host.onHostThread([] {});
-    CHECK_MSG(host.probe("log.join('|')") == "0:59:59:21:true:true", host.probe("log.join('|')"));
-    host.destroy();
-    WidgetHostOptions bubbleOptions;
-    bubbleOptions.safeArea.top = 47;
-    WidgetHost bubble("<script>var s = TelegramWidget.surface + ':' + JSON.stringify(TelegramWidget.safeAreaInset);</script>", WidgetTheme{}, 300, bubbleOptions, RES,
-                      [](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> { return std::make_unique<GrowingRenderer>(); });
-    bubble.start();
-    CHECK(bubble.waitLoaded(20));
-    CHECK_MSG(bubble.probe("s") == "message:{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}", bubble.probe("s"));
-}
-
 // ───────────── The bot's data and requests through the real engine and WidgetHost (docs/sdk-v1.md §2.13–§2.15) ─────────────
 
 static const char* kShowContext = "JSON.stringify([TelegramWidget.chatData, TelegramWidget.publicData, TelegramWidget.isForward, TelegramWidget.chatType, TelegramWidget.viewer])";
 
 /// A button whose tap asks twice (the shim forwards both, the glue's gate refuses the second as BUSY); `mode = 'copy'` makes it copy twice instead. The log
 /// shows each settled request and each `chatDataChanged` / `publicDataChanged`.
-static const char* kRequester =
+const char* kRequester =
     "<button id='b'>go</button><script>var log = [], mode = 'ask';"
     "function ask(d) { TelegramWidget.request(d).then(function (a) { log.push('ok:' + d + ':' + JSON.stringify(a) + ':' + Object.isFrozen(a)); },"
     "  function (e) { log.push('err:' + d + ':' + e.name + ':' + e.code); }); }"
@@ -1863,19 +2131,27 @@ static const char* kRequester =
     "TelegramWidget.onEvent('publicDataChanged', function () { log.push('public:' + TelegramWidget.publicData); });"
     "document.getElementById('b').addEventListener('click', function () {"
     "  if (mode === 'ask') { ask('tap'); ask('tap2'); } else { TelegramWidget.copyText('PROMO-2026 \\u2713'); TelegramWidget.copyText('second'); } });</script>";
-static const std::string kTapOnButton = "{\"type\":\"click\",\"targetId\":5,\"detail\":1}";
+const std::string kTapOnButton = "{\"type\":\"click\",\"targetId\":5,\"detail\":1}";
+
+/// kRequester's log from entry `from` (`count` entries, or the rest) sorted: a tap's answer given inside the delivery and its second call's BUSY come in either order behind a remote engine.
+static std::string tapOutcomes(int from = 0, int count = -1) {
+    return "log.slice(" + std::to_string(from) + (count < 0 ? "" : ", " + std::to_string(from + count)) + ").sort().join(' ')";
+}
+
+/// kRequester's outcome of the tap's own request, whatever settled before it.
+static const char* kTapOutcome = "log.filter(function (s) { return s.split(':')[1] === 'tap'; }).join(' ')";
 
 using Respond = std::function<void(const WidgetRequestOutcome&)>;
 
 /// The server's answer: only the result.
-static WidgetRequestOutcome answered(std::optional<std::string> result) {
+WidgetRequestOutcome answered(std::optional<std::string> result) {
     WidgetRequestOutcome o;
     o.answer.result = std::move(result);
     return o;
 }
 
 /// The server's flags for a kind of message (WIDGET_MESSAGE_KINDS in sdk-policy.ts).
-static WidgetContext messageContext(bool isCopy, bool canQuery, bool backgroundQuery, std::string chatType = "", std::optional<WidgetViewer> viewer = std::nullopt) {
+WidgetContext messageContext(bool isCopy, bool canQuery, bool backgroundQuery, std::string chatType, std::optional<WidgetViewer> viewer) {
     WidgetContext c;
     c.isCopy = isCopy;
     c.canQuery = canQuery;
@@ -1885,20 +2161,8 @@ static WidgetContext messageContext(bool isCopy, bool canQuery, bool backgroundQ
     return c;
 }
 
-/// Polls a probe until it gives `expected` (an answer may come from another thread); returns the last value.
-template <typename Engine>
-static std::string probeUntil(Engine& engine, const std::string& code, const std::string& expected, double timeoutSeconds = 5) {
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(timeoutSeconds * 1000));
-    std::string got = engine.probe(code);
-    while (got != expected && std::chrono::steady_clock::now() < deadline) {
-        sleepMs(10);
-        got = engine.probe(code);
-    }
-    return got;
-}
-
 /// Polls state a test's callbacks keep under their own lock.
-static bool eventually(const std::function<bool()>& pred, double timeoutSeconds = 5) {
+bool eventually(const std::function<bool()>& pred, double timeoutSeconds) {
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(timeoutSeconds * 1000));
     while (!pred()) {
         if (std::chrono::steady_clock::now() > deadline) return false;
@@ -2040,10 +2304,8 @@ TEST(sdk_watch_public_data_reaches_the_delegate) {
 /// onWatchPublicData only on a change: true, false, true, ending with true; a widget that never calls it: false, no
 /// callback; a preview: false, one `preview-blocked`.
 TEST(sdk_widget_host_watches_public_data) {
-    auto make = [](const std::string& html, WidgetHostOptions options) {
-        ScriptedRenderer* renderer = nullptr;
-        return std::make_unique<WidgetHost>(html, WidgetTheme{}, 300, options, RES, scripted(renderer));
-    };
+    ScriptedRenderer* renderer = nullptr;
+    auto make = [&renderer](const std::string& html, WidgetHostOptions options) { return std::make_unique<WidgetHost>(html, WidgetTheme{}, 300, options, RES, scripted(renderer)); };
     std::mutex m;
     std::vector<bool> changes;
     auto host = make("<button>b</button><script>TelegramWidget.watchPublicData(); TelegramWidget.watchPublicData();"
@@ -2053,7 +2315,8 @@ TEST(sdk_widget_host_watches_public_data) {
     host->start();
     CHECK(host->waitLoaded(20));
     CHECK(host->waitUntil([](const WidgetDiagnostics& d) { return d.watchesPublicData; }, 5));
-    host->event(kTapOnButton);
+    // The renderer's untrusted click, what `host->event(kTapOnButton)` gives in process, so a hosted host gets it too.
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + "}");
     CHECK(eventually([&] { std::lock_guard<std::mutex> l(m); return changes.size() >= 3; }));
     host->probe("0");
     host->onHostThread([] {});
@@ -2118,10 +2381,7 @@ TEST(sdk_set_data_fires_chat_then_public_data_changed) {
     CHECK(diagsOf(c.host, "data-rejected").empty());
 }
 
-/// A tap sends one request (the client gets only its data) where the message allows requests: an original in a group
-/// (`canQuery`) and a live copy (`isCopy`, `canQuery`); the answer resolves with { result }; the second call of the tap
-/// is BUSY in the glue's gate and never reaches the client; after the answer the next tap can ask again. The recording
-/// host answers on the engine thread inside the delivery, so the answer is queued before the gate's refusal.
+/// A tap sends one request (the client gets only its data) where the message allows requests: an original in a group (`canQuery`) and a live copy (`isCopy`, `canQuery`); the answer resolves with { result }; the second call of the tap is BUSY in the glue's gate and never reaches the client; after the answer the next tap can ask again. The recording host answers inside the delivery: in process that answer is queued before the gate's refusal, behind a remote engine it crosses the channel and comes in either order (`tapOutcomes`).
 TEST(sdk_request_tap_answer_and_busy) {
     SandboxConfig cfg = testConfig();
     cfg.context = messageContext(false, true, false, "group");
@@ -2131,12 +2391,13 @@ TEST(sdk_request_tap_answer_and_busy) {
     r.engine.start();
     r.host.waitLoaded(20);
     r.engine.activationEvent(kTapOnButton, 1);
-    const std::string first = "ok:tap:{\"result\":\"thanks\"}:true err:tap2:WidgetRequestError:BUSY";
-    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", first) == first, r.engine.probe("log.join(' ')"));
+    const std::string first = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"thanks\"}:true";
+    CHECK_MSG(probeUntil(r.engine, tapOutcomes(), first) == first, r.engine.probe("log.join(' ')"));
     CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}}));
     r.engine.activationEvent(kTapOnButton, 2);
-    const std::string second = first + " ok:tap:{\"result\":\"again\"}:true err:tap2:WidgetRequestError:BUSY";
-    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", second) == second, r.engine.probe("log.join(' ')"));
+    const std::string second = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"again\"}:true";
+    CHECK_MSG(probeUntil(r.engine, tapOutcomes(2), second) == second, r.engine.probe("log.join(' ')"));
+    CHECK(r.engine.probe("log.length") == "4" && r.engine.probe(tapOutcomes(0, 2)) == first);
     CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}, {"tap"}}));
     const std::string busy = "request refused (busy): a request is already in flight";
     CHECK((diagsOf(r.host, "request-blocked") == std::vector<std::string>{busy, busy}));
@@ -2151,8 +2412,8 @@ TEST(sdk_request_tap_answer_and_busy) {
     c.engine.start();
     c.host.waitLoaded(20);
     c.engine.activationEvent(kTapOnButton, 1);
-    const std::string asked = "ok:tap:{\"result\":null}:true err:tap2:WidgetRequestError:BUSY";
-    CHECK_MSG(probeUntil(c.engine, "log.join(' ')", asked) == asked, c.engine.probe("log.join(' ')"));
+    const std::string asked = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":null}:true";
+    CHECK_MSG(probeUntil(c.engine, tapOutcomes(), asked) == asked, c.engine.probe("log.join(' ')"));
     CHECK((requestsOf(c.host) == std::vector<WidgetRequest>{{"tap"}}));
 }
 
@@ -2217,11 +2478,12 @@ TEST(sdk_request_refusals) {
         group.context = messageContext(false, true, false, "group");
         Run u(kRequester, group); // no onRequest
         u.engine.activationEvent(kTapOnButton, 1);
-        // The delivery refuses on the engine thread, queued before the gate's BUSY for the second call.
-        const std::string refused = "err:tap:WidgetRequestError:NOT_ALLOWED err:tap2:WidgetRequestError:BUSY";
-        CHECK_MSG(probeUntil(u.engine, "log.join(' ')", refused) == refused, u.engine.probe("log.join(' ')"));
+        // The delivery's refusal and the gate's BUSY for the second call, in either order behind a remote engine.
+        const std::string refused = "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED";
+        CHECK_MSG(probeUntil(u.engine, tapOutcomes(), refused) == refused, u.engine.probe("log.join(' ')"));
         u.engine.activationEvent(kTapOnButton, 2);
-        CHECK_MSG(probeUntil(u.engine, "log.join(' ')", refused + " " + refused) == refused + " " + refused, u.engine.probe("log.join(' ')"));
+        CHECK_MSG(probeUntil(u.engine, tapOutcomes(2), refused) == refused, u.engine.probe("log.join(' ')"));
+        CHECK(u.engine.probe("log.length") == "4" && u.engine.probe(tapOutcomes(0, 2)) == refused);
         const std::string unsupported = "request refused: the client handles no requests (onRequest)", busy = "request refused (busy): a request is already in flight";
         CHECK((diagsOf(u.host, "request-blocked") == std::vector<std::string>{busy, unsupported, busy, unsupported}));
         CHECK(requestsOf(u.host).size() == 2); // delivered, then refused there
@@ -2244,12 +2506,12 @@ TEST(sdk_request_failures_and_invalid_answers) {
         return diagsOf(r.host, "answer-rejected");
     };
     for (auto [failure, code] : {std::pair{WidgetRequestFailure::Timeout, "TIMEOUT"}, {WidgetRequestFailure::RateLimited, "RATE_LIMITED"}, {WidgetRequestFailure::Failed, "FAILED"}})
-        tapWith({failure, {}}, "log[0]", std::string("err:tap:WidgetRequestError:") + code);
-    tapWith(answered(""), "log[0]", "ok:tap:{\"result\":\"\"}:true");
+        tapWith({failure, {}}, kTapOutcome, std::string("err:tap:WidgetRequestError:") + code);
+    tapWith(answered(""), kTapOutcome, "ok:tap:{\"result\":\"\"}:true");
     const std::vector<std::string> rejected = {"the answer's result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER"};
-    CHECK(tapWith(answered(std::string(1025, 'x')), "log[0]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
-    CHECK(tapWith(answered(std::string("a\0b", 3)), "log[0]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
-    CHECK(tapWith(answered("{\"v\":[1,2]}\n"), "log[0]", "ok:tap:{\"result\":\"{\\\"v\\\":[1,2]}\\n\"}:true").empty());
+    CHECK(tapWith(answered(std::string(1025, 'x')), kTapOutcome, "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
+    CHECK(tapWith(answered(std::string("a\0b", 3)), kTapOutcome, "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
+    CHECK(tapWith(answered("{\"v\":[1,2]}\n"), kTapOutcome, "ok:tap:{\"result\":\"{\\\"v\\\":[1,2]}\\n\"}:true").empty());
 }
 
 /// Background requests: one when the widget appears on screen, then one per 5 s. A background request at boot goes
@@ -2384,6 +2646,30 @@ TEST(sdk_wallet_a_tap_pays_on_the_answer_to_its_request) {
     CHECK(r.host.actions.empty());
 }
 
+TEST(sdk_wallet_the_longest_transaction_reaches_the_client) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, true, "private");
+    cfg.context.wallet = true;
+    Run r("<button id='b'>pay</button><script>var log = [];"
+          "document.getElementById('b').onclick = function () { var messages = [];"
+          "  for (var i = 0; i < 255; i++) { var m = { address: 'EQ' + 'ab'.repeat(23), amount: '1' + '0'.repeat(36) }; if (i < 8) m.payload = 'A'.repeat(8192); messages.push(m); }"
+          "  TelegramWidget.wallet.sendTransaction({ valid_until: 4294967295, network: '-239', from: '0:' + 'ab'.repeat(32), messages: messages }, 'paid')"
+          "    .then(function (a) { log.push('ok:' + a.result); }, function (e) { log.push('err:' + e.code); }); };</script>", cfg, false);
+    r.host.onWallet = [](const WalletCall&, Respond respond) { respond(answered(std::string("thanks"))); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    r.engine.activationEvent(kTapOnButton, 1);
+    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", "ok:thanks") == "ok:thanks", r.engine.probe("log.join(' ')") + " " + r.diagsText());
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.walletCalls.size() == 1, std::to_string(r.host.walletCalls.size()));
+    if (!r.host.walletCalls.empty()) {
+        const WalletTransaction& tx = r.host.walletCalls[0].transaction;
+        size_t bytes = tx.toJson().dump().size();
+        CHECK(tx.messages.size() == sdk::MAX_WALLET_MESSAGES);
+        CHECK_MSG(bytes > sdk::MAX_HOST_CALL_BYTES && bytes + 1024 < sdk::MAX_BRIDGE_CALL_BYTES, std::to_string(bytes) + " bytes");
+    }
+}
+
 TEST(sdk_wallet_refusals_and_the_background) {
     SandboxConfig cfg = testConfig();
     cfg.context = messageContext(false, true, false, "group");
@@ -2406,8 +2692,8 @@ TEST(sdk_wallet_refusals_and_the_background) {
     p.engine.start();
     p.host.waitLoaded(20);
     p.engine.activationEvent(kTapOnButton, 1);
-    const std::string failed = "err:tap:WidgetRequestError:FAILED err:tap2:WidgetRequestError:BUSY";
-    CHECK_MSG(probeUntil(p.engine, "log.join(' ')", failed) == failed, p.engine.probe("log.join(' ')"));
+    const std::string failed = "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:FAILED";
+    CHECK_MSG(probeUntil(p.engine, tapOutcomes(), failed) == failed, p.engine.probe("log.join(' ')"));
 
     // From a timer neither a wallet call nor a request for the wallet goes out, also in the private chat with the bot;
     // TelegramWidget.wallet is null without the wallet or without canQuery.
@@ -2712,6 +2998,20 @@ TEST(intl_fallback_formats_through_the_host) {
     CHECK_MSG(r.host.hasLog("1,234.5|one|25%"), r.logsText());
 }
 
+TEST(a_host_call_too_long_to_be_valid_fails_in_the_script) {
+    Run r("<script>var big = new Array(30000).fill('ab'), out = [];"
+          "try { out.push(new Intl.ListFormat('en').format(big).length); } catch (e) { out.push(e.name + ': ' + e.message); }"
+          "out.push(new Intl.ListFormat('en').format(['a', 'b', 'c']));"
+          "console.log(out.join('|'));</script>");
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(!r.host.died, r.host.died.value_or(""));
+    const std::string refused = "RangeError: arguments too long: ", then = " bytes of JSON, at most 65536 (intl)|a, b, and c";
+    bool found = false;
+    for (auto& log : r.host.logs) found = found || (log.second.rfind(refused, 0) == 0 && log.second.size() > then.size() && log.second.compare(log.second.size() - then.size(), then.size(), then) == 0);
+    CHECK_MSG(found, r.logsText().substr(0, 400));
+}
+
 // ECMA-402's date defaults come from the shim: a format without fields reaches the provider with numeric ones.
 TEST(intl_fallback_date_defaults_from_the_shim) {
     Run r("<script>var u={timeZone:'UTC'},d=new Date(0);"
@@ -2765,6 +3065,26 @@ TEST(intl_fallback_matches_v8_on_the_basic_cases) {
     CHECK(checked > 100);
 }
 
+TEST(intl_fallback_refuses_a_date_out_of_range) {
+    BasicIntl intl;
+    const std::string invalid = "[{\"type\":\"literal\",\"value\":\"Invalid Date\"}]";
+    auto parts = [&](const char* value) {
+        auto req = Json::parse(std::string("{\"kind\":\"dateParts\",\"value\":") + value +
+                               ",\"opts\":{\"weekday\":\"long\",\"month\":\"long\",\"year\":\"numeric\",\"second\":\"numeric\",\"fractionalSecondDigits\":3}}");
+        return req ? intl.format(*req) : std::string("bad request");
+    };
+    for (const char* value : {"1e300", "-1e300", "8640000000000001", "-8640000000000001", "9.3e21", "-9.3e21", "1e999"}) CHECK_MSG(parts(value) == invalid, std::string(value) + " → " + parts(value));
+    for (const char* value : {"8.64e15", "-8.64e15", "-62198755200000", "-1000000000000", "-1", "32535215999000", "32535216000000", "32535244800000"}) {
+        std::string got = parts(value);
+        auto list = Json::parse(got);
+        bool named = list && (*list)[0]["type"].asString() == "weekday" && (*list)[0]["value"].asString().size() >= 6 && (*list)[2]["type"].asString() == "month" &&
+                     (*list)[2]["value"].asString().size() >= 3;
+        CHECK_MSG(got == invalid || named, std::string(value) + " is a date with real names or, where the C library converts no such time, none → " + got);
+    }
+    CHECK_MSG(parts("0").rfind("[{\"type\":\"weekday\",\"value\":\"Thursday\"},{\"type\":\"literal\",\"value\":\", \"},{\"type\":\"month\",\"value\":\"January\"}", 0) == 0, parts("0"));
+    CHECK_MSG(parts("32535215999999").find("{\"type\":\"month\",\"value\":\"December\"},{\"type\":\"literal\",\"value\":\" \"},{\"type\":\"year\",\"value\":\"3000\"}") != std::string::npos, parts("32535215999999"));
+}
+
 #ifdef _WIN32
 /// IcuIntl, on the system's ICU, on every case of the fixture.
 TEST(icu_intl_matches_v8) {
@@ -2772,6 +3092,24 @@ TEST(icu_intl_matches_v8) {
     int checked = 0;
     for (const auto& m : intlMismatches(intl, false, checked)) CHECK_MSG(false, m);
     CHECK(checked > 100);
+}
+#endif
+
+#ifdef _WIN32
+// A tag whose ICU locale ID is exactly ULOC_FULLNAME_CAPACITY (157) bytes: ICU fills the buffer and writes no NUL.
+TEST(icu_intl_refuses_a_locale_that_fills_the_buffer) {
+    IcuIntl intl("en-US");
+    const std::string tag = "en-x-wwwwwwww-nnnnnnnn-eeeeeeee-vvvvvvvv-mmmmmmmm-dddddddd-uuuuuuuu-llllllll-cccccccc-tttttttt-kkkkkkkk-bbbbbbbb-ssssssss-jjjjjjjj-aaaaaaaa-rrrrrrrr-iiiiiiii";
+    for (const char* kind : {"numberOptions", "dateOptions"}) {
+        Json req = Json::object();
+        req.set("kind", kind).set("locale", tag).set("opts", Json::object());
+        auto options = Json::parse(intl.format(req));
+        CHECK(options.has_value());
+        if (options) CHECK_MSG((*options)["locale"].asString() == "en-US", (*options)["locale"].dump());
+    }
+    Json list = Json::object();
+    list.set("kind", "number").set("locale", Json::array().push(tag)).set("value", 1234.5).set("opts", Json::object());
+    CHECK_MSG(intl.format(list) == "1,234.5", intl.format(list));
 }
 #endif
 
@@ -2790,14 +3128,14 @@ TEST(intl_fallback_format_to_parts) {
 // The system's ICU: CLDR data for the locale a widget names, where the basic provider writes English.
 TEST(icu_intl_formats_with_cldr) {
     RecordingHost host("light", RES);
-    SandboxEngine engine("<script>console.log(new Intl.NumberFormat('ru-RU').format(1234.5).replace(/\\s/g, ' ') + '|' + new Intl.PluralRules('ru-RU').select(3) + '|' +"
-                         " new Intl.RelativeTimeFormat('en', {numeric: 'auto'}).format(-1, 'day') + '|' + new Intl.DateTimeFormat('en-US', {timeZone: 'UTC'}).format(new Date(0)) + '|' +"
-                         " new Intl.ListFormat('en', {type: 'conjunction'}).format(['a', 'b', 'c']));</script>",
-                         testConfig(), RES, std::make_shared<IcuIntl>());
-    engine.setDelegate(&host);
-    engine.start();
+    std::unique_ptr<SandboxEngine> engine = fixtureEngine("<script>console.log(new Intl.NumberFormat('ru-RU').format(1234.5).replace(/\\s/g, ' ') + '|' + new Intl.PluralRules('ru-RU').select(3) + '|' +"
+                                                          " new Intl.RelativeTimeFormat('en', {numeric: 'auto'}).format(-1, 'day') + '|' + new Intl.DateTimeFormat('en-US', {timeZone: 'UTC'}).format(new Date(0)) + '|' +"
+                                                          " new Intl.ListFormat('en', {type: 'conjunction'}).format(['a', 'b', 'c']));</script>",
+                                                          testConfig(), RES, std::make_shared<IcuIntl>());
+    engine->setDelegate(&host);
+    engine->start();
     host.waitLoaded(20);
-    engine.thread().sync([] {});
+    engine->thread().sync([] {});
     auto l = host.lock();
     std::string logs;
     for (auto& log : host.logs) logs += log.second + "\n";
@@ -2809,56 +3147,63 @@ TEST(icu_intl_formats_with_cldr) {
 TEST(engine_create_and_teardown_churn) {
     for (int i = 0; i < 10; i++) {
         RecordingHost host("light", RES);
-        SandboxEngine engine("<p>x</p><script>setInterval(function(){}, 10); requestAnimationFrame(function(){});</script>", testConfig(), RES);
-        engine.setDelegate(&host);
-        engine.start();
+        std::unique_ptr<SandboxEngine> engine = fixtureEngine("<p>x</p><script>setInterval(function(){}, 10); requestAnimationFrame(function(){});</script>", testConfig(), RES);
+        engine->setDelegate(&host);
+        engine->start();
         if (i % 2) host.waitLoaded(10);
-        if (i % 3 == 0) engine.terminate();
+        if (i % 3 == 0) engine->terminate();
     }
     CHECK(true);
 }
 
 // ───────────── validator ─────────────
 
-// ───────────── precompiled bundles ─────────────
+// ───────────── compiled bundles ─────────────
 
-TEST(bytecode_round_trip_and_stale_blob_refused) {
-    QuickJSContext js(size_t(16) << 20);
-    auto blob = js.compileBytecode("globalThis.answer = 6 * 7;", "t.js");
-    CHECK(blob.size() > 24);
-    js.evaluateBytecode(blob, "globalThis.answer = 6 * 7;");
-    CHECK(js.evaluate("answer", "t.js").number == 42);
-    bool threw = false;
-    try { js.evaluateBytecode(blob, "globalThis.answer = 6 * 8;"); } catch (const JSError& e) { threw = std::string(e.what()).find("different source") != std::string::npos; }
-    CHECK_MSG(threw, "a blob compiled from another source must be refused");
-    auto bad = blob;
-    bad[0] = 'X';
-    threw = false;
-    try { js.evaluateBytecode(bad, "globalThis.answer = 6 * 7;"); } catch (const JSError&) { threw = true; }
-    CHECK(threw);
-    threw = false;
-    try { js.evaluateBytecode({}, ""); } catch (const JSError&) { threw = true; }
-    CHECK(threw);
+/// One of our own bundles runs from code compiled once per process, in the context that compiled it and in any other; another source under the same name runs as itself, never as the code compiled before; one that does not compile is evaluated from its source and throws its SyntaxError.
+TEST(bundle_is_compiled_once_and_a_broken_one_throws_its_syntax_error) {
+    const std::string source = "globalThis.answer = (globalThis.answer || 0) + 6 * 7;";
+    NovaContext first(size_t(16) << 20);
+    CHECK(first.evaluateBundle(source, "test-shared-bundle.js"));
+    CHECK(first.evaluate("answer", "t.js").number == 42);
+    NovaContext second(size_t(16) << 20);
+    CHECK(second.evaluateBundle(source, "test-shared-bundle.js"));
+    CHECK(second.evaluate("answer", "t.js").number == 42);
+    CHECK(first.evaluateBundle(source, "test-shared-bundle.js"));
+    CHECK(first.evaluate("answer", "t.js").number == 84);
+    CHECK(second.evaluate("answer", "t.js").number == 42);
+    CHECK(second.evaluateBundle("globalThis.answer = 6 * 8;", "test-shared-bundle.js"));
+    CHECK_MSG(second.evaluate("answer", "t.js").number == 48, "another source under the same name must run as itself");
+    for (int round = 0; round < 2; round++) {
+        std::string error = "evaluated";
+        try { second.evaluateBundle("globalThis.answer = 6 * ;", "test-broken-bundle.js"); } catch (const JSError& e) { error = e.what(); }
+        CHECK_MSG(error.rfind("SyntaxError", 0) == 0, error);
+    }
+    CHECK(second.evaluate("answer", "t.js").number == 48);
 }
 
 // A CDN script is an external script like any other: profile 1 bundles no libraries.
-TEST(shipped_bytecode_is_used_and_no_library_is_bundled) {
-    CHECK_MSG(!RES->sandboxBytecode.empty() && !RES->validatorBytecode.empty(), "pnpm build:desktop ships .qbc next to the bundles");
-    Run r("<canvas id=\"c\"></canvas><script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script><script>console.log(typeof Chart);</script>");
-    r.barrier();
-    auto l = r.host.lock();
-    CHECK(!r.host.died);
-    bool bootFromBytecode = false, skipped = false, fallback = false;
-    for (auto& d : r.host.diags) {
-        if (d.first == "boot" && d.second.find("(bytecode)") != std::string::npos) bootFromBytecode = true;
-        if (d.first == "script-skipped" && d.second.find("chart.js") != std::string::npos) skipped = true;
-        if (d.first == "bytecode") fallback = true;
+TEST(bundles_boot_compiled_and_no_library_is_bundled) {
+    {
+        Run r("<canvas id=\"c\"></canvas><script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script><script>console.log(typeof Chart);</script>");
+        r.barrier();
+        auto l = r.host.lock();
+        CHECK(!r.host.died);
+        bool bootCompiled = false, skipped = false;
+        for (auto& d : r.host.diags) {
+            if (d.first == "boot" && d.second.find("(compiled)") != std::string::npos) bootCompiled = true;
+            if (d.first == "script-skipped" && d.second.find("chart.js") != std::string::npos) skipped = true;
+        }
+        CHECK_MSG(bootCompiled && skipped, r.diagsText());
+        CHECK(r.host.hasLog("undefined"));
     }
-    CHECK_MSG(bootFromBytecode && skipped && !fallback, r.diagsText());
-    CHECK(r.host.hasLog("undefined"));
-    std::vector<std::pair<std::string, std::string>> diags;
-    TrustedValidator v("light", RES, [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
-    for (auto& d : diags) CHECK_MSG(d.first != "bytecode", d.second);
+    // A second engine's context boots from the same compiled code.
+    Run again("<p>x</p>");
+    again.barrier();
+    auto l = again.host.lock();
+    bool againCompiled = false;
+    for (auto& d : again.host.diags) if (d.first == "boot" && d.second.find("(compiled)") != std::string::npos) againCompiled = true;
+    CHECK_MSG(!again.host.died && againCompiled, again.diagsText());
 }
 
 // ───────────── VERSION.json's stamp on the bundles (bundle_stamp.h) ─────────────
@@ -2923,11 +3268,11 @@ TEST(bundle_stamp_engine_and_validator_refuse_another_release) {
         CHECK(!refusal.empty());
         RecordingHost host("light", res, false);
         SandboxConfig cfg = testConfig();
-        SandboxEngine engine("<p>x</p><script>TelegramWidget.ready(); console.log('widget ran');</script>", cfg, res);
-        engine.setDelegate(&host);
-        engine.start();
+        std::unique_ptr<SandboxEngine> engine = fixtureEngine("<p>x</p><script>TelegramWidget.ready(); console.log('widget ran');</script>", cfg, res);
+        engine->setDelegate(&host);
+        engine->start();
         CHECK(host.waitLoaded(20));
-        engine.thread().sync([] {});
+        engine->thread().sync([] {});
         auto l = host.lock();
         CHECK_MSG(host.died == std::optional<std::string>("sandbox bundle failed to load"), std::string(which) + ": " + host.died.value_or("alive"));
         int mismatches = 0;
@@ -2941,6 +3286,149 @@ TEST(bundle_stamp_engine_and_validator_refuse_another_release) {
     TrustedValidator v("light", resourcesWith("validator", ""), [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
     CHECK(v.processOps("[{\"op\":\"el\",\"id\":2,\"tag\":\"p\"}]") == "[]");
     CHECK_MSG(!diags.empty() && diags[0].first == "bundle-mismatch", diags.empty() ? "none" : diags[0].first);
+}
+
+/// A directory `<temp>/<prefix><clock>-<n>` that this call created itself, so a test may write into it and remove it: a
+/// name already taken (another run's) is left as it is and the next `n` tried. nullopt, after a failed check, when none was created.
+static std::optional<std::filesystem::path> newTempDirectory(const std::string& prefix) {
+    std::error_code error;
+    const std::filesystem::path temp = std::filesystem::temp_directory_path(error);
+    CHECK_MSG(!error, "temp_directory_path: " + error.message());
+    if (error) return std::nullopt;
+    const std::string stamp = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    std::string why = "every name is taken";
+    for (int attempt = 0; attempt < 100; attempt++) {
+        const std::filesystem::path candidate = temp / (prefix + stamp + "-" + std::to_string(attempt));
+        if (std::filesystem::create_directory(candidate, error) && !error) return candidate;
+        // Not created and no error: a directory of that name is there; file_exists: something else is. Not this run's either way.
+        if (error && error != std::errc::file_exists) {
+            why = candidate.string() + ": " + error.message();
+            break;
+        }
+    }
+    CHECK_MSG(false, "no new directory in " + temp.string() + ": " + why);
+    return std::nullopt;
+}
+
+/// Bundles checked out with CRLF line ends load as their LF sources and boot as those do; another release's stamp is still refused.
+TEST(crlf_bundles_load_as_lf_and_boot_compiled) {
+    for (const std::string* source : {&RES->sandboxBundle, &RES->validatorBundle, &RES->rendererBundle}) CHECK_MSG(source->find('\r') == std::string::npos, source->substr(0, 80));
+    const std::optional<std::filesystem::path> reserved = newTempDirectory("twidget-tests-crlf-");
+    if (!reserved) return;
+    const std::filesystem::path& root = *reserved;
+    bool written = true;
+    auto directory = [&](const std::string& label, const std::string& sandbox, const std::string& validator, const std::string& renderer) {
+        const std::filesystem::path dir = root / label;
+        if (!written) return dir.string();
+        std::error_code error;
+        written = std::filesystem::create_directory(dir, error) && !error;
+        CHECK_MSG(written, dir.string() + ": " + error.message());
+        if (!written) return dir.string();
+        auto write = [&](const char* name, const void* data, size_t size) {
+            std::ofstream out(dir / name, std::ios::binary);
+            out.write(static_cast<const char*>(data), std::streamsize(size));
+            out.close();
+            const bool ok = !out.fail();
+            CHECK_MSG(ok, (dir / name).string());
+            written = written && ok;
+        };
+        write("sandbox-bundle.js", sandbox.data(), sandbox.size());
+        write("validator-bundle.js", validator.data(), validator.size());
+        if (!renderer.empty()) write("renderer-bundle.js", renderer.data(), renderer.size());
+        return dir.string();
+    };
+    auto withCrlf = [](const std::string& lf) {
+        std::string out;
+        for (char c : lf) {
+            if (c == '\n') out += '\r';
+            out += c;
+        }
+        return out;
+    };
+    auto mine = BundleStamp::glue();
+    const std::string otherRelease = restamped(RES->sandboxBundle, BundleStamp{"9.9.9", mine.protocol + 1, mine.profile, mine.sdk}.line());
+    const std::string lfDir = directory("lf", RES->sandboxBundle, RES->validatorBundle, RES->rendererBundle);
+    const std::string crlfDir = directory("crlf", withCrlf(RES->sandboxBundle), withCrlf(RES->validatorBundle), withCrlf(RES->rendererBundle));
+    const std::string ruleDir = directory("rule", "a\r\nb\rc\r\r\nd\r", "\r\n\r\n", "");
+    const std::string loneDir = directory("lone", withCrlf(RES->sandboxBundle) + "\r", withCrlf(RES->validatorBundle) + "\r", withCrlf(RES->rendererBundle));
+    const std::string stampDir = directory("stamp", withCrlf(otherRelease), withCrlf(RES->validatorBundle), withCrlf(RES->rendererBundle));
+    if (!written) {
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+
+    auto lf = SandboxResources::fromDirectory(lfDir);
+    auto crlf = SandboxResources::fromDirectory(crlfDir);
+    CHECK(lf->sandboxBundle == RES->sandboxBundle);
+    CHECK(lf->validatorBundle == RES->validatorBundle);
+    CHECK(lf->rendererBundle == RES->rendererBundle);
+    CHECK(crlf->sandboxBundle == lf->sandboxBundle);
+    CHECK(crlf->validatorBundle == lf->validatorBundle);
+    CHECK(crlf->rendererBundle == lf->rendererBundle);
+
+    auto rule = SandboxResources::fromDirectory(ruleDir);
+    CHECK(rule->sandboxBundle == "a\nb\rc\r\nd\r");
+    CHECK(rule->validatorBundle == "\n\n");
+    CHECK(rule->rendererBundle.empty());
+
+    const std::string widget = "<p>x</p><script>TelegramWidget.ready(); console.log('widget ran');</script>";
+    auto boot = [&](const std::shared_ptr<SandboxResources>& res, bool alive, const std::function<void(RecordingHost&)>& check) {
+        RecordingHost host("light", res, false);
+        std::unique_ptr<SandboxEngine> engine = fixtureEngine(widget, testConfig(), res);
+        engine->setDelegate(&host);
+        engine->start();
+        CHECK(host.waitLoaded(20));
+        if (alive && engine->isRemote()) engine->probe("0");
+        engine->thread().sync([] {});
+        auto l = host.lock();
+        check(host);
+    };
+    auto diagsOf = [](const RecordingHost& host) {
+        std::string s;
+        for (auto& d : host.diags) s += d.first + ": " + d.second + "\n";
+        return s;
+    };
+
+    boot(crlf, true, [&](RecordingHost& host) {
+        CHECK_MSG(!host.died, host.died.value_or(""));
+        bool compiled = false;
+        for (auto& d : host.diags) if (d.first == "boot" && d.second.find("(compiled)") != std::string::npos) compiled = true;
+        CHECK_MSG(compiled, diagsOf(host));
+        for (const char* kind : {"bundle-mismatch", "validator:bundle-mismatch"}) CHECK_MSG(!host.hasDiag(kind), kind + std::string("\n") + diagsOf(host));
+        CHECK(host.hasLog("widget ran"));
+    });
+
+    // A lone CR after the last line stays, so these are other sources with the same stamp: they boot as themselves.
+    auto lone = SandboxResources::fromDirectory(loneDir);
+    CHECK(lone->sandboxBundle == lf->sandboxBundle + "\r");
+    CHECK(lone->validatorBundle == lf->validatorBundle + "\r");
+    CHECK(lone->rendererBundle == lf->rendererBundle);
+    boot(lone, true, [&](RecordingHost& host) {
+        CHECK_MSG(!host.died, host.died.value_or(""));
+        CHECK_MSG(host.countDiag("boot") == 1, diagsOf(host));
+        CHECK_MSG(!host.hasDiag("bundle-mismatch") && !host.hasDiag("validator:bundle-mismatch"), diagsOf(host));
+        CHECK(host.hasLog("widget ran"));
+    });
+
+    auto stamp = SandboxResources::fromDirectory(stampDir);
+    auto inMemory = std::make_shared<SandboxResources>(*RES);
+    inMemory->sandboxBundle = otherRelease;
+    const std::string refusal = BundleStamp::refusal(*inMemory).value_or("");
+    CHECK(stamp->sandboxBundle == otherRelease);
+    CHECK_MSG(!refusal.empty() && BundleStamp::refusal(*stamp).value_or("") == refusal, BundleStamp::refusal(*stamp).value_or("none"));
+    boot(stamp, false, [&](RecordingHost& host) {
+        CHECK_MSG(host.died == std::optional<std::string>("sandbox bundle failed to load"), host.died.value_or("alive"));
+        int mismatches = 0;
+        for (auto& d : host.diags) if (d.first == "bundle-mismatch") { mismatches++; CHECK_MSG(d.second == refusal, d.second); }
+        CHECK_MSG(mismatches == 1, diagsOf(host));
+        CHECK_MSG(host.countDiag("validator:bundle-mismatch") == 1, diagsOf(host));
+        CHECK(!host.hasLog("widget ran"));
+        CHECK(host.ops.empty());
+    });
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
 }
 
 TEST(validator_diag_bridge) {
@@ -3029,6 +3517,305 @@ TEST(validator_stylesheet_text_is_only_shipped_sanitized) {
     CHECK(reported);
     CHECK_MSG(out.find("\"css\",\"id\":6,\"text\":\"@import") == std::string::npos, out);
     CHECK(v.nodeCount() == 4);
+}
+
+// ───────────── a thread the OS refuses to start (macOS: the per-process thread limit) ─────────────
+#ifdef __APPLE__
+
+std::optional<int> taskThreads() {
+    thread_act_array_t threads = nullptr;
+    mach_msg_type_number_t count = 0;
+    if (task_threads(mach_task_self(), &threads, &count) != KERN_SUCCESS) return std::nullopt;
+    for (mach_msg_type_number_t i = 0; i < count; i++) mach_port_deallocate(mach_task_self(), threads[i]);
+    vm_deallocate(mach_task_self(), vm_address_t(threads), vm_size_t(count * sizeof(thread_act_t)));
+    return int(count);
+}
+
+std::optional<int> threadsSettleAt(int want) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    for (;;) {
+        const std::optional<int> count = taskThreads();
+        if (!count || *count == want || std::chrono::steady_clock::now() >= deadline) return count;
+        std::this_thread::sleep_for(std::chrono::microseconds(200));
+    }
+}
+
+std::string countText(const std::optional<int>& count) { return count ? std::to_string(*count) : std::string("?"); }
+
+static double msSince(std::chrono::steady_clock::time_point start) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); }
+
+bool expectNoStart(ThreadAllowance& allowance, const std::string& owner, int k, const std::string& thread, const std::function<void()>& construct) {
+    const std::string left = allowance.leave(k);
+    CHECK_MSG(left.empty(), owner + ": " + left);
+    if (!left.empty()) return false;
+    const int before = allowance.full() - k;
+    std::string what = "constructed";
+    bool refused = false;
+    const auto start = std::chrono::steady_clock::now();
+    try {
+        construct();
+    } catch (const std::system_error& e) {
+        what = e.what();
+        refused = e.code() == std::errc::resource_unavailable_try_again;
+    } catch (const std::exception& e) {
+        what = std::string("not a system_error: ") + e.what();
+    }
+    const double ms = msSince(start);
+    const std::optional<int> after = threadsSettleAt(before);
+    printf("    %s, %d free: \"%s\" in %.2f ms; %d threads before, %s after\n", owner.c_str(), k, what.c_str(), ms, before, countText(after).c_str());
+    fflush(stdout);
+    CHECK_MSG(refused, owner + ": " + what);
+    CHECK_MSG(what.find("JSThread " + thread + ": ") != std::string::npos, owner + ": " + what);
+    CHECK_MSG(what.find(std::generic_category().message(EAGAIN)) != std::string::npos, owner + ": " + what);
+    CHECK_MSG(ms < 1000, owner + ": " + std::to_string(ms) + " ms");
+    CHECK_MSG(after == before, owner + ": " + std::to_string(before) + " threads before, " + countText(after) + " after");
+    if (after != before) return false;
+    const std::string filled = allowance.fill();
+    CHECK_MSG(filled.empty(), owner + ": " + filled);
+    return filled.empty();
+}
+
+/// The child of `a_thread_that_cannot_start_fails_its_owner_promptly`, alone in a fresh process: `twidget-tests --child owners_at_the_thread_limit`.
+CHILD_CASE(owners_at_the_thread_limit) {
+    const std::optional<int> alone = taskThreads();
+    CHECK_MSG(alone.has_value(), "the task's threads cannot be listed");
+    if (!alone) return;
+    const auto mine = BundleStamp::glue();
+    const auto otherValidator = resourcesWith("validator", BundleStamp{"9.9.9", mine.protocol, mine.profile + 1, mine.sdk}.line());
+    const auto host = [](std::shared_ptr<SandboxResources> resources) {
+        return [resources] {
+            ScriptedRenderer* renderer = nullptr;
+            WidgetHost host("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), resources, scripted(renderer));
+        };
+    };
+    {
+        ThreadAllowance allowance;
+        const auto start = std::chrono::steady_clock::now();
+        const std::string filled = allowance.fill();
+        CHECK_MSG(filled.empty(), filled);
+        if (!filled.empty()) return;
+        int limit = 0;
+        size_t size = sizeof(limit);
+        const bool known = sysctlbyname("kern.num_taskthreads", &limit, &size, nullptr, 0) == 0;
+        const std::string limitText = known ? std::to_string(limit) : std::string("unavailable (") + std::strerror(errno) + ")";
+        printf("    full: %d threads, %zu of them parked, in %.0f ms; kern.num_taskthreads %s\n", allowance.full(), allowance.parked(), msSince(start), limitText.c_str());
+        fflush(stdout);
+        if (known) CHECK_MSG(allowance.full() == limit, std::to_string(allowance.full()) + " threads, kern.num_taskthreads " + limitText);
+        CHECK_MSG(allowance.parked() >= 3, std::to_string(allowance.parked()) + " threads parked");
+        if (allowance.parked() < 3) return;
+        const bool refusedAll = expectNoStart(allowance, "JSThread", 0, "test.unstartable", [] { JSThread thread("test.unstartable"); })
+            && expectNoStart(allowance, "SandboxEngine", 0, "widget.sandbox", [] { SandboxEngine engine("<p>x</p>", testConfig(), RES); })
+            && expectNoStart(allowance, "TrustedValidator", 0, "widget.validator", [] { TrustedValidator validator("light", RES, {}); })
+            && expectNoStart(allowance, "WidgetHost", 0, "twidget-host", host(RES))
+            && expectNoStart(allowance, "WidgetHost", 1, "widget.validator", host(RES))
+            && expectNoStart(allowance, "WidgetHost", 2, "widget.sandbox", host(RES))
+            && expectNoStart(allowance, "WidgetHost, validator of another release", 2, "widget.sandbox", host(otherValidator));
+        if (!refusedAll) return;
+        // The control: with three free the same host starts its three threads, records the refusal its validator posted, and ends them.
+        const std::string left = allowance.leave(3);
+        CHECK_MSG(left.empty(), left);
+        if (!left.empty()) return;
+        const int before = allowance.full() - 3;
+        std::optional<int> during;
+        int mismatches = -1;
+        std::string failure;
+        const auto constructed = std::chrono::steady_clock::now();
+        try {
+            ScriptedRenderer* renderer = nullptr;
+            WidgetHost host("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), otherValidator, scripted(renderer));
+            during = taskThreads();
+            host.onHostThread([] {});
+            mismatches = host.diagnostics().countDiag("bundle-mismatch");
+        } catch (const std::exception& e) {
+            failure = e.what();
+        }
+        const double ms = msSince(constructed);
+        const std::optional<int> after = threadsSettleAt(before);
+        printf("    WidgetHost, validator of another release, 3 free: %s and destroyed in %.1f ms, bundle-mismatch %d; %d threads before, %s while it lived, %s after\n",
+               failure.empty() ? "constructed" : ("\"" + failure + "\"").c_str(), ms, mismatches, before, countText(during).c_str(), countText(after).c_str());
+        fflush(stdout);
+        CHECK_MSG(failure.empty(), failure);
+        CHECK_MSG(during == before + 3, std::to_string(before) + " threads before, " + countText(during) + " while it lived");
+        CHECK_MSG(mismatches == 1, std::to_string(mismatches) + " bundle-mismatch diagnostics");
+        CHECK_MSG(after == before, std::to_string(before) + " threads before, " + countText(after) + " after");
+    }
+    const std::optional<int> after = threadsSettleAt(*alone);
+    printf("    every parked thread ended: %s threads, %d before the fill\n", countText(after).c_str(), *alone);
+    fflush(stdout);
+    CHECK_MSG(after == alone, countText(after) + " threads, " + std::to_string(*alone) + " before the fill");
+}
+
+ChildExit runChild(const std::string& name, int seconds) {
+    ChildExit run;
+    const char* tmp = std::getenv("TMPDIR");
+    std::string log = tmp && *tmp ? tmp : "/tmp";
+    if (log.back() != '/') log += '/';
+    log += "twidget-tests-child-XXXXXX";
+    const int fd = ::mkstemp(log.data());
+    if (fd < 0) {
+        run.ending = std::string("did not start: mkstemp: ") + std::strerror(errno);
+        return run;
+    }
+    std::string failure;
+    const auto step = [&](int error, const char* what) {
+        if (error && failure.empty()) failure = std::string(what) + ": " + std::strerror(error);
+        return !error;
+    };
+    std::string self = g_self, flag = "--child", child = name;
+    char* argv[] = {self.data(), flag.data(), child.data(), nullptr};
+    std::vector<char*> env;
+    for (char** e = environ; *e; ++e) if (std::strncmp(*e, "TW_ENGINE_", 10) != 0) env.push_back(*e);
+    env.push_back(nullptr);
+    pid_t pid = -1;
+    posix_spawn_file_actions_t actions;
+    posix_spawnattr_t attributes;
+    const bool haveActions = step(posix_spawn_file_actions_init(&actions), "posix_spawn_file_actions_init");
+    const bool haveAttributes = haveActions && step(posix_spawnattr_init(&attributes), "posix_spawnattr_init");
+    const bool spawned = haveAttributes
+        && step(posix_spawn_file_actions_adddup2(&actions, fd, 1), "posix_spawn_file_actions_adddup2")
+        && step(posix_spawn_file_actions_adddup2(&actions, fd, 2), "posix_spawn_file_actions_adddup2")
+        && step(posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT), "posix_spawnattr_setflags")
+        && step(posix_spawn(&pid, self.c_str(), &actions, &attributes, argv, env.data()), "posix_spawn");
+    if (haveAttributes) posix_spawnattr_destroy(&attributes);
+    if (haveActions) posix_spawn_file_actions_destroy(&actions);
+    ::close(fd);
+    if (!spawned) {
+        ::unlink(log.c_str());
+        run.ending = "did not start: " + failure;
+        return run;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    for (;;) {
+        int status = 0;
+        const pid_t reaped = ::waitpid(pid, &status, WNOHANG);
+        if (reaped == pid) {
+            run.ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+            run.ending = WIFEXITED(status) ? "exited with " + std::to_string(WEXITSTATUS(status))
+                : WIFSIGNALED(status)      ? "was killed by signal " + std::to_string(WTERMSIG(status)) + " (" + ::strsignal(WTERMSIG(status)) + ")"
+                                           : "ended with wait status " + std::to_string(status);
+            break;
+        }
+        if (reaped < 0 && errno != EINTR) {
+            run.ending = std::string("was lost: waitpid: ") + std::strerror(errno);
+            break;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            ::kill(pid, SIGKILL);
+            while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+            run.ending = "was still running after " + std::to_string(seconds) + " s, killed";
+            break;
+        }
+        sleepMs(20);
+    }
+    run.output = readFile(log);
+    ::unlink(log.c_str());
+    return run;
+}
+
+#endif
+
+/// A thread the OS refuses fails its owner promptly and leaves nothing running: a fresh child (`--child owners_at_the_thread_limit`) uses up its thread allowance; JSThread, SandboxEngine and TrustedValidator with no thread free and WidgetHost with 0, 1 and 2 free (each of its three threads refused in turn, once after its validator of another release posted a diagnostic to the host thread) each throw std::system_error EAGAIN naming that thread within 1 s, and the task's thread count comes back; with 3 free that host constructs and records one `bundle-mismatch`. The child exits 0 within 30 s, or it is killed and the test fails.
+TEST(a_thread_that_cannot_start_fails_its_owner_promptly) {
+#ifdef __APPLE__
+    const ChildExit child = runChild("owners_at_the_thread_limit", 30);
+    printf("%s", child.output.c_str());
+    if (!child.output.empty() && child.output.back() != '\n') printf("\n");
+    CHECK_MSG(child.ok, "the child (twidget-tests --child owners_at_the_thread_limit) " + child.ending);
+#else
+    printf("  not run on this platform: this test uses macOS's per-process thread limit\n");
+#endif
+}
+
+// ───────────── a validator bundle that fails to evaluate ─────────────
+#ifdef __APPLE__
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define TW_TESTS_UNDER_ASAN 1
+#endif
+#endif
+
+/// The shipped validator bundle cut in half: this release's stamp still on its first line, then JavaScript that ends in the middle (a SyntaxError).
+static std::shared_ptr<SandboxResources> truncatedValidator() {
+    auto res = std::make_shared<SandboxResources>(*RES);
+    res->validatorBundle.resize(res->validatorBundle.size() / 2);
+    return res;
+}
+
+/// Bytes the process's malloc zones hold.
+static size_t mallocInUse() {
+    malloc_statistics_t stats{};
+    malloc_zone_statistics(nullptr, &stats);
+    return stats.size_in_use;
+}
+
+/// `construct` must throw JSError with the bundle's SyntaxError and leave the task's thread count at `alone`; with `print` its first line and the counts are shown.
+static void expectJSError(const std::string& owner, int alone, bool print, const std::function<void()>& construct) {
+    std::string what = "constructed";
+    bool jsError = false;
+    const auto start = std::chrono::steady_clock::now();
+    try {
+        construct();
+    } catch (const JSError& e) {
+        what = e.what();
+        jsError = true;
+    } catch (const std::exception& e) {
+        what = std::string("not a JSError: ") + e.what();
+    }
+    const double ms = msSince(start);
+    const std::optional<int> after = threadsSettleAt(alone);
+    if (print) {
+        printf("    %s: \"%s\" in %.1f ms; %d threads before, %s after\n", owner.c_str(), what.substr(0, what.find('\n')).c_str(), ms, alone, countText(after).c_str());
+        fflush(stdout);
+    }
+    CHECK_MSG(jsError, owner + ": " + what);
+    CHECK_MSG(what.rfind("SyntaxError: ", 0) == 0, owner + ": " + what);
+    CHECK_MSG(after == alone, owner + ": " + std::to_string(alone) + " threads before, " + countText(after) + " after");
+}
+
+/// The child of `a_validator_bundle_that_fails_to_evaluate_throws_from_its_owners`, alone in a fresh process: `twidget-tests --child owners_of_a_broken_validator_bundle`.
+CHILD_CASE(owners_of_a_broken_validator_bundle) {
+    const std::optional<int> alone = taskThreads();
+    CHECK_MSG(alone.has_value(), "the task's threads cannot be listed");
+    if (!alone) return;
+    const std::optional<std::string> refusal = BundleStamp::refusal(*truncatedValidator());
+    CHECK_MSG(!refusal, refusal.value_or(""));
+    if (refusal) return;
+    const auto round = [&](bool print) {
+        const auto resources = truncatedValidator();
+        expectJSError("TrustedValidator", *alone, print, [&] {
+            TrustedValidator validator("light", resources, [](const std::string&, const std::string&) {});
+        });
+        expectJSError("WidgetHost", *alone, print, [&] {
+            ScriptedRenderer* renderer = nullptr;
+            WidgetHost host("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), resources, scripted(renderer));
+        });
+    };
+    round(true);
+    const size_t first = mallocInUse();
+    round(false);
+    const size_t second = mallocInUse();
+#ifdef TW_TESTS_UNDER_ASAN
+    printf("    malloc in use: not checked under ASan, whose allocator holds freed blocks back (%zu after the first round, %zu after the second)\n", first, second);
+#else
+    printf("    malloc in use: %zu after the first round, %zu after the second (%+lld)\n", first, second, (long long)second - (long long)first);
+    CHECK_MSG(second <= first + 16384, std::to_string(second - first) + " more bytes in use after the second round than after the first");
+#endif
+    fflush(stdout);
+}
+
+#undef TW_TESTS_UNDER_ASAN
+#endif
+
+/// A validator bundle with this release's stamp that fails to evaluate makes its owners throw JSError and leave nothing behind: a fresh child (`--child owners_of_a_broken_validator_bundle`) constructs TrustedValidator and WidgetHost, twice (the bundle's failed compile is remembered, so the second round evaluates its source at once); each throws the bundle's SyntaxError, the task's thread count comes back after each, and malloc holds no more after the second round than after the first (not checked under ASan). Before, the child ended on the uncaught JSError. The child exits 0 within 30 s, or it is killed and the test fails.
+TEST(a_validator_bundle_that_fails_to_evaluate_throws_from_its_owners) {
+#ifdef __APPLE__
+    const ChildExit child = runChild("owners_of_a_broken_validator_bundle", 30);
+    printf("%s", child.output.c_str());
+    if (!child.output.empty() && child.output.back() != '\n') printf("\n");
+    CHECK_MSG(child.ok, "the child (twidget-tests --child owners_of_a_broken_validator_bundle) " + child.ending);
+#else
+    printf("  not run on this platform: this test counts the task's threads and malloc's bytes in a child process (macOS)\n");
+#endif
 }
 
 // ───────────── WidgetHost + Blitz renderer (-DTW_BLITZ=ON) ─────────────
@@ -3175,7 +3962,40 @@ TEST(litehtml_frozen_after_kill_keeps_last_render) {
 
 int main(int argc, char** argv) {
     const char* filter = argc > 1 ? argv[1] : nullptr;
+    g_self = argv[0];
     try { RES = SandboxResources::fromDirectory(TW_WIDGET_JS); } catch (const std::exception& e) { fprintf(stderr, "%s\n", e.what()); return 2; }
+    if (argc > 2 && std::string_view(argv[1]) == "--child") {
+#ifdef _WIN32
+        // The parent compares a child's output byte for byte: no "\r\n" for each "\n".
+        if (_setmode(_fileno(stdout), _O_BINARY) == -1 || _setmode(_fileno(stderr), _O_BINARY) == -1) {
+            fprintf(stderr, "can't set the child's stdout and stderr to binary\n");
+            return 2;
+        }
+#endif
+        for (const auto& c : childCases()) {
+            if (std::string_view(c.name) != argv[2]) continue;
+            c.fn();
+            return g_failures ? 1 : 0;
+        }
+        fprintf(stderr, "no child case %s\n", argv[2]);
+        return 2;
+    }
+    if (const std::string usage = HostedSwitch::usageError(); !usage.empty()) {
+        fprintf(stderr, "%s\n", usage.c_str());
+        return 2;
+    }
+    std::optional<StreamSwitch> stream;
+    if (streamSwitch()) {
+        stream.emplace("twidget-tests");
+        g_baselineFactory = stream->factory();
+    }
+    restoreRemoteFactory();
+    std::optional<HostedSwitch> hosted;
+    if (hostedSwitch()) {
+        hosted.emplace(HostedSwitch::requested(), "twidget-tests");
+        g_baselineHostedFactory = hosted->factory();
+    }
+    restoreHostedFactory();
     int ran = 0;
     for (const auto& t : registry()) {
         if (filter && std::strstr(t.name, filter) == nullptr) continue;
@@ -3183,11 +4003,47 @@ int main(int argc, char** argv) {
         auto t0 = std::chrono::steady_clock::now();
         printf("%s\n", t.name);
         fflush(stdout);
+        g_currentTest = t.name;
         t.fn();
+        restoreRemoteFactory();
+        restoreHostedFactory();
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         printf("  %s (%.0f ms)\n", g_failures == before ? "ok" : "FAILED", ms);
         ran++;
     }
-    printf("\n%d tests, %d checks, %d failures\n", ran, g_checks, g_failures);
+    printf("\n%d fixture engines from SandboxEngine::make, %d of them behind the loopback, %d over the stream\n", g_engines, g_loopbackEngines, g_streamEngines);
+    printf("%d fixture widgets from WidgetHost, %d hosted behind the loopback, %d over the stream\n", g_widgets.load(), g_loopbackWidgets.load(), g_streamWidgets.load());
+    std::string inProcess;
+    for (const std::string& name : g_inProcessTests) inProcess += (inProcess.empty() ? "" : ", ") + name;
+    printf("in process by their subject (InProcessWidgets): %s\n", inProcess.empty() ? "none" : inProcess.c_str());
+    if (hosted) {
+        const bool overStream = hosted->mode() == HostedSwitch::Mode::Stream;
+        const int went = overStream ? g_streamWidgets.load() : g_loopbackWidgets.load();
+        CHECK_MSG(went == g_widgets.load() && (overStream ? g_loopbackWidgets.load() : g_streamWidgets.load()) == 0, "every fixture widget runs hosted under its switch");
+        g_baselineHostedFactory = nullptr;
+        const std::vector<std::string> unexpected = hosted->finish();
+        std::string ends;
+        for (const std::string& u : unexpected) ends += (ends.empty() ? "" : "; ") + u;
+        CHECK_MSG(unexpected.empty(), "a stream of the hosted switch ended before its widget let it go: " + ends);
+        if (overStream) {
+            const std::vector<std::string> faults = hosted->trafficFaults();
+            std::string text;
+            for (const std::string& f : faults) text += (text.empty() ? "" : "; ") + f;
+            CHECK_MSG(faults.empty(), "what crossed a hosted stream: " + text);
+            printf("the hosted switch: %zu widgets on %zu streams, %zu ends before their stop; frames: %s\n", hosted->widgets(), hosted->streams(), unexpected.size(), hosted->trafficText().c_str());
+        } else {
+            printf("the hosted switch: %zu widgets behind the loopback\n", hosted->widgets());
+        }
+    }
+    if (stream) {
+        CHECK_MSG(g_streamEngines == g_engines && g_loopbackEngines == 0, "every fixture engine goes over the stream under its switch");
+        g_baselineFactory = nullptr;
+        const std::vector<std::string> unexpected = stream->finish();
+        std::string ends;
+        for (const std::string& u : unexpected) ends += (ends.empty() ? "" : "; ") + u;
+        CHECK_MSG(unexpected.empty(), "a stream of the switch ended before its finish: " + ends);
+        printf("the stream switch: %zu channels on %zu streams, %zu ends before its finish\n", stream->channels(), stream->streams(), unexpected.size());
+    }
+    printf("%d tests, %d checks, %d failures\n", ran, g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

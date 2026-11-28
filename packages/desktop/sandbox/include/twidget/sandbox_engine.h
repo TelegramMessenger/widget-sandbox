@@ -1,5 +1,5 @@
 // The sandbox engine: the C++ counterpart of src/host/worker.ts and of
-// ios SandboxEngine.swift / android SandboxEngine.kt. Owns one QuickJS runtime
+// ios SandboxEngine.swift / android SandboxEngine.kt. Owns one Nova runtime
 // per widget on its own JSThread, exposes exactly one capability to the
 // untrusted code (`__host(kind, arg)` + `__hostBinary()`), enforces CPU and
 // memory limits, and drives timers / frames / scripts.
@@ -14,10 +14,11 @@
 #include "twidget/cpu_budget.h"
 #include "twidget/intl.h"
 #include "twidget/js_thread.h"
-#include "twidget/quickjs_context.h"
+#include "twidget/nova_context.h"
 #include "twidget/resources.h"
 #include "twidget/sdk_policy.h"
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -35,43 +36,54 @@ namespace twidget {
 /// (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes in it; with a
 /// caption everything is 0 (the time is in the caption's line). The widget sees it as `env(safe-area-inset-*)`, the
 /// `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed as given: the renderer core
-/// and the shim keep an inset of 0–64 and a corner of 0–200 in a bubble, and on a profile page any finite inset ≥ 0
-/// with the corners 0; anything else is 0.
+/// and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
 struct WidgetContentSafeArea {
     double top = 0, right = 0, bottom = 0, left = 0, cornerLeft = 0, cornerRight = 0;
     /// The TS `ContentSafeArea` shape; a value that is not finite is 0 (JSON has no NaN).
     Json json() const;
 };
 
-/// The device's edges over the widget, in CSS px (docs/sdk-v1.md §2.17): on a profile page the status bar and the cutout
-/// (`top`), the home indicator or the navigation bar (`bottom`), the sides in landscape. The widget sees it as
-/// `env(safe-area-inset-*)` (the sum with `WidgetContentSafeArea`), the `--tg-safe-area-inset-*` variables and
-/// `TelegramWidget.safeAreaInset`. Passed as given: the renderer core and the shim keep any finite value ≥ 0 on a page
-/// (NaN, infinite and negative are 0), and everything is 0 in a bubble.
-struct WidgetSafeArea {
-    double top = 0, right = 0, bottom = 0, left = 0;
-    /// The TS `SafeAreaInset` shape; a value that is not finite is 0 (JSON has no NaN).
+/// The client's own `<button>` (docs/sdk-v1.md §2.4); every field optional, the template's defaults stand
+/// for the rest. Passed to the renderer as given: the renderer core keeps only values that match their
+/// grammar (`#rrggbb`, CSS lengths, a font shorthand with generic families only, opacities 0–1).
+struct WidgetButtonTokens {
+    std::optional<std::string> bg, text, radius, font, padding, height;
+    std::optional<double> pressedOpacity, disabledOpacity;
+    /// The `button` object of the renderer's theme message and of the wire's theme (docs/sdk-v1.md §3.4): each token that is set, in this order, a number only when finite.
     Json json() const;
+    /// Such an object read back: a token of its type (a finite number) is set, anything else unset; not an object, none.
+    static WidgetButtonTokens from(const Json& object);
 };
 
-/// The geometry of each place, profile.json's `tables.surfaces` (checked by `profile-surface.test.ts`): a bubble is
-/// 50–600 high and its resize anchor moves it, a page is at least its viewport and at most `kPageMaxHeight` and never moves.
-namespace surface {
-/// The least height of either place, in CSS px.
-constexpr double kMinHeight = 50;
-/// A bubble's greatest height, in CSS px.
-constexpr double kMessageMaxHeight = 600;
-/// A profile page's greatest height, in CSS px. Provisional: the page ceiling waits for the clients' measurements.
-constexpr double kPageMaxHeight = 4000;
-/// Whether the widget's `setResizeAnchor` moves anything here: a bubble keeps the anchored edge, a page never moves.
-inline bool keepsResizeAnchor(WidgetSurface s) { return s == WidgetSurface::Message; }
-/// A profile page's viewport as the glue passes it on: finite, in 1…the page ceiling, two decimals; anything else, and
-/// every bubble, is 0 (no `--tg-viewport-height`).
-double checkViewportHeight(WidgetSurface s, double height);
-/// The height the client lays the widget out at: a bubble's content in [50, 600], a page's at least its viewport (and
-/// 50), at most the page ceiling.
-double height(WidgetSurface s, double content, double viewport);
-} // namespace surface
+/// The client's message text (docs/sdk-v1.md §2.4); every field optional, the reference set stands for the rest
+/// (15, 1.35, "8px 12px"): the root's font size in CSS px (the chat's text-size setting), its unitless line height,
+/// the padding between the bubble's edge and the widget's content. The renderer keeps values that match the grammar.
+struct WidgetTextTokens {
+    std::optional<double> fontSize, lineHeight;
+    std::optional<std::string> padding;
+    /// The `text` object, as `WidgetButtonTokens::json` writes the button's.
+    Json json() const;
+    /// Read back as `WidgetButtonTokens::from` reads the button's.
+    static WidgetTextTokens from(const Json& object);
+};
+
+/// The chat's theme for the bubble the widget sits in (docs/sdk-v1.md §2.3, §2.4, §4.3): the colour scheme
+/// ("light" | "dark"; anything but "dark" is light), that bubble's palette under the 15 Mini Apps keys as `#rrggbb`
+/// (others are dropped; an outgoing bubble's colours when the user sent or forwarded the widget), the button and
+/// text tokens.
+struct WidgetTheme {
+    std::string colorScheme = "light";
+    std::map<std::string, std::string> params;
+    WidgetButtonTokens button;
+    WidgetTextTokens text;
+};
+
+/// What a hosted widget's start carries beyond its `SandboxConfig` (remote_hosted.h, `SandboxEngine::startHosted`): the whole theme the engine process's renderer draws with (the config has only the scheme and the palette), the label its renderer shows over a stopped widget (WidgetHost's `stoppedLabel`), and whether the host asks for every validated batch (a harness's `onRenderOps` set before `start()`); without that ask it gets none.
+struct SandboxHostedStart {
+    WidgetTheme theme;
+    std::string stoppedLabel = "Widget stopped";
+    bool validatedOps = false;
+};
 
 /// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts (docs/decisions.md, "Strict limits from the start").
 struct SandboxConfig {
@@ -102,8 +114,6 @@ struct SandboxConfig {
     std::string locale = std::string(sdk::DEFAULT_LOCALE);
     /// What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes go through `contentSafeArea`.
     WidgetContentSafeArea contentSafeArea;
-    /// The device's edges over the widget at boot (docs/sdk-v1.md §2.17), 0 in a bubble whatever is passed; later changes go through `safeArea`.
-    WidgetSafeArea safeArea;
     /// Web Storage of this message as the client keeps it; an area over the quota drops the whole
     /// preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
@@ -145,6 +155,8 @@ struct SandboxStats {
 struct QueryAnswer {
     std::string json;
     std::optional<std::vector<uint8_t>> binary;
+    /// The part of the answer's time a served host's glue spent inside its renderer's platform requests (remote_hosted.h), from before the query could reach the glue to its answer or its timeout: the embedder's wait, neither the widget's CPU time nor its layout queries' (`CpuBudget::queryLimitHit`, the main-thread window). 0 elsewhere.
+    double platformSeconds = 0;
 };
 
 class SandboxEngine;
@@ -164,6 +176,55 @@ private:
     friend class SandboxEngine;
     explicit WidgetRequestResponder(std::function<void(const std::optional<WidgetRequestOutcome>&)> settle) : settle_(std::move(settle)) {}
     std::function<void(const std::optional<WidgetRequestOutcome>&)> settle_;
+};
+
+namespace detail {
+/// A hosted client's platform request while its caller waits (sandbox_engine_client.cpp).
+struct PlatformCall;
+/// The hosted client's side of SandboxHostedWait (sandbox_engine_client.cpp).
+struct HostedWaits;
+} // namespace detail
+
+/// How long a hosted client's embedder holds its renderer's platform requests before its platform serves them (`SandboxEngine::hostedClient`, WidgetHost's hosted constructor), shared by that one client (a kept route keeps it) and the embedder's trusted meter of the widget's platform work; process-local, no wire message. Without one each request is due `SandboxEngine::kPlatformAnswerSeconds` after its arrival. With one a request is due that long after its arrival unless the meter actually holds the widget while the request waits for its admission (and so while the embedder's queue ahead of it waits too): held means a published release still ahead and no input exemption in force, at the request's arrival, when the meter publishes a later release, or from the end of an exemption in force that a release outlasts, which no renewal reached before it ended; then the request is due that long after that release, a later release moving it again. An exemption renewed before it ends keeps the arrival's deadline however long the renewals go on; the waiter wakes at that end to read the record again, and each renewal moves that wake. Its admission makes it due at most that long from then, never later than it was, and nothing moves it after that. Nothing else moves a deadline (a repeated or earlier value, the number of another request), none is suspended, and a request never answered still ends at its deadline without another call. From any thread; its lock is held for no call out.
+class SandboxHostedWait {
+public:
+    using Clock = std::chrono::steady_clock;
+    SandboxHostedWait() = default;
+    SandboxHostedWait(const SandboxHostedWait&) = delete;
+    SandboxHostedWait& operator=(const SandboxHostedWait&) = delete;
+
+    /// The meter holds the widget's platform work until `release` (published at each charge that moved it, with nothing queued too): a waiting request not exempt now is due 3 s after it; one no later than the last changes nothing, nor one whose deadline the clock cannot hold.
+    void hold(Clock::time_point release);
+    /// Input exempts the widget's platform work from holds until `until`: a renewal before the last one ended keeps a waiting request's deadline, one that comes after it ended counts the hold that resumed meanwhile; one no later than the last changes nothing.
+    void exempt(Clock::time_point until);
+    /// The request numbered `request` (`HostedRequestResponder::request`, `WidgetHost::platformDelivery`) was admitted to the embedder's platform, its answer on its way: due at most `SandboxEngine::kPlatformAnswerSeconds` from now and never later than it was (a hold it met up to now counted), and nothing moves it again; nothing for any other number, a request already settled or one admitted before.
+    void admitted(uint64_t request);
+    /// When the request numbered `request` is due, while it is the one waiting; nullopt otherwise (tests).
+    std::optional<Clock::time_point> due(uint64_t request) const;
+
+private:
+    friend struct detail::HostedWaits;
+    mutable std::mutex mutex_;
+    std::optional<Clock::time_point> release_;
+    std::optional<Clock::time_point> exemptUntil_;
+    /// The request waiting now: the client's newest, until its caller stopped waiting.
+    std::shared_ptr<detail::PlatformCall> waiting_;
+};
+
+/// How a hosted client's delegate completes its renderer's platform request (`onHostedRequest`): call it with the host's answer, or `unanswered()` when the host has no platform for it; once, from any thread, before the request is due (`SandboxEngine::kPlatformAnswerSeconds` after its arrival, or as the client's SandboxHostedWait moved it). Later calls, and calls after the route ended or the client was destroyed, are ignored; every copy shares the once and holds only the request.
+class HostedRequestResponder {
+public:
+    void operator()(std::string answer) const { settle_(std::move(answer)); }
+    /// No platform here for the request: the widget dies (diagnostic `platform-timeout`).
+    void unanswered() const { settle_(std::nullopt); }
+    /// The request's number, unique in the process (`SandboxHostedWait::admitted`).
+    uint64_t request() const { return request_; }
+
+private:
+    friend class SandboxEngine;
+    HostedRequestResponder(std::function<void(std::optional<std::string>)> settle, uint64_t request) : settle_(std::move(settle)), request_(request) {}
+    std::function<void(std::optional<std::string>)> settle_;
+    uint64_t request_ = 0;
 };
 
 /// All delegate calls happen on the engine's thread, never on the caller's.
@@ -205,33 +266,73 @@ public:
     /// `TelegramWidget.copyText(text)`: 1–256 UTF-16 code units, well-formed; a privileged call (one per
     /// press, shared with the links and a request's press; `activation-blocked` without one). Not an action.
     virtual void onBridgeCopyText(SandboxEngine&, const std::string& /*text*/) {}
-    /// Deprecated since SDK v1 (`onBridgeAction`): the raw method and arguments JSON of each call `onBridgeAction` gets, right after it.
+    /// Deprecated since SDK v1 (`onBridgeAction`): the method and arguments JSON of each call `onBridgeAction` gets, right after it; in process and in client mode alike the checked arguments re-serialized compact, at most 260 bytes, a link's URL as the widget gave it (not the action's normalised one).
     virtual void onBridge(SandboxEngine&, const std::string& /*method*/, const std::string& /*argsJson*/) {}
     virtual void onLoaded(SandboxEngine& engine) = 0;
     virtual void onStats(SandboxEngine& engine, const SandboxStats& stats) = 0;
     virtual void onDied(SandboxEngine& engine, const std::string& reason) = 0;
     virtual void onAnim(SandboxEngine&, const std::string&) {}
+    /// A task of the engine began / ended (an event, a timer, a frame): the calls between are that task's; a death inside it comes before its end, and after a stop from `onTaskStarted` none of its code runs.
+    virtual void onTaskStarted(SandboxEngine&) {}
+    virtual void onTaskCompleted(SandboxEngine&) {}
+
+    /// The first of a hosted widget's reports (remote_hosted.h: its engine, validator and renderer in the engine process), which only a hosted client's delegate hears, on its dispatch thread, in transport order with the calls above, each sized and admitted against the client's bounds first (an engine-only client refuses them, `protocol-violation`): a message of the engine process's renderer for the host's platform (`SandboxHostedPlatform::send`), opaque, at most `kRemotePlatformLimit` bytes.
+    virtual void onHostedMessage(SandboxEngine&, const std::string& /*message*/) {}
+    /// The renderer's one waiting request (`SandboxHostedPlatform::request`), opaque, at most `kRemotePlatformLimit` bytes, delivered in order with the calls above: return at once and complete `respond` (its answer goes back to the renderer). The client waits for it on the request's own caller thread (the transport's), never on the dispatch thread; `respond.unanswered()` (the default: no platform), or no answer before it is due (`SandboxEngine::kPlatformAnswerSeconds` after its arrival, or as the client's SandboxHostedWait moved it), kills the widget with the diagnostic `platform-timeout` first, unless its route ended meanwhile.
+    virtual void onHostedRequest(SandboxEngine&, const std::string& /*message*/, HostedRequestResponder respond) { respond.unanswered(); }
+    /// A batch the engine process's validator passed to its renderer, at most `kRemoteOpsLimit` bytes: only to a host that asked for them at its start (`SandboxHostedStart::validatedOps`); one it did not ask for is a `protocol-violation`.
+    virtual void onHostedOps(SandboxEngine&, const std::string& /*json*/) {}
+    /// The engine process's renderer announced itself (its `ready`).
+    virtual void onHostedRendererReady(SandboxEngine&) {}
+    /// The engine process's glue saw the first render of the loaded widget (its render acknowledgement).
+    virtual void onHostedRendered(SandboxEngine&) {}
+    /// The widget's node count after a batch the engine process's validator passed, within [0, INT_MAX].
+    virtual void onHostedNodes(SandboxEngine&, int /*nodes*/) {}
+    /// Only a kept client's delegate hears it (`SandboxEngine::keepHosted`), once and last: the route ended without the host asking (the transport ended, a flood, a platform request left unanswered), with the reason.
+    virtual void onHostedEnded(SandboxEngine&, const std::string& /*reason*/) {}
 };
+
+class SandboxRemoteChannel;
+class SandboxHostedChannel;
+
+/// What a host whose engines run in another process gives `SandboxEngine::setRemoteChannelFactory`: a channel to a new engine there, or null when it has none.
+using SandboxRemoteChannelFactory = std::function<std::shared_ptr<SandboxRemoteChannel>(std::shared_ptr<SandboxResources>)>;
 
 class SandboxEngine {
 public:
+    /// An engine with its own runtime, on a thread named `widget.sandbox`. Throws std::system_error when that thread cannot start (JSThread). The widget runs only after `start()`.
     SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources,
                   std::shared_ptr<IntlProvider> intl = nullptr);
-    /// Stops the thread; outstanding delegate calls finish first. Safe from any thread but the engine's.
+    /// A client-mode engine (remote_engine.h): no runtime here, the widget runs behind `remote`, attached now, and its dispatch thread is named `widget.client`; a null channel gives an engine that died ("the widget engine process ended").
+    SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxRemoteChannel> remote, std::shared_ptr<IntlProvider> intl = nullptr);
+    /// Stops the thread (outstanding delegate calls finish first), then closes a client-mode engine's channel, a hosted client's waiting platform request answered none before it (and every later one at once). Safe from any thread but the engine's.
     ~SandboxEngine();
     SandboxEngine(const SandboxEngine&) = delete;
     SandboxEngine& operator=(const SandboxEngine&) = delete;
 
-    /// Set before start(); the pointer must outlive the engine.
-    void setDelegate(SandboxEngineDelegate* delegate) { delegate_ = delegate; }
+    /// The engine a host builds: a client-mode one over the factory's channel once a host set one (also when it gives none), else in a build without NDEBUG with `TW_ENGINE_LOOPBACK=1` one over the in-process loopback, else one with its own runtime.
+    static std::unique_ptr<SandboxEngine> make(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl = nullptr);
+    /// For every later `make`, which calls it on its own thread; an empty one (the default) keeps engines in process.
+    static void setRemoteChannelFactory(SandboxRemoteChannelFactory factory);
+    /// Whether a host set a non-empty factory (`setRemoteChannelFactory`), from any thread.
+    static bool remoteChannelFactorySet();
+    /// A hosted client (remote_hosted.h): the widget's engine, validator and renderer run behind `hosted`, attached now, while this engine keeps the client's checks, bounds and decisions, its privileged calls decided on the presses the host says it delivered (`pressDelivered`); its dispatch thread is named `widget.client`, a null channel gives an engine that died ("the widget engine process ended"), only `startHosted` starts it, the engine-only inputs (`start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`, `pressBegan`, `pressEnded`, `chargeValidator`) do nothing on it, and the engine's side's render calls (ops, queries, listen, preventDefault, anim, frame requests) are protocol violations. With `wait` its platform requests are due as that record says (SandboxHostedWait), without it `kPlatformAnswerSeconds` after their arrival.
+    static std::unique_ptr<SandboxEngine> hostedClient(std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted,
+                                                       std::shared_ptr<IntlProvider> intl = nullptr, std::shared_ptr<SandboxHostedWait> wait = nullptr);
+    /// A client-mode engine of either kind, a hosted one included.
+    bool isRemote() const { return client_ != nullptr; }
+    /// A hosted client (`hostedClient`), also one built without a channel.
+    bool isHosted() const;
+
+    /// Set before start(); the pointer must outlive the engine. A client-mode engine takes it on its dispatch thread, after the calls before, with a death reported before it (once).
+    void setDelegate(SandboxEngineDelegate* delegate);
     JSThread& thread() { return thread_; }
 
     void start();
     void terminate();
-    /// The host stops the widget (a counted cap of the validator passed under strict, its diagnostic `limit`): the
-    /// runtime dies with `reason` as it does for memory or CPU (`onDied(reason)`). From the engine thread (a delegate
-    /// callback such as `onOps`) at once, and the task that is still on the stack is interrupted; from any other
-    /// thread asynchronously.
+    /// In process only (a client-mode engine does nothing), never from the engine's own thread, for an engine that died: its runtime goes, the thread ending once what it queued ran and then its Nova context freed; every later input is dropped (a probe answers "ERROR no runtime") and the object stays valid (a hosted widget's served engine, whose glue keeps the renderer, remote_hosted.h).
+    void release();
+    /// The host stops the widget (a counted cap of the validator passed under strict, its diagnostic `limit`): the runtime dies with `reason` as it does for memory or CPU (`onDied(reason)`). From the engine thread (a delegate callback such as `onOps`) at once, and the task that is still on the stack is interrupted; from any other thread asynchronously. A hosted client whose transport decides (a hosting stream with its owner's SandboxHostedAnswers) makes it the widget's own death in one step with that transport's end, and yields to an end that decided the widget first, which the widget then dies of (`SandboxHostedChannel::localStop`): from that stop on, as after a death, until the end's death does, nothing of the widget's own reaches the delegate (its storage, bridge calls, requests, reports) or its Intl provider, its renderer's platform messages and requests reach the delegate no more (such a request answers none, and neither its late answer nor its refusal kills the widget), `keepHosted` takes nothing, and a later `terminate` or `stop` leaves the widget's death to that end.
     void stop(const std::string& reason);
     /// The validator's CPU time for this widget's messages (TrustedValidator's CPU sink, `ms` of its thread's clock):
     /// recorded against the JS quota on the engine thread as it arrives (`stats.validatorMs`; with the debt rule a late
@@ -251,10 +352,6 @@ public:
     /// What the client draws over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.contentSafeAreaInset` and
     /// `contentSafeAreaChanged` in one task; the shim checks the values. Before boot it only replaces the config's.
     void contentSafeArea(const WidgetContentSafeArea& area);
-    /// The device's edges over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.safeAreaInset` and
-    /// `safeAreaChanged` in one task; the shim checks the values against the place (0 in a bubble). Before boot it only
-    /// replaces the config's.
-    void safeArea(const WidgetSafeArea& area);
     /// The host knows whether the widget is on screen; the sandbox does not.
     void setVisible(bool visible);
     /// The renderer's primary press began / ended (pointerdown; pointerup or pointercancel), trusted input only, never the
@@ -267,8 +364,58 @@ public:
     /// then `publicDataChanged`, for each that differs.
     void setData(const WidgetData& data);
 
-    /// Evaluates trusted diagnostic code in the widget context (tests only). Returns the string value or the error text.
+    /// The first of a hosted client's own inputs (`hostedClient`; on any other engine they do nothing), each asynchronous, on the dispatch thread in the host's order with the inputs above, none after the widget died but `platform`, which is carried while the route is open: starts the widget behind the channel, once (`SandboxHostedChannel::startHosted` with the widget and its configuration), and decides whether it gets the validated batches (`onHostedOps`). With `keepAtDeath` a death the engine process reports leaves the route open, its renderer's platform traffic still carried both ways under the same bounds, until `keepHosted`, `terminate` / `stop` or the destructor; without it such a death closes the route at once.
+    void startHosted(SandboxHostedStart start, bool keepAtDeath = false);
+    /// The chat's whole theme changed: for the engine process's renderer and the widget.
+    void hostedTheme(const WidgetTheme& theme);
+    /// An opaque message of the host's platform for the engine process's renderer, in order, while the route is open (a kept one too).
+    void platform(std::string message);
+    /// Hosted only, from any thread but one the dispatch thread waits for: hands the route over to `kept`, which must outlive the engine, in one step on the dispatch thread. False, with nothing changed, when the widget was never started, its renderer never announced itself (`onHostedRendererReady`), the route ended (the transport, a flood, an unanswered platform request, a reported death without `keepAtDeath`, `terminate` / `stop`, a counted `stop` that yielded to the transport's end included) or it was kept already. Else a live widget dies "terminated" through the delegate so far and the engine's side hears `stop("terminated")`, then `kept` is the delegate, every grant goes, the channel hears `kept()`, and from then on only the renderer's platform traffic is carried (`platform`, `onHostedMessage`, `onHostedRequest`; every other call of the engine's side has no effect) until the route ends: the engine's side's own death reports change nothing, and an end the host did not ask for reaches `kept` as `onHostedEnded`; the destructor ends it without that call.
+    bool keepHosted(SandboxEngineDelegate& kept);
+    /// How long a hosted widget's platform request waits for its delegate's `respond`, from its arrival, or from a hold's release or its admission that its client's SandboxHostedWait reported: then the widget dies (`onHostedRequest`).
+    static constexpr double kPlatformAnswerSeconds = 3;
+    /// The embedder delivered a primary press to the widget's renderer, trusted input only, the only source of a hosted widget's grants: stamped on the caller's thread; on the dispatch thread, unless the widget died or is a preview, the haptic gate's touch begins (as `pressBegan` in process) and, while the widget is visible, the press allows one privileged call for `kRemoteGrantWindowMs` (the newest `kRemoteMaxGrants` kept, as a client-mode engine keeps delivered taps); nothing goes to the engine's side.
+    void pressDelivered();
+    /// A message of the host's platform that delivers a primary press to the engine process's renderer, and that press, in one step on the dispatch thread, stamped on the caller's thread as `pressDelivered` stamps it: the message is carried as `platform` carries one, and only when the channel's writer admitted it (`SandboxHostedChannel::platform` returned true) on an open route that was never kept does the press count as `pressDelivered` takes one. So no grant or haptic touch exists for a press the renderer was not sent (a closed or ending route, a writer that refused it), and none before its message was admitted, whatever retires the route or which privileged call comes in meanwhile; the route's close revokes every grant.
+    void platformPress(std::string message);
+    /// That press ended (lifted or cancelled): the haptic gate's touch window follows it (as `pressEnded` in process), unless the widget died or is a preview, and only after a press that counted (`pressDelivered`, or `platformPress` with its message admitted): the release of a refused press opens no window; nothing goes to the engine's side.
+    void releaseDelivered();
+
+    /// Evaluates trusted diagnostic code in the widget context (tests only): the string value or the error text; a client asks its channel after its earlier inputs, from no thread its engine's side may wait for.
     std::string probe(const std::string& code);
+
+    /// Bytes of one JSON message from a remote engine's side (remote_engine.h), such as a query or bridge arguments; request data, copyText and storage keep their SDK limits.
+    static constexpr size_t kRemoteMessageLimit = size_t(1) << 20;
+    /// Bytes of one ops batch from a remote engine's side.
+    static constexpr size_t kRemoteOpsLimit = size_t(32) << 20;
+    /// Bytes of one message or request of a hosted widget's renderer for the host's platform (`onHostedMessage`, `onHostedRequest`): one past it is a protocol violation, the message dropped and the request answered "".
+    static constexpr size_t kRemotePlatformLimit = kRemoteOpsLimit;
+    /// A tap the host delivered to a client-mode engine allows one privileged call for this long.
+    static constexpr double kRemoteGrantWindowMs = 2000;
+    /// Taps a client-mode engine keeps for later privileged calls (the newest).
+    static constexpr size_t kRemoteMaxGrants = 32;
+    /// Bytes kept of a remote log text, diagnostic detail or death reason: this engine's byte cut, never more than Swift's 4000 characters.
+    static constexpr size_t kRemoteTextLimit = 4000;
+    /// Bytes kept of a remote diagnostic's kind; a longer bridge method name is refused.
+    static constexpr size_t kRemoteNameLimit = 64;
+    /// Bytes a client-mode engine holds of what its engine's side sent, from arrival until the call and the work its delegate queued with it (`remoteHold`) have run or been dropped: room for a full ops batch the delegate validates and one waiting behind it. A message past this or `kRemoteQueuedCalls` kills the widget once ("the widget engine process sent more than the host keeps queued"), after what came before it, and nothing more is taken.
+    static constexpr size_t kRemoteQueuedBytes = 2 * kRemoteOpsLimit;
+    /// Calls held the same way: a busy widget's backlog is tens (a task's begin, its ops, a frame request, its end, stats); the rest is room for a burst of logs.
+    static constexpr size_t kRemoteQueuedCalls = 16384;
+    struct RemoteBacklog {
+        size_t bytes = 0;
+        size_t calls = 0;
+    };
+    /// What a client-mode engine holds now against `kRemoteQueuedBytes` and `kRemoteQueuedCalls`, from any thread; nothing in process (tests).
+    RemoteBacklog remoteBacklog() const;
+    /// Tests: `step` runs in the middle of a client-mode engine's rejection of a message past `kRemoteQueuedBytes` / `kRemoteQueuedCalls`, on the thread that rejects it, after the rejection and before the overflow's claim, in the one step the transport's end's choice waits for (`SandboxRemoteSink::remoteDisconnected`), so a test holds a rejection there while the end chooses; `choosing` runs on the dispatch thread as that choice takes the step's lock, before it would wait there, so the test sees the choice reach the step it holds instead of guessing it from the time; empty: nothing. `choosing` is handed to the dispatch thread in a job queued now, the only thread that reads it: set both before the engine's side sends what it rejects and before the transport can end. Nothing in process.
+    void setRemoteRejectionStep(std::function<void()> step, std::function<void()> choosing = {});
+    /// Kept by work a delegate queues with a client-mode engine's message: the message stays counted against `kRemoteQueuedBytes` and `kRemoteQueuedCalls` until every copy has run or been dropped, and letting go takes no lock. Empty in process.
+    using RemoteHold = std::shared_ptr<const void>;
+    /// In a delegate call, on the engine's thread or on a thread that call waits for: a hold on the message being delivered; empty in process and outside a delivery.
+    RemoteHold remoteHold() const;
+    /// The same, with `bytes` and one call more counted for work that keeps more than the message gave (a validated result larger than its input, a diagnostic about it): nullopt when they do not fit, which fails the widget as a message past the bounds does, so drop that work.
+    std::optional<RemoteHold> remoteHold(size_t bytes);
 
 private:
     struct Deferred { std::string kind; std::string arg; };
@@ -277,6 +424,47 @@ private:
         std::mutex mutex;
         SandboxEngine* engine = nullptr;
     };
+
+    /// Both public constructors: the same engine on a thread named `threadName`.
+    SandboxEngine(std::string threadName, std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl);
+    /// `hostedClient`'s: a tag rather than an overload, as a channel derived from `SandboxHostedChannel` converts to both channel pointers and the public client constructor's call would be ambiguous.
+    struct HostedTag {};
+    SandboxEngine(HostedTag, std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl,
+                  std::shared_ptr<SandboxHostedWait> wait);
+
+    /// The in-process halves of the entry points both modes share (sandbox_engine.cpp), each run from its entry point (sandbox_engine_shared.cpp) through `inProcess_` once the hosted and client checks passed.
+    void inProcessStart();
+    void inProcessTerminate();
+    void inProcessStop(const std::string& reason);
+    void inProcessEvent(const std::string& json);
+    void inProcessActivationEvent(const std::string& json, int gesture);
+    void inProcessFrame(double time);
+    void inProcessViewport(double innerWidth, double innerHeight, double dpr);
+    void inProcessResize(const std::string& entriesJson);
+    void inProcessTheme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams);
+    void inProcessContentSafeArea(const WidgetContentSafeArea& area);
+    void inProcessSetData(const WidgetData& data);
+    void inProcessSetVisible(bool visible);
+    std::string inProcessProbe(const std::string& code);
+    void inProcessChargeValidator(double ms);
+    /// Those halves as one table, constant-initialised in sandbox_engine.cpp (`kInProcess`): the shared entry points reach them only through it, so a program of client-mode engines links neither them nor Nova.
+    struct InProcess {
+        void (SandboxEngine::*start)();
+        void (SandboxEngine::*terminate)();
+        void (SandboxEngine::*stop)(const std::string& reason);
+        void (SandboxEngine::*event)(const std::string& json);
+        void (SandboxEngine::*activationEvent)(const std::string& json, int gesture);
+        void (SandboxEngine::*frame)(double time);
+        void (SandboxEngine::*viewport)(double innerWidth, double innerHeight, double dpr);
+        void (SandboxEngine::*resize)(const std::string& entriesJson);
+        void (SandboxEngine::*theme)(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams);
+        void (SandboxEngine::*contentSafeArea)(const WidgetContentSafeArea& area);
+        void (SandboxEngine::*setData)(const WidgetData& data);
+        void (SandboxEngine::*setVisible)(bool visible);
+        std::string (SandboxEngine::*probe)(const std::string& code);
+        void (SandboxEngine::*chargeValidator)(double ms);
+    };
+    static const InProcess kInProcess;
 
     void boot();
     void enqueue(const std::string& kind, const std::string& arg);
@@ -311,9 +499,8 @@ private:
     std::optional<std::string> callTw(const std::string& kind, const std::string& arg);
     void settle();
     void evalScript(const std::string& code, const std::string& filename, bool asModule = false);
-    /// One of our own bundles: the precompiled `.qbc` when shipped and matching the source,
-    /// else the source. Returns "bytecode" or "source" for the diag.
-    std::string evalBundle(const std::string& source, const std::vector<uint8_t>& bytecode, const std::string& filename);
+    /// One of our own bundles, from code compiled once per process when it can be shared, else from the source. Returns "compiled", "source" or "failed" for the diag.
+    std::string evalBundle(const std::string& source, const std::string& filename);
     void pumpScripts();
     void resetDeadline();
     void task(const std::string& kind, double sliceMs, const std::function<void()>& body);
@@ -322,12 +509,15 @@ private:
     static double nowSeconds();
 
     JSThread thread_;
+    /// `&kInProcess`, set by the in-process constructor alone; null in client mode, whose entry points return before they would read it.
+    const InProcess* inProcess_ = nullptr;
     SandboxEngineDelegate* delegate_ = nullptr;
     std::string html_;
     SandboxConfig config_;
     std::shared_ptr<SandboxResources> resources_;
     std::shared_ptr<IntlProvider> intl_;
-    std::unique_ptr<QuickJSContext> js_;
+    /// The widget's runtime from `boot` until `release` or the destructor; `boot` sets the deleter with it (none before), so only sandbox_engine.cpp names the context's destructor.
+    std::unique_ptr<NovaContext, void (*)(NovaContext*)> js_{nullptr, nullptr};
     bool dead_ = false;
     bool started_ = false;
     SandboxStats stats_;
@@ -346,10 +536,10 @@ private:
     double wakeAt_ = 0;
     double hiddenTickAt_ = 0;
 
-    // CPU quota: decide before a task, record after it.
-    CpuBudget budget_;
+    // CPU quota: decide before a task, record after it. Both emplaced by the in-process constructor alone: a client-mode engine has none.
+    std::optional<CpuBudget> budget_;
     /// The main-thread window (`mainThreadQuotaMs`): layout queries and the cost of the ops, apart from the JS quota.
-    CpuBudget mainBudget_;
+    std::optional<CpuBudget> mainBudget_;
     double currentSliceMs_ = 0;
     std::string currentKind_ = "boot";
     double excludeMs_ = 0;
@@ -386,6 +576,77 @@ private:
     // A preview's dropped bridge calls (docs/sdk-v1.md §2.16), reported at most 20 times.
     int previewBlockedReported_ = 0;
     std::shared_ptr<Liveness> liveness_ = std::make_shared<Liveness>();
+
+    // Client mode (sandbox_engine_client.cpp): the widget runs behind `remote_`; `client_`, the sink the channel calls back, marks the mode.
+    class RemoteClient;
+    struct Grant {
+        int gesture;
+        double atMs;
+    };
+    /// `call` with the channel on the dispatch thread after everything queued before it, unless the widget died.
+    void forward(std::function<void(SandboxRemoteChannel&)> call);
+    void clientStart();
+    /// `stop` (`counted`) and `terminate`, one job on the dispatch thread: the widget dies with `reason` and the engine's side is told. A counted stop runs inline when called there; a hosted client's, while the widget lives, first stops it on its channel in one step with the transport's end (`SandboxHostedChannel::localStop`), so it is the widget's own death, or yields to an end that decided the widget first: nothing dies here, the client is as at the stop's own death until that end's kill (`RemoteClient::yielded`: nothing of the widget's own reaches the delegate, `RemoteClient::live`, and the route carries none of its renderer's platform traffic, `RemoteClient::carries`), and that kill, which its client still queues, publishes the end's decision; a `stop` or `terminate` after the yield does nothing. The owner's `terminate` claims nothing.
+    void clientKill(const std::string& reason, bool counted);
+    void clientActivationEvent(const std::string& json, int gesture);
+    /// Both client constructors: the sink (`hosted`: a hosted client's, its platform requests due as `wait` says when given), attached to `remote`, or a death at the first task without one.
+    void attachClient(std::shared_ptr<SandboxRemoteChannel> remote, bool hosted, std::shared_ptr<SandboxHostedWait> wait = nullptr);
+    /// On the dispatch thread: a tap or press the host delivered on the visible widget becomes a grant unless it is spent or one already; the newest `kRemoteMaxGrants` are kept.
+    void grant(int gesture, double atMs);
+    void clientSetVisible(bool visible);
+    void clientPress(bool began);
+    void clientSetDelegate(SandboxEngineDelegate* delegate);
+    std::string clientProbe(const std::string& code);
+    /// On the dispatch thread: the widget's death (`remoteDeath`), then its route's close (`closeRoute`), the engine's side told to stop when the host decided (`hostDecided`) while the widget lived until now; `ended`: an end the host did not ask for, which a kept route's delegate hears.
+    void remoteKill(const std::string& reason, bool hostDecided, bool ended);
+    /// On the dispatch thread, once: the delegate hears the death (or keeps it for a later one) and the end of an open task; false when the widget was dead already.
+    bool remoteDeath(const std::string& reason);
+    /// On the dispatch thread, once: the route closes (its waiting platform request answers none, every later one at once), the engine's side hears `stop(reason)` when `stop`, the channel closes, and with `ended` a kept route's delegate hears `onHostedEnded(reason)`. In an engine-only client it closes in the same call as the death.
+    void closeRoute(const std::string& reason, bool stop, bool ended);
+    /// On the dispatch thread, while the route carries its renderer's platform traffic (open, and no counted stop yielded on it to the transport's end, which then kills the widget instead): the host's platform left the renderer's request unanswered (`reason`): a live hosted widget's own death claimed on its channel first (in one step with the transport's end, before the delegate can stall), then the delegate's diagnostic `platform-timeout`, then the death and the close, a live widget's engine's side told to stop.
+    void platformKill(const std::string& reason);
+    /// The waiting platform request answers none, and every later one at once (the route's close and the destructor).
+    void clientSettleWaiting();
+    /// The responder of a hosted widget's platform request numbered `request`: `settle` with the answer, or nullopt for `unanswered()`.
+    static HostedRequestResponder hostedResponder(std::function<void(std::optional<std::string>)> settle, uint64_t request) {
+        return HostedRequestResponder(std::move(settle), request);
+    }
+    /// On the dispatch thread: a diagnostic about a message the host refused, unless the widget no longer reaches its delegate (`RemoteClient::live`) or `counter` reached `sdk::MAX_REJECTION_REPORTS`.
+    void clientReport(int& counter, const char* kind, const std::string& detail);
+    void deliverPendingDeath();
+    /// Whether a tap the host delivered on the visible widget is unspent and at most `kRemoteGrantWindowMs` old; the others are dropped here.
+    bool liveGrants();
+    /// The oldest live tap is spent (`consumedGesture_`): no tap up to it allows anything again.
+    void spendGrant();
+    /// Under strict a privileged method needs a live tap, which it spends; without one it is reported (`activation-blocked`) and refused.
+    bool clientActivation(const std::string& method);
+    /// A request (`request`) or wallet call (`wallet`) of the engine's side, neither when it failed its checks: decided again on the host's flags, visibility and taps, then refused on the channel or handed to the delegate with a responder that answers there.
+    void clientRequest(int64_t id, const std::optional<WidgetRequest>& request, const std::optional<WalletCall>& wallet);
+    std::shared_ptr<SandboxRemoteChannel> remote_;
+    std::shared_ptr<RemoteClient> client_;
+    /// Taps the host delivered while the widget was visible, by gesture, the newest `kRemoteMaxGrants`; `consumedGesture_` is the last one spent.
+    std::vector<Grant> grants_;
+    /// The delegate heard the begin of the engine's task and not yet its end.
+    bool remoteTaskOpen_ = false;
+    /// The admission of the message whose work the dispatch thread runs now (`remoteHold`).
+    RemoteHold remoteDelivering_;
+    /// A death reported before the delegate was set, for the first one set.
+    std::optional<std::string> pendingDeath_;
+    /// A hosted client's channel, `remote_` too; released with it.
+    std::shared_ptr<SandboxHostedChannel> hosted_;
+    /// Dispatch thread: the last press `pressDelivered` numbered, and whether the hosted start asked for the validated batches.
+    int hostedGesture_ = 0;
+    bool hostedOps_ = false;
+    /// Dispatch thread: a press counted (`pressDelivered`, or `platformPress` whose message the writer took) and its release has not come; the route's close and the keep clear it.
+    bool pressAdmitted_ = false;
+    /// Dispatch thread: a death the engine's side reports leaves the route open (`startHosted`'s `keepAtDeath`).
+    bool keepAtDeath_ = false;
+    /// Dispatch thread: the route to the engine's side carries traffic, from the attach until `closeRoute`.
+    bool routeOpen_ = false;
+    /// Dispatch thread: the route was handed to a kept renderer's delegate (`keepHosted`): only platform traffic crosses.
+    bool kept_ = false;
+    /// Dispatch thread: the engine process's renderer announced itself (its first `onHostedRendererReady`, delivered or not).
+    bool hostedReady_ = false;
 };
 
 } // namespace twidget
