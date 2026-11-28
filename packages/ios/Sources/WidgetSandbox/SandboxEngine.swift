@@ -1700,9 +1700,17 @@ extension SandboxEngine {
     }
 
     func clientBridge(method: String, argsJson: String) {
-        clientEnqueue(bytes: RemoteCallbackBudget.cost(method.utf8.count, argsJson.utf8.count)) {
+        clientBridge(method: method, bytes: argsJson.utf8.count, arguments: {
+            guard argsJson.utf8.count <= Self.remoteMessageLimit else { return nil }
+            return Self.parse(argsJson) as? [Any]
+        }, diagnostics: { _ in argsJson })
+    }
+
+    fileprivate func clientBridge(method: String, bytes: Int, arguments: @escaping () -> [Any]?,
+                                  diagnostics: @escaping ([Any]) -> String) {
+        clientEnqueue(bytes: RemoteCallbackBudget.cost(method.utf8.count, bytes)) {
             guard !self.dead else { return }
-            guard method.utf8.count <= 64, argsJson.utf8.count <= Self.remoteMessageLimit, let args = Self.parse(argsJson) as? [Any],
+            guard method.utf8.count <= 64, let args = arguments(),
                   let checked = SdkPolicy.checkBridgeCall(method, args), let action = WidgetAction(checked) else {
                 if self.rejectedBridgeReported < 20 {
                     self.rejectedBridgeReported += 1
@@ -1716,7 +1724,7 @@ extension SandboxEngine {
                 guard case .play = self.haptics.decide(nowMs: Self.nowMs(), visible: self.visible) else { return }
             }
             self.delegate?.engine(self, action: action)
-            self.delegate?.engine(self, bridge: method, argsJson: argsJson)
+            self.delegate?.engine(self, bridge: method, argsJson: diagnostics(args))
         }
     }
 
@@ -1783,9 +1791,16 @@ extension SandboxEngine {
     }
 
     func clientStorage(_ json: String) {
-        clientEnqueue(bytes: RemoteCallbackBudget.cost(json.utf8.count)) {
+        clientStorage(bytes: json.utf8.count) {
+            guard json.utf16.count <= Self.maxStorageCommitChars else { return nil }
+            return Self.parse(json) as? [String: Any]
+        }
+    }
+
+    fileprivate func clientStorage(bytes: Int, contents: @escaping () -> [String: Any]?) {
+        clientEnqueue(bytes: RemoteCallbackBudget.cost(bytes)) {
             guard !self.dead, !self.config.context.preview else { return }
-            guard json.utf16.count <= Self.maxStorageCommitChars, let commit = SdkPolicy.checkStorageCommit(Self.parse(json)), !commit.isEmpty else {
+            guard let commit = SdkPolicy.checkStorageCommit(contents()), !commit.isEmpty else {
                 if self.rejectedStorageReported < 20 {
                     self.rejectedStorageReported += 1
                     self.delegate?.engine(self, diag: "storage-rejected", detail: "a storage commit the host refused")
@@ -1860,6 +1875,24 @@ public final class SandboxRemoteClient: SandboxRemoteSink {
         }
     }
     public func remoteStorage(_ commitJson: String) { engine?.clientStorage(commitJson) }
+
+    public func remotePreparedBridge(method: String, bytes: Int, arguments: @escaping () -> [Any]?) {
+        guard bytes >= 0 else { return }
+        engine?.clientBridge(method: method, bytes: bytes, arguments: arguments, diagnostics: { SandboxEngine.json($0) })
+    }
+
+    public func remotePreparedWallet(id: Int, bytes: Int, arguments: @escaping () -> [Any]?) {
+        guard bytes >= 0 else { return }
+        engine?.clientRequest(id: id, bytes: RemoteCallbackBudget.cost(bytes)) {
+            guard case let .wallet(_, call)? = SdkPolicy.checkBridgeCall("wallet", arguments()) else { return nil }
+            return .wallet(call)
+        }
+    }
+
+    public func remotePreparedStorage(bytes: Int, contents: @escaping () -> [String: Any]?) {
+        guard bytes >= 0 else { return }
+        engine?.clientStorage(bytes: bytes, contents: contents)
+    }
     public func remoteResizeAnchor(_ edge: String) { engine?.clientResizeAnchor(edge) }
     public func remoteWatchesPublicData(_ on: Bool) { engine?.clientWatchesPublicData(on) }
     public func remoteLoaded() { engine?.clientLoaded() }

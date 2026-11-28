@@ -27,11 +27,22 @@ public protocol WidgetValidator: AnyObject {
     var nodeCount: Int { get }
     var stopped: String? { get }
     func validateQuery(_ json: String) -> String?
+    func validateQueryForRenderer(_ json: String) -> String?
     func rewriteMediaQuery(_ query: String) -> String
     func validateListen(_ json: String) -> String
     func validatePreventDefault(_ json: String) -> String
     func validateAnim(_ json: String) -> String
     func markLoaded()
+}
+
+extension WidgetValidator {
+    public func validateQueryForRenderer(_ json: String) -> String? {
+        guard let clean = validateQuery(json) else { return nil }
+        guard clean.contains("\"matchMedia\""), var object = SandboxEngine.parse(clean) as? [String: Any],
+              let query = object["query"] as? String else { return clean }
+        object["query"] = rewriteMediaQuery(query)
+        return SandboxEngine.json(object)
+    }
 }
 
 public enum WidgetValidators {

@@ -751,11 +751,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         queryLock.unlock()
         validate { [self] in
             // Validation (css-tree, media query rewrite) on the validator's thread or inline; the send on main.
-            var clean = validator.validateQuery(json)
-            if let c = clean, c.contains("\"matchMedia\""), var obj = SandboxEngine.parse(c) as? [String: Any], let q = obj["query"] as? String {
-                obj["query"] = validator.rewriteMediaQuery(q)
-                clean = Self.json(obj)
-            }
+            let clean = validator.validateQueryForRenderer(json)
             let send = {
                 guard !self.destroyed else { return self.resolveQuery(json: "{\"error\":\"dead\"}", binary: nil) }
                 guard let clean else { return self.resolveQuery(json: "{\"error\":\"invalid query\"}", binary: nil) }
