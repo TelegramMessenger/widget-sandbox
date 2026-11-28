@@ -413,6 +413,9 @@ public final class TrustedValidator {
     }
 
     public static func typedOps(_ json: String) -> RenderBatch {
+        #if DEBUG
+        WidgetParseProbe.hit("TrustedValidator.typedOps")
+        #endif
         guard let list = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [Any] else { return .json(json) }
         var ops: [WidgetOp] = []
         ops.reserveCapacity(list.count)

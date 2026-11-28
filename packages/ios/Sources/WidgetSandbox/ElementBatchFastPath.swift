@@ -55,6 +55,9 @@ enum ElementBatchFastPath {
                 guard let id = s.canvasOp() else { return nil }
                 out.append(contentsOf: b[start..<s.i])
                 if typed {
+                    #if DEBUG
+                    WidgetParseProbe.hit("ElementBatchFastPath.canvasFields")
+                    #endif
                     guard let fields = (try? JSONSerialization.jsonObject(with: Data(b[start..<s.i]))) as? [String: Any] else { return nil }
                     typedOps.append(WidgetOp(fields))
                 }

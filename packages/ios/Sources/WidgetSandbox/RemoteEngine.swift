@@ -104,6 +104,9 @@ public final class SandboxRemoteServer: SandboxEngineDelegate {
         self.sink = sink
         engine = SandboxEngine(resources: resources, features: features, backend: backend)
         engine.delegate = self
+        #if DEBUG
+        engine.queue.async { WidgetParseProbe.markServiceThread() }
+        #endif
     }
 
     public func prewarm() { engine.prewarm() }
@@ -294,6 +297,9 @@ public enum SandboxRemoteCoding {
     }
 
     public static func decodeConfig(_ data: Data) -> SandboxConfig? {
+        #if DEBUG
+        WidgetParseProbe.hit("SandboxRemoteCoding.decodeConfig")
+        #endif
         guard data.count <= 1 << 20, let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
         let number = { (key: String) -> Double? in (o[key] as? NSNumber)?.doubleValue }
         guard let width = number("innerWidth"), let height = number("innerHeight"), let dpr = number("devicePixelRatio"), let theme = o["theme"] as? String,
@@ -344,7 +350,10 @@ public enum SandboxRemoteCoding {
     }
 
     public static func decodeSafeArea(_ data: Data) -> WidgetContentSafeArea? {
-        ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]).map(safeArea)
+        #if DEBUG
+        WidgetParseProbe.hit("SandboxRemoteCoding.decodeSafeArea")
+        #endif
+        return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]).map(safeArea)
     }
 
     private static func safeArea(_ o: [String: Any]) -> WidgetContentSafeArea {
@@ -357,6 +366,9 @@ public enum SandboxRemoteCoding {
     }
 
     public static func decodeData(_ data: Data) -> WidgetData? {
+        #if DEBUG
+        WidgetParseProbe.hit("SandboxRemoteCoding.decodeData")
+        #endif
         guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
         return WidgetData(chatData: o["chatData"] as? String, publicData: o["publicData"] as? String)
     }
@@ -371,6 +383,9 @@ public enum SandboxRemoteCoding {
     }
 
     static func decodeWallet(_ data: Data) -> WalletCall? {
+        #if DEBUG
+        WidgetParseProbe.hit("SandboxRemoteCoding.decodeWallet")
+        #endif
         guard data.count <= SandboxEngine.remoteMessageLimit,
               let args = try? JSONSerialization.jsonObject(with: data),
               case let .wallet(_, call)? = SdkPolicy.checkBridgeCall("wallet", args) else { return nil }
@@ -388,6 +403,9 @@ public enum SandboxRemoteCoding {
     }
 
     public static func decodeOutcome(_ data: Data) -> SandboxRemoteOutcome? {
+        #if DEBUG
+        WidgetParseProbe.hit("SandboxRemoteCoding.decodeOutcome")
+        #endif
         guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
         if o["unsupported"] != nil { return .unsupported }
         if let code = o["failure"] as? String {

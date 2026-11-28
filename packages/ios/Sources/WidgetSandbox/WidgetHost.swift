@@ -990,6 +990,9 @@ public final class WidgetHost: SandboxEngineDelegate {
     // MARK: renderer → host (main thread)
 
     private func onRenderer(_ json: String) {
+        #if DEBUG
+        WidgetParseProbe.hit("WidgetHost.onRenderer")
+        #endif
         guard let msg = SandboxEngine.parse(json) as? [String: Any] else { return }
         onRenderer(message: msg)
     }

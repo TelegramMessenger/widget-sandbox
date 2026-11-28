@@ -1443,7 +1443,10 @@ public final class SandboxEngine {
         return String(decoding: data, as: UTF8.self)
     }
     static func parse(_ json: String) -> Any? {
-        try? JSONSerialization.jsonObject(with: Data(json.utf8), options: [.fragmentsAllowed])
+        #if DEBUG
+        WidgetParseProbe.hit("SandboxEngine.parse")
+        #endif
+        return try? JSONSerialization.jsonObject(with: Data(json.utf8), options: [.fragmentsAllowed])
     }
     /// A value for `json`: JSON null for none.
     static func orNull(_ value: Any?) -> Any { value ?? NSNull() }
@@ -2043,6 +2046,9 @@ enum IntlBridge {
     }
 
     static func format(requestJson: String) -> String {
+        #if DEBUG
+        WidgetParseProbe.hit("IntlBridge.format")
+        #endif
         guard let req = SandboxEngine.parse(requestJson) as? [String: Any], let kind = req["kind"] as? String else { return "" }
         let locale = (req["locale"] as? String).map(bcp47Locale) ?? ((req["locale"] as? [String])?.first).map(bcp47Locale) ?? .current
         let opts = req["opts"] as? [String: Any] ?? [:]

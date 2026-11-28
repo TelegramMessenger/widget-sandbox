@@ -1350,6 +1350,9 @@ final class NativeValidator {
     private func checkedCanvasCommands(_ json: String) -> [Any]? {
         let clean = oracle?.canvasCommands(json)
         if adoptOracleStop() { return nil }
+        #if DEBUG
+        WidgetParseProbe.hit("NativeValidator.checkedCanvasCommands")
+        #endif
         guard let clean, clean != "[]", let cmds = (try? JSONSerialization.jsonObject(with: Data(clean.utf8))) as? [Any], !cmds.isEmpty else { return [] }
         return cmds.filter { value in
             guard tables.textBudget > 0, let cmd = value as? [Any], cmd.count >= 3, cmd[0] as? String == "c",
