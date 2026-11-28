@@ -177,7 +177,6 @@ public enum WidgetWarmup {
 
     public static func prewarm(renderers: Int, engines: Int, validators: Int, width: CGFloat = 360, parkingView: PlatformView? = nil) {
         _ = SandboxResources.shared
-        _ = SandboxEngine.parse("{\"type\":\"ready\"}")
         if WidgetValidators.factory == nil { _ = TrustedValidator.sharedThreadForNextValidator() }
         if renderers > 0 { RendererEnvironment.shared.prewarm() }
         RendererPool.shared.width = width

@@ -262,6 +262,126 @@ public final class SandboxLoopbackChannel: SandboxRemoteChannel {
 
 /// Wire forms for transports that cross a process boundary. Decoders take untrusted bytes: every count is capped
 /// and a malformed value is nil, never a crash.
+@objc(WidgetSandboxConfigWire)
+public final class SandboxConfigWire: NSObject, NSSecureCoding {
+    public static var supportsSecureCoding: Bool { true }
+
+    public let config: SandboxConfig
+
+    public init(_ config: SandboxConfig) {
+        self.config = config
+    }
+
+    public func encode(with coder: NSCoder) {
+        coder.encode(config.memoryLimitBytes, forKey: "memoryLimitBytes")
+        coder.encode(config.cpuLimitMs, forKey: "cpuLimitMs")
+        coder.encode(config.cpuQuotaMs, forKey: "cpuQuotaMs")
+        coder.encode(config.cpuQuotaWindowMs, forKey: "cpuQuotaWindowMs")
+        coder.encode(config.cpuKillAfterMs, forKey: "cpuKillAfterMs")
+        coder.encode(config.mainThreadQuotaMs, forKey: "mainThreadQuotaMs")
+        coder.encode(config.maxTimers, forKey: "maxTimers")
+        coder.encode(config.visible, forKey: "visible")
+        coder.encode(config.innerWidth, forKey: "innerWidth")
+        coder.encode(config.innerHeight, forKey: "innerHeight")
+        coder.encode(config.devicePixelRatio, forKey: "devicePixelRatio")
+        coder.encode(config.theme as NSString, forKey: "theme")
+        coder.encode(Array(config.features).sorted() as NSArray, forKey: "features")
+        coder.encode(config.policy.rawValue as NSString, forKey: "policy")
+        coder.encode(config.themeParams as NSDictionary, forKey: "themeParams")
+        coder.encode(config.locale as NSString, forKey: "locale")
+        coder.encode(SandboxRemoteCoding.values(safeArea: config.contentSafeArea) as NSArray, forKey: "contentSafeArea")
+        coder.encode(config.storage.local as NSDictionary, forKey: "storageLocal")
+        coder.encode(config.storage.session as NSDictionary, forKey: "storageSession")
+        coder.encode(config.data.chatData.map { $0 as NSString }, forKey: "chatData")
+        coder.encode(config.data.publicData.map { $0 as NSString }, forKey: "publicData")
+        let context = config.context
+        coder.encode(context.isCopy, forKey: "isCopy")
+        coder.encode(context.canQuery, forKey: "canQuery")
+        coder.encode(context.backgroundQuery, forKey: "backgroundQuery")
+        coder.encode(context.preview, forKey: "preview")
+        coder.encode(context.wallet, forKey: "wallet")
+        coder.encode(context.surface.rawValue as NSString, forKey: "surface")
+        coder.encode(context.chatType.map { $0.rawValue as NSString }, forKey: "chatType")
+        if let viewer = context.viewer {
+            coder.encode(true, forKey: "hasViewer")
+            coder.encode(viewer.id, forKey: "viewerId")
+            coder.encode(viewer.firstName.map { $0 as NSString }, forKey: "viewerFirstName")
+            coder.encode(viewer.lastName.map { $0 as NSString }, forKey: "viewerLastName")
+            coder.encode(viewer.username.map { $0 as NSString }, forKey: "viewerUsername")
+            coder.encode(viewer.isPremium, forKey: "viewerIsPremium")
+        }
+    }
+
+    public init?(coder: NSCoder) {
+        func text(_ key: String, limit: Int) -> String?? {
+            let value = coder.decodeObject(of: NSString.self, forKey: key) as String?
+            guard coder.error == nil else { return nil }
+            guard let value else { return .some(nil) }
+            guard value.utf8.count <= limit else { return nil }
+            return .some(value)
+        }
+        func strings(_ key: String) -> [String: String]? {
+            guard let value = coder.decodeObject(of: [NSDictionary.self, NSString.self], forKey: key) as? [String: String] else { return nil }
+            guard value.count <= 4096, value.allSatisfy({ $0.key.utf8.count <= 4096 && $0.value.utf8.count <= 1 << 20 }) else { return nil }
+            return value
+        }
+        let width = coder.decodeDouble(forKey: "innerWidth")
+        let height = coder.decodeDouble(forKey: "innerHeight")
+        let dpr = coder.decodeDouble(forKey: "devicePixelRatio")
+        guard width.isFinite, height.isFinite, dpr.isFinite, width > 0, width <= 4096, height > 0, height <= 16384, dpr >= 1, dpr <= 4,
+              let theme = coder.decodeObject(of: NSString.self, forKey: "theme") as String?, theme.utf8.count <= 64 else { return nil }
+        var config = SandboxConfig(innerWidth: width, innerHeight: height, devicePixelRatio: dpr, theme: theme)
+        let doubles = ["cpuLimitMs", "cpuQuotaMs", "cpuQuotaWindowMs", "cpuKillAfterMs", "mainThreadQuotaMs"].map { coder.decodeDouble(forKey: $0) }
+        guard doubles.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1e9 }) else { return nil }
+        config.cpuLimitMs = doubles[0]
+        config.cpuQuotaMs = doubles[1]
+        config.cpuQuotaWindowMs = doubles[2]
+        config.cpuKillAfterMs = doubles[3]
+        config.mainThreadQuotaMs = doubles[4]
+        let memory = coder.decodeInteger(forKey: "memoryLimitBytes")
+        let timers = coder.decodeInteger(forKey: "maxTimers")
+        guard (1...(512 << 20)).contains(memory), (0...4096).contains(timers) else { return nil }
+        config.memoryLimitBytes = memory
+        config.maxTimers = timers
+        config.visible = coder.decodeBool(forKey: "visible")
+        guard let features = coder.decodeObject(of: [NSArray.self, NSString.self], forKey: "features") as? [String], features.count <= 256,
+              let policy = (coder.decodeObject(of: NSString.self, forKey: "policy") as String?).flatMap(SandboxPolicy.init(rawValue:)),
+              let themeParams = strings("themeParams"),
+              let locale = coder.decodeObject(of: NSString.self, forKey: "locale") as String?, locale.utf8.count <= 128,
+              let area = (coder.decodeObject(of: [NSArray.self, NSNumber.self], forKey: "contentSafeArea") as? [NSNumber]).flatMap({ SandboxRemoteCoding.safeArea($0.map(\.doubleValue)) }),
+              let local = strings("storageLocal"), let session = strings("storageSession"),
+              let chatData = text("chatData", limit: 1 << 20), let publicData = text("publicData", limit: 1 << 20),
+              let surface = (coder.decodeObject(of: NSString.self, forKey: "surface") as String?).flatMap(WidgetSurface.init(rawValue:)),
+              let chatType = text("chatType", limit: 64) else { return nil }
+        config.features = Set(features)
+        config.policy = policy
+        config.themeParams = themeParams
+        config.locale = locale
+        config.contentSafeArea = area
+        config.storage = WidgetStorage(local: local, session: session)
+        config.data = WidgetData(chatData: chatData, publicData: publicData)
+        var context = WidgetContext()
+        context.isCopy = coder.decodeBool(forKey: "isCopy")
+        context.canQuery = coder.decodeBool(forKey: "canQuery")
+        context.backgroundQuery = coder.decodeBool(forKey: "backgroundQuery")
+        context.preview = coder.decodeBool(forKey: "preview")
+        context.wallet = coder.decodeBool(forKey: "wallet")
+        context.surface = surface
+        if let chatType {
+            guard let type = WidgetChatType(rawValue: chatType) else { return nil }
+            context.chatType = type
+        }
+        if coder.decodeBool(forKey: "hasViewer") {
+            guard let first = text("viewerFirstName", limit: 4096), let last = text("viewerLastName", limit: 4096),
+                  let username = text("viewerUsername", limit: 4096) else { return nil }
+            context.viewer = WidgetViewer(id: coder.decodeInt64(forKey: "viewerId"), firstName: first, lastName: last, username: username,
+                                          isPremium: coder.decodeBool(forKey: "viewerIsPremium"))
+        }
+        config.context = context
+        self.config = config
+    }
+}
+
 public enum SandboxRemoteCoding {
     public static let maxCanvasWords = 4 << 20
     public static let maxCanvasStrings = 1 << 17
@@ -275,102 +395,13 @@ public enum SandboxRemoteCoding {
         return SandboxEngine.json(out)
     }
 
-    public static func encode(config: SandboxConfig) -> Data {
-        var context: [String: Any] = [
-            "isCopy": config.context.isCopy, "canQuery": config.context.canQuery,
-            "backgroundQuery": config.context.backgroundQuery, "preview": config.context.preview, "wallet": config.context.wallet,
-            "surface": config.context.surface.rawValue,
-        ]
-        if let chatType = config.context.chatType { context["chatType"] = chatType.rawValue }
-        if let viewer = config.context.viewer { context["viewer"] = viewer.json }
-        let object: [String: Any] = [
-            "memoryLimitBytes": config.memoryLimitBytes, "cpuLimitMs": config.cpuLimitMs, "cpuQuotaMs": config.cpuQuotaMs,
-            "cpuQuotaWindowMs": config.cpuQuotaWindowMs, "cpuKillAfterMs": config.cpuKillAfterMs,
-            "mainThreadQuotaMs": config.mainThreadQuotaMs, "maxTimers": config.maxTimers, "visible": config.visible,
-            "innerWidth": config.innerWidth, "innerHeight": config.innerHeight, "devicePixelRatio": config.devicePixelRatio,
-            "theme": config.theme, "features": Array(config.features).sorted(), "policy": config.policy.rawValue,
-            "themeParams": config.themeParams, "locale": config.locale, "contentSafeArea": config.contentSafeArea.json,
-            "storage": ["local": config.storage.local, "session": config.storage.session], "data": config.data.json,
-            "context": context,
-        ]
-        return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
+    public static func values(safeArea area: WidgetContentSafeArea) -> [Double] {
+        [area.top, area.right, area.bottom, area.left, area.cornerLeft, area.cornerRight]
     }
 
-    public static func decodeConfig(_ data: Data) -> SandboxConfig? {
-        #if DEBUG
-        WidgetParseProbe.hit("SandboxRemoteCoding.decodeConfig")
-        #endif
-        guard data.count <= 1 << 20, let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
-        let number = { (key: String) -> Double? in (o[key] as? NSNumber)?.doubleValue }
-        guard let width = number("innerWidth"), let height = number("innerHeight"), let dpr = number("devicePixelRatio"), let theme = o["theme"] as? String,
-              width.isFinite, height.isFinite, dpr.isFinite, width > 0, width <= 4096,
-              height > 0, height <= 16384, dpr >= 1, dpr <= 4, theme.utf8.count <= 64 else { return nil }
-        for key in ["cpuLimitMs", "cpuQuotaMs", "cpuQuotaWindowMs", "cpuKillAfterMs", "mainThreadQuotaMs"] {
-            if let value = number(key), !value.isFinite || value < 0 || value > 1e9 { return nil }
-        }
-        if let value = number("memoryLimitBytes"), !value.isFinite || value < 1 || value > Double(512 << 20) || value != value.rounded() { return nil }
-        if let value = number("maxTimers"), !value.isFinite || value < 0 || value > 4096 || value != value.rounded() { return nil }
-        var config = SandboxConfig(innerWidth: width, innerHeight: height, devicePixelRatio: dpr, theme: theme)
-        if let v = number("memoryLimitBytes") { config.memoryLimitBytes = Int(v) }
-        if let v = number("cpuLimitMs") { config.cpuLimitMs = v }
-        if let v = number("cpuQuotaMs") { config.cpuQuotaMs = v }
-        if let v = number("cpuQuotaWindowMs") { config.cpuQuotaWindowMs = v }
-        if let v = number("cpuKillAfterMs") { config.cpuKillAfterMs = v }
-        if let v = number("mainThreadQuotaMs") { config.mainThreadQuotaMs = v }
-        if let v = number("maxTimers") { config.maxTimers = Int(v) }
-        if let v = o["visible"] as? Bool { config.visible = v }
-        if let v = o["features"] as? [String] { config.features = Set(v) }
-        if let v = (o["policy"] as? String).flatMap(SandboxPolicy.init(rawValue:)) { config.policy = v }
-        if let v = o["themeParams"] as? [String: String] { config.themeParams = v }
-        if let v = o["locale"] as? String { config.locale = v }
-        if let v = o["contentSafeArea"] as? [String: Any] { config.contentSafeArea = safeArea(v) }
-        if let v = o["storage"] as? [String: Any] {
-            config.storage = WidgetStorage(local: v["local"] as? [String: String] ?? [:], session: v["session"] as? [String: String] ?? [:])
-        }
-        if let v = o["data"] as? [String: Any] { config.data = WidgetData(chatData: v["chatData"] as? String, publicData: v["publicData"] as? String) }
-        if let c = o["context"] as? [String: Any] {
-            var context = WidgetContext()
-            context.isCopy = c["isCopy"] as? Bool ?? false
-            context.canQuery = c["canQuery"] as? Bool ?? false
-            context.backgroundQuery = c["backgroundQuery"] as? Bool ?? false
-            context.preview = c["preview"] as? Bool ?? false
-            context.wallet = c["wallet"] as? Bool ?? false
-            context.chatType = (c["chatType"] as? String).flatMap(WidgetChatType.init(rawValue:))
-            context.surface = (c["surface"] as? String).flatMap(WidgetSurface.init(rawValue:)) ?? .message
-            if let v = c["viewer"] as? [String: Any], let id = (v["id"] as? NSNumber)?.int64Value {
-                context.viewer = WidgetViewer(id: id, firstName: v["first_name"] as? String, lastName: v["last_name"] as? String, username: v["username"] as? String, isPremium: v["is_premium"] as? Bool ?? false)
-            }
-            config.context = context
-        }
-        return config
-    }
-
-    public static func encode(safeArea: WidgetContentSafeArea) -> Data {
-        (try? JSONSerialization.data(withJSONObject: safeArea.json)) ?? Data()
-    }
-
-    public static func decodeSafeArea(_ data: Data) -> WidgetContentSafeArea? {
-        #if DEBUG
-        WidgetParseProbe.hit("SandboxRemoteCoding.decodeSafeArea")
-        #endif
-        return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]).map(safeArea)
-    }
-
-    private static func safeArea(_ o: [String: Any]) -> WidgetContentSafeArea {
-        let v = { (key: String) -> Double in (o[key] as? NSNumber)?.doubleValue ?? 0 }
-        return WidgetContentSafeArea(top: v("top"), right: v("right"), bottom: v("bottom"), left: v("left"), cornerLeft: v("cornerLeft"), cornerRight: v("cornerRight"))
-    }
-
-    public static func encode(data: WidgetData) -> Data {
-        (try? JSONSerialization.data(withJSONObject: data.json)) ?? Data()
-    }
-
-    public static func decodeData(_ data: Data) -> WidgetData? {
-        #if DEBUG
-        WidgetParseProbe.hit("SandboxRemoteCoding.decodeData")
-        #endif
-        guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
-        return WidgetData(chatData: o["chatData"] as? String, publicData: o["publicData"] as? String)
+    public static func safeArea(_ values: [Double]) -> WidgetContentSafeArea? {
+        guard values.count == 6, values.allSatisfy({ $0.isFinite }) else { return nil }
+        return WidgetContentSafeArea(top: values[0], right: values[1], bottom: values[2], left: values[3], cornerLeft: values[4], cornerRight: values[5])
     }
 
     public static func encode(wallet: WalletCall) -> Data {
@@ -392,34 +423,29 @@ public enum SandboxRemoteCoding {
         return call
     }
 
-    public static func encode(outcome: SandboxRemoteOutcome) -> Data {
-        let object: [String: Any]
+    public static func wire(outcome: SandboxRemoteOutcome) -> (answered: Bool, result: String?, failure: String?) {
         switch outcome {
-        case .answer(let result): object = result.map { ["answer": $0] } ?? ["answer": NSNull()]
-        case .failure(let failure): object = ["failure": failure.code.rawValue]
-        case .unsupported: object = ["unsupported": true]
+        case .answer(let result): return (true, result, nil)
+        case .failure(let failure): return (false, nil, failure.code.rawValue)
+        case .unsupported: return (false, nil, nil)
         }
-        return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
     }
 
-    public static func decodeOutcome(_ data: Data) -> SandboxRemoteOutcome? {
-        #if DEBUG
-        WidgetParseProbe.hit("SandboxRemoteCoding.decodeOutcome")
-        #endif
-        guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
-        if o["unsupported"] != nil { return .unsupported }
-        if let code = o["failure"] as? String {
-            switch SdkPolicy.RequestError(rawValue: code) {
-            case .timeout: return .failure(.timeout)
-            case .rateLimited: return .failure(.rateLimited)
-            case .failed: return .failure(.failed)
-            case .rejected: return .failure(.rejected)
-            case .badRequest: return .failure(.badRequest)
-            default: return .failure(.notAllowed)
-            }
+    public static func outcome(answered: Bool, result: String?, failure: String?) -> SandboxRemoteOutcome? {
+        if answered {
+            guard failure == nil, (result?.utf8.count ?? 0) <= SandboxEngine.remoteMessageLimit else { return nil }
+            return .answer(result)
         }
-        if let answer = o["answer"] { return .answer(answer as? String) }
-        return nil
+        guard result == nil else { return nil }
+        guard let code = failure else { return .unsupported }
+        switch SdkPolicy.RequestError(rawValue: code) {
+        case .timeout: return .failure(.timeout)
+        case .rateLimited: return .failure(.rateLimited)
+        case .failed: return .failure(.failed)
+        case .rejected: return .failure(.rejected)
+        case .badRequest: return .failure(.badRequest)
+        default: return .failure(.notAllowed)
+        }
     }
 
     public static func encode(stats: SandboxStats) -> [Double] {

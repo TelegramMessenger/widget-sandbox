@@ -398,7 +398,7 @@ final class RemoteEngineTests: QuickJSTestCase {
         config.context = WidgetContext(isCopy: true, canQuery: true, backgroundQuery: true, chatType: .group, viewer: WidgetViewer(id: 42, firstName: "Ann", username: "ann", isPremium: true), preview: false, wallet: true)
         config.maxTimers = 12
         config.visible = false
-        let decoded = SandboxRemoteCoding.decodeConfig(SandboxRemoteCoding.encode(config: config))
+        let decoded = Self.roundTrip(config)
         XCTAssertEqual(decoded?.features, config.features)
         XCTAssertEqual(decoded?.policy, .compat)
         XCTAssertEqual(decoded?.themeParams, config.themeParams)
@@ -416,13 +416,34 @@ final class RemoteEngineTests: QuickJSTestCase {
         var config = SandboxConfig(innerWidth: 320, innerHeight: 240, devicePixelRatio: 2, theme: "dark")
         config.context = WidgetContext(canQuery: true, surface: .profile)
 
-        let decoded = SandboxRemoteCoding.decodeConfig(SandboxRemoteCoding.encode(config: config))
+        let decoded = Self.roundTrip(config)
         XCTAssertEqual(decoded?.context, config.context)
+    }
+
+    private static func roundTrip(_ config: SandboxConfig) -> SandboxConfig? {
+        guard let data = try? NSKeyedArchiver.archivedData(withRootObject: SandboxConfigWire(config), requiringSecureCoding: true) else { return nil }
+        return (try? NSKeyedUnarchiver.unarchivedObject(ofClass: SandboxConfigWire.self, from: data))?.config
+    }
+
+    func testConfigWireRefusesOutOfRangeValues() throws {
+        var config = SandboxConfig(innerWidth: 320, innerHeight: 240, devicePixelRatio: 2, theme: "dark")
+        config.maxTimers = 5000
+        XCTAssertNil(Self.roundTrip(config))
+        config.maxTimers = 12
+        config.contentSafeArea = WidgetContentSafeArea(top: .nan, right: 0, bottom: 0, left: 0, cornerLeft: 0, cornerRight: 0)
+        XCTAssertNil(Self.roundTrip(config))
+        config.contentSafeArea = WidgetContentSafeArea()
+        config.theme = String(repeating: "x", count: 65)
+        XCTAssertNil(Self.roundTrip(config))
+        XCTAssertNil(SandboxRemoteCoding.safeArea([1, 2, 3]))
+        XCTAssertNil(SandboxRemoteCoding.outcome(answered: true, result: "x", failure: "timeout"))
+        XCTAssertNil(SandboxRemoteCoding.outcome(answered: false, result: "x", failure: nil))
     }
 
     func testOutcomeAndStatsRoundTrip() {
         for outcome: SandboxRemoteOutcome in [.answer("x"), .answer(nil), .failure(.timeout), .failure(.rateLimited), .failure(.failed), .failure(.notAllowed), .failure(.rejected), .failure(.badRequest), .unsupported] {
-            XCTAssertEqual(SandboxRemoteCoding.decodeOutcome(SandboxRemoteCoding.encode(outcome: outcome)), outcome)
+            let wire = SandboxRemoteCoding.wire(outcome: outcome)
+            XCTAssertEqual(SandboxRemoteCoding.outcome(answered: wire.answered, result: wire.result, failure: wire.failure), outcome)
         }
         var stats = SandboxStats()
         stats.jsMs = 12.5; stats.tasks = 3; stats.queries = 9; stats.queryMs = 1.25
